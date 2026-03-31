@@ -1,0 +1,150 @@
+{
+  "$defs": {
+    "JournalConfidence": {
+      "description": "Confidence levels for journal entries.",
+      "enum": [
+        "confirmed",
+        "likely",
+        "speculative"
+      ],
+      "title": "JournalConfidence",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "An operational memory journal entry written after incident resolution.",
+  "properties": {
+    "applies_to_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Applies To Version"
+    },
+    "confidence": {
+      "$ref": "#/$defs/JournalConfidence"
+    },
+    "date": {
+      "format": "date",
+      "title": "Date",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "incident_id": {
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "last_verified_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Last Verified At"
+    },
+    "lesson": {
+      "title": "Lesson",
+      "type": "string"
+    },
+    "model_used": {
+      "title": "Model Used",
+      "type": "string"
+    },
+    "recurrence_count": {
+      "minimum": 0,
+      "title": "Recurrence Count",
+      "type": "integer"
+    },
+    "resolution": {
+      "title": "Resolution",
+      "type": "string"
+    },
+    "root_cause": {
+      "title": "Root Cause",
+      "type": "string"
+    },
+    "services": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Services",
+      "type": "array"
+    },
+    "stale_after_days": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Stale After Days"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "superseded_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Superseded By"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "time_to_resolution_minutes": {
+      "minimum": 0.0,
+      "title": "Time To Resolution Minutes",
+      "type": "number"
+    },
+    "user_confirmed": {
+      "title": "User Confirmed",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "incident_id",
+    "date",
+    "services",
+    "summary",
+    "root_cause",
+    "resolution",
+    "time_to_resolution_minutes",
+    "model_used",
+    "tags",
+    "lesson",
+    "recurrence_count",
+    "confidence",
+    "user_confirmed",
+    "last_verified_at",
+    "applies_to_version",
+    "superseded_by",
+    "stale_after_days"
+  ],
+  "title": "JournalEntry",
+  "type": "object"
+}

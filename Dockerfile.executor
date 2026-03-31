@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /executor
+
+RUN useradd --create-home --uid 10002 executor
+
+USER executor
+
+CMD ["python", "-c", "print('Kaval Executor placeholder started', flush=True); import time; time.sleep(10**9)"]

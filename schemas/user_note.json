@@ -1,0 +1,67 @@
+{
+  "additionalProperties": false,
+  "description": "A user-managed operational note.",
+  "properties": {
+    "added_at": {
+      "format": "date-time",
+      "title": "Added At",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "last_verified_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Last Verified At"
+    },
+    "note": {
+      "title": "Note",
+      "type": "string"
+    },
+    "safe_for_model": {
+      "default": true,
+      "title": "Safe For Model",
+      "type": "boolean"
+    },
+    "service_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Service Id"
+    },
+    "stale": {
+      "default": false,
+      "title": "Stale",
+      "type": "boolean"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "service_id",
+    "note",
+    "last_verified_at",
+    "added_at",
+    "updated_at"
+  ],
+  "title": "UserNote",
+  "type": "object"
+}

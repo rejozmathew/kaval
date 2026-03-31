@@ -1,0 +1,301 @@
+{
+  "$defs": {
+    "Change": {
+      "additionalProperties": false,
+      "description": "A timeline event that may correlate with findings or incidents.",
+      "properties": {
+        "correlated_incidents": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Correlated Incidents",
+          "type": "array"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "new_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "New Value"
+        },
+        "old_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Old Value"
+        },
+        "service_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Service Id"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/ChangeType"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "service_id",
+        "description",
+        "old_value",
+        "new_value",
+        "timestamp",
+        "correlated_incidents"
+      ],
+      "title": "Change",
+      "type": "object"
+    },
+    "ChangeType": {
+      "description": "Supported change event types.",
+      "enum": [
+        "image_update",
+        "container_restart",
+        "config_change",
+        "unraid_event",
+        "plugin_update",
+        "external_change"
+      ],
+      "title": "ChangeType",
+      "type": "string"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "description": "A single piece of evidence attached to a finding.",
+      "properties": {
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JsonValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "kind": {
+          "$ref": "#/$defs/EvidenceKind"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "source",
+        "summary",
+        "observed_at"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "EvidenceKind": {
+      "description": "Supported evidence categories.",
+      "enum": [
+        "log",
+        "probe",
+        "config",
+        "api",
+        "event",
+        "memory",
+        "metric"
+      ],
+      "title": "EvidenceKind",
+      "type": "string"
+    },
+    "FindingStatus": {
+      "description": "Lifecycle states for findings.",
+      "enum": [
+        "new",
+        "grouped",
+        "investigating",
+        "resolved",
+        "dismissed",
+        "stale"
+      ],
+      "title": "FindingStatus",
+      "type": "string"
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "Severity": {
+      "description": "Supported severity values.",
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "An atomic monitoring observation.",
+  "properties": {
+    "confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "domain": {
+      "title": "Domain",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "impact": {
+      "title": "Impact",
+      "type": "string"
+    },
+    "incident_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Incident Id"
+    },
+    "related_changes": {
+      "items": {
+        "$ref": "#/$defs/Change"
+      },
+      "title": "Related Changes",
+      "type": "array"
+    },
+    "resolved_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Resolved At"
+    },
+    "service_id": {
+      "title": "Service Id",
+      "type": "string"
+    },
+    "severity": {
+      "$ref": "#/$defs/Severity"
+    },
+    "status": {
+      "$ref": "#/$defs/FindingStatus"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "severity",
+    "domain",
+    "service_id",
+    "summary",
+    "evidence",
+    "impact",
+    "confidence",
+    "status",
+    "incident_id",
+    "related_changes",
+    "created_at",
+    "resolved_at"
+  ],
+  "title": "Finding",
+  "type": "object"
+}

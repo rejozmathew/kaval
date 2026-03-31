@@ -1,0 +1,11 @@
+{
+  "name": "kaval-web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Phase 0 frontend placeholder for Kaval.",
+  "scripts": {
+    "build": "echo frontend placeholder",
+    "dev": "echo frontend placeholder"
+  }
+}
+

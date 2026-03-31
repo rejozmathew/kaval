@@ -1,0 +1,81 @@
+{
+  "$defs": {
+    "RiskCheck": {
+      "additionalProperties": false,
+      "description": "An individual remediation risk check.",
+      "properties": {
+        "check": {
+          "title": "Check",
+          "type": "string"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/RiskCheckResult"
+        }
+      },
+      "required": [
+        "check",
+        "result",
+        "detail"
+      ],
+      "title": "RiskCheck",
+      "type": "object"
+    },
+    "RiskCheckResult": {
+      "description": "Outcomes for individual risk checks.",
+      "enum": [
+        "pass",
+        "fail",
+        "unknown"
+      ],
+      "title": "RiskCheckResult",
+      "type": "string"
+    },
+    "RiskLevel": {
+      "description": "Risk levels for remediation proposals.",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "RiskLevel",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Structured risk output for a remediation proposal.",
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/RiskCheck"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "overall_risk": {
+      "$ref": "#/$defs/RiskLevel"
+    },
+    "reversible": {
+      "title": "Reversible",
+      "type": "boolean"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "overall_risk",
+    "checks",
+    "reversible",
+    "warnings"
+  ],
+  "title": "RiskAssessment",
+  "type": "object"
+}

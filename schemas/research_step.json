@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "description": "One step in the investigation research chain.",
+  "properties": {
+    "action": {
+      "title": "Action",
+      "type": "string"
+    },
+    "order": {
+      "minimum": 1,
+      "title": "Order",
+      "type": "integer"
+    },
+    "result_summary": {
+      "title": "Result Summary",
+      "type": "string"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "order",
+    "action",
+    "source",
+    "result_summary",
+    "timestamp"
+  ],
+  "title": "ResearchStep",
+  "type": "object"
+}

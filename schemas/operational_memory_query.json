@@ -1,0 +1,70 @@
+{
+  "$defs": {
+    "RedactionLevel": {
+      "description": "Operational memory redaction levels.",
+      "enum": [
+        "redact_for_local",
+        "redact_for_cloud"
+      ],
+      "title": "RedactionLevel",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The frozen query contract for operational memory lookups.",
+  "properties": {
+    "incident_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Incident Id"
+    },
+    "include_journal": {
+      "default": true,
+      "title": "Include Journal",
+      "type": "boolean"
+    },
+    "include_system_profile": {
+      "default": true,
+      "title": "Include System Profile",
+      "type": "boolean"
+    },
+    "include_user_notes": {
+      "default": true,
+      "title": "Include User Notes",
+      "type": "boolean"
+    },
+    "max_journal_entries": {
+      "default": 10,
+      "minimum": 0,
+      "title": "Max Journal Entries",
+      "type": "integer"
+    },
+    "redaction_level": {
+      "$ref": "#/$defs/RedactionLevel",
+      "default": "redact_for_local"
+    },
+    "service_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Service Ids",
+      "type": "array"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    }
+  },
+  "title": "OperationalMemoryQuery",
+  "type": "object"
+}

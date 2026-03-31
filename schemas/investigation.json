@@ -1,0 +1,403 @@
+{
+  "$defs": {
+    "ActionType": {
+      "description": "Executor action types frozen in Phase 0.",
+      "enum": [
+        "restart_container",
+        "pull_specific_image_tag",
+        "start_vm",
+        "stop_vm",
+        "modify_config_with_backup"
+      ],
+      "title": "ActionType",
+      "type": "string"
+    },
+    "EvidenceStep": {
+      "additionalProperties": false,
+      "description": "One step in the evidence gathering chain.",
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "order": {
+          "minimum": 1,
+          "title": "Order",
+          "type": "integer"
+        },
+        "result_data": {
+          "$ref": "#/$defs/JsonValue"
+        },
+        "result_summary": {
+          "title": "Result Summary",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "order",
+        "action",
+        "target",
+        "result_summary",
+        "result_data",
+        "timestamp"
+      ],
+      "title": "EvidenceStep",
+      "type": "object"
+    },
+    "InvestigationStatus": {
+      "description": "Lifecycle states for investigations.",
+      "enum": [
+        "running",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "title": "InvestigationStatus",
+      "type": "string"
+    },
+    "InvestigationTrigger": {
+      "description": "Supported investigation triggers.",
+      "enum": [
+        "auto",
+        "webhook",
+        "user_request"
+      ],
+      "title": "InvestigationTrigger",
+      "type": "string"
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ModelUsed": {
+      "description": "Models used during an investigation.",
+      "enum": [
+        "local",
+        "cloud",
+        "both",
+        "none"
+      ],
+      "title": "ModelUsed",
+      "type": "string"
+    },
+    "RemediationProposal": {
+      "additionalProperties": false,
+      "description": "A proposed system-changing action and its risk assessment.",
+      "properties": {
+        "action_type": {
+          "$ref": "#/$defs/ActionType"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "risk_assessment": {
+          "$ref": "#/$defs/RiskAssessment"
+        },
+        "status": {
+          "$ref": "#/$defs/RemediationStatus"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action_type",
+        "target",
+        "rationale",
+        "risk_assessment",
+        "status"
+      ],
+      "title": "RemediationProposal",
+      "type": "object"
+    },
+    "RemediationStatus": {
+      "description": "Lifecycle states for remediation proposals.",
+      "enum": [
+        "proposed",
+        "approved",
+        "rejected",
+        "executed",
+        "verified"
+      ],
+      "title": "RemediationStatus",
+      "type": "string"
+    },
+    "ResearchStep": {
+      "additionalProperties": false,
+      "description": "One step in the investigation research chain.",
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "order": {
+          "minimum": 1,
+          "title": "Order",
+          "type": "integer"
+        },
+        "result_summary": {
+          "title": "Result Summary",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "order",
+        "action",
+        "source",
+        "result_summary",
+        "timestamp"
+      ],
+      "title": "ResearchStep",
+      "type": "object"
+    },
+    "RiskAssessment": {
+      "additionalProperties": false,
+      "description": "Structured risk output for a remediation proposal.",
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/RiskCheck"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "overall_risk": {
+          "$ref": "#/$defs/RiskLevel"
+        },
+        "reversible": {
+          "title": "Reversible",
+          "type": "boolean"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "overall_risk",
+        "checks",
+        "reversible",
+        "warnings"
+      ],
+      "title": "RiskAssessment",
+      "type": "object"
+    },
+    "RiskCheck": {
+      "additionalProperties": false,
+      "description": "An individual remediation risk check.",
+      "properties": {
+        "check": {
+          "title": "Check",
+          "type": "string"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/RiskCheckResult"
+        }
+      },
+      "required": [
+        "check",
+        "result",
+        "detail"
+      ],
+      "title": "RiskCheck",
+      "type": "object"
+    },
+    "RiskCheckResult": {
+      "description": "Outcomes for individual risk checks.",
+      "enum": [
+        "pass",
+        "fail",
+        "unknown"
+      ],
+      "title": "RiskCheckResult",
+      "type": "string"
+    },
+    "RiskLevel": {
+      "description": "Risk levels for remediation proposals.",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "RiskLevel",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "An investigation tied to a single incident.",
+  "properties": {
+    "cloud_model_calls": {
+      "minimum": 0,
+      "title": "Cloud Model Calls",
+      "type": "integer"
+    },
+    "completed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Completed At"
+    },
+    "confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "evidence_steps": {
+      "items": {
+        "$ref": "#/$defs/EvidenceStep"
+      },
+      "title": "Evidence Steps",
+      "type": "array"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "incident_id": {
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "journal_entries_referenced": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Journal Entries Referenced",
+      "type": "array"
+    },
+    "model_used": {
+      "$ref": "#/$defs/ModelUsed"
+    },
+    "recurrence_count": {
+      "minimum": 0,
+      "title": "Recurrence Count",
+      "type": "integer"
+    },
+    "remediation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RemediationProposal"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "research_steps": {
+      "items": {
+        "$ref": "#/$defs/ResearchStep"
+      },
+      "title": "Research Steps",
+      "type": "array"
+    },
+    "root_cause": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Root Cause"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/InvestigationStatus"
+    },
+    "trigger": {
+      "$ref": "#/$defs/InvestigationTrigger"
+    },
+    "user_notes_referenced": {
+      "items": {
+        "type": "string"
+      },
+      "title": "User Notes Referenced",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "incident_id",
+    "trigger",
+    "status",
+    "evidence_steps",
+    "research_steps",
+    "root_cause",
+    "confidence",
+    "model_used",
+    "cloud_model_calls",
+    "journal_entries_referenced",
+    "user_notes_referenced",
+    "recurrence_count",
+    "remediation",
+    "started_at",
+    "completed_at"
+  ],
+  "title": "Investigation",
+  "type": "object"
+}

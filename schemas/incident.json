@@ -1,0 +1,257 @@
+{
+  "$defs": {
+    "CauseConfirmationSource": {
+      "description": "How a cause was confirmed or inferred.",
+      "enum": [
+        "user_confirmed",
+        "resolution_inferred",
+        "recurrence_pattern",
+        "unconfirmed"
+      ],
+      "title": "CauseConfirmationSource",
+      "type": "string"
+    },
+    "IncidentStatus": {
+      "description": "Lifecycle states for incidents.",
+      "enum": [
+        "open",
+        "investigating",
+        "awaiting_approval",
+        "remediating",
+        "resolved",
+        "dismissed"
+      ],
+      "title": "IncidentStatus",
+      "type": "string"
+    },
+    "Severity": {
+      "description": "Supported severity values.",
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A grouped root-cause-centric unit of investigation.",
+  "properties": {
+    "affected_services": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Affected Services",
+      "type": "array"
+    },
+    "all_findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "All Findings",
+      "type": "array"
+    },
+    "approved_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Approved Actions",
+      "type": "array"
+    },
+    "cause_confirmation_source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CauseConfirmationSource"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "changes_correlated": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Changes Correlated",
+      "type": "array"
+    },
+    "confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "confirmed_cause": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Confirmed Cause"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "grouping_window_end": {
+      "format": "date-time",
+      "title": "Grouping Window End",
+      "type": "string"
+    },
+    "grouping_window_start": {
+      "format": "date-time",
+      "title": "Grouping Window Start",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "investigation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Investigation Id"
+    },
+    "journal_entry_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Journal Entry Id"
+    },
+    "mttr_seconds": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Mttr Seconds"
+    },
+    "resolution_mechanism": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Resolution Mechanism"
+    },
+    "resolved_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Resolved At"
+    },
+    "root_cause_service": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Root Cause Service"
+    },
+    "severity": {
+      "$ref": "#/$defs/Severity"
+    },
+    "status": {
+      "$ref": "#/$defs/IncidentStatus"
+    },
+    "suspected_cause": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Suspected Cause"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "trigger_findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Trigger Findings",
+      "type": "array"
+    },
+    "triggering_symptom": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Triggering Symptom"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "severity",
+    "status",
+    "trigger_findings",
+    "all_findings",
+    "affected_services",
+    "triggering_symptom",
+    "suspected_cause",
+    "confirmed_cause",
+    "root_cause_service",
+    "resolution_mechanism",
+    "cause_confirmation_source",
+    "confidence",
+    "investigation_id",
+    "approved_actions",
+    "changes_correlated",
+    "grouping_window_start",
+    "grouping_window_end",
+    "created_at",
+    "updated_at",
+    "resolved_at",
+    "mttr_seconds",
+    "journal_entry_id"
+  ],
+  "title": "Incident",
+  "type": "object"
+}

@@ -1,0 +1,340 @@
+{
+  "$defs": {
+    "ArrayProfile": {
+      "additionalProperties": false,
+      "description": "Array and cache summary for storage-related investigations.",
+      "properties": {
+        "cache": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cache"
+        },
+        "data_drives": {
+          "minimum": 0,
+          "title": "Data Drives",
+          "type": "integer"
+        },
+        "parity_drives": {
+          "minimum": 0,
+          "title": "Parity Drives",
+          "type": "integer"
+        },
+        "total_tb": {
+          "minimum": 0.0,
+          "title": "Total Tb",
+          "type": "number"
+        },
+        "used_tb": {
+          "minimum": 0.0,
+          "title": "Used Tb",
+          "type": "number"
+        }
+      },
+      "required": [
+        "parity_drives",
+        "data_drives",
+        "cache",
+        "total_tb",
+        "used_tb"
+      ],
+      "title": "ArrayProfile",
+      "type": "object"
+    },
+    "HardwareProfile": {
+      "additionalProperties": false,
+      "description": "System hardware facts stored in operational memory.",
+      "properties": {
+        "cpu": {
+          "title": "Cpu",
+          "type": "string"
+        },
+        "gpu": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gpu"
+        },
+        "memory_gb": {
+          "minimum": 0.0,
+          "title": "Memory Gb",
+          "type": "number"
+        },
+        "ups": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ups"
+        }
+      },
+      "required": [
+        "cpu",
+        "memory_gb",
+        "gpu",
+        "ups"
+      ],
+      "title": "HardwareProfile",
+      "type": "object"
+    },
+    "NetworkingProfile": {
+      "additionalProperties": false,
+      "description": "Network configuration facts stored in operational memory.",
+      "properties": {
+        "dns_provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dns Provider"
+        },
+        "dns_resolver": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dns Resolver"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Domain"
+        },
+        "reverse_proxy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reverse Proxy"
+        },
+        "ssl_strategy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ssl Strategy"
+        },
+        "tunnel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tunnel"
+        },
+        "vpn": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Vpn"
+        }
+      },
+      "required": [
+        "domain",
+        "dns_provider",
+        "reverse_proxy",
+        "tunnel",
+        "vpn",
+        "dns_resolver",
+        "ssl_strategy"
+      ],
+      "title": "NetworkingProfile",
+      "type": "object"
+    },
+    "ServicesSummary": {
+      "additionalProperties": false,
+      "description": "Counts describing discovered services.",
+      "properties": {
+        "matched_descriptors": {
+          "minimum": 0,
+          "title": "Matched Descriptors",
+          "type": "integer"
+        },
+        "total_containers": {
+          "minimum": 0,
+          "title": "Total Containers",
+          "type": "integer"
+        },
+        "total_vms": {
+          "minimum": 0,
+          "title": "Total Vms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total_containers",
+        "total_vms",
+        "matched_descriptors"
+      ],
+      "title": "ServicesSummary",
+      "type": "object"
+    },
+    "StorageProfile": {
+      "additionalProperties": false,
+      "description": "Storage facts stored in operational memory.",
+      "properties": {
+        "array": {
+          "$ref": "#/$defs/ArrayProfile"
+        }
+      },
+      "required": [
+        "array"
+      ],
+      "title": "StorageProfile",
+      "type": "object"
+    },
+    "VMProfile": {
+      "additionalProperties": false,
+      "description": "A VM entry in the operational memory system profile.",
+      "properties": {
+        "gpu_passthrough": {
+          "default": false,
+          "title": "Gpu Passthrough",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "os": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Os"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "quirks": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quirks"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "required": [
+        "name",
+        "purpose"
+      ],
+      "title": "VMProfile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Auto-generated system profile captured in operational memory.",
+  "properties": {
+    "hardware": {
+      "$ref": "#/$defs/HardwareProfile"
+    },
+    "hostname": {
+      "title": "Hostname",
+      "type": "string"
+    },
+    "last_updated": {
+      "format": "date-time",
+      "title": "Last Updated",
+      "type": "string"
+    },
+    "networking": {
+      "$ref": "#/$defs/NetworkingProfile"
+    },
+    "services_summary": {
+      "$ref": "#/$defs/ServicesSummary"
+    },
+    "storage": {
+      "$ref": "#/$defs/StorageProfile"
+    },
+    "unraid_version": {
+      "title": "Unraid Version",
+      "type": "string"
+    },
+    "vms": {
+      "items": {
+        "$ref": "#/$defs/VMProfile"
+      },
+      "title": "Vms",
+      "type": "array"
+    }
+  },
+  "required": [
+    "hostname",
+    "unraid_version",
+    "hardware",
+    "storage",
+    "networking",
+    "services_summary",
+    "vms",
+    "last_updated"
+  ],
+  "title": "SystemProfile",
+  "type": "object"
+}

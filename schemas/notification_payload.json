@@ -1,0 +1,189 @@
+{
+  "$defs": {
+    "NotificationAction": {
+      "additionalProperties": false,
+      "description": "An interactive control attached to a notification.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/NotificationActionType"
+        },
+        "callback_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Callback Id"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "style": {
+          "$ref": "#/$defs/NotificationActionStyle"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "label",
+        "action",
+        "style"
+      ],
+      "title": "NotificationAction",
+      "type": "object"
+    },
+    "NotificationActionStyle": {
+      "description": "Display styles for interactive notification actions.",
+      "enum": [
+        "primary",
+        "secondary",
+        "danger"
+      ],
+      "title": "NotificationActionStyle",
+      "type": "string"
+    },
+    "NotificationActionType": {
+      "description": "Supported interactive notification actions.",
+      "enum": [
+        "approve",
+        "view_details",
+        "dismiss"
+      ],
+      "title": "NotificationActionType",
+      "type": "string"
+    },
+    "NotificationSourceType": {
+      "description": "Source entity types for notification payloads.",
+      "enum": [
+        "finding",
+        "incident"
+      ],
+      "title": "NotificationSourceType",
+      "type": "string"
+    },
+    "Severity": {
+      "description": "Supported severity values.",
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The frozen formatter-to-channel notification contract.",
+  "properties": {
+    "action_buttons": {
+      "items": {
+        "$ref": "#/$defs/NotificationAction"
+      },
+      "title": "Action Buttons",
+      "type": "array"
+    },
+    "body": {
+      "title": "Body",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "dedup_key": {
+      "title": "Dedup Key",
+      "type": "string"
+    },
+    "evidence_lines": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Lines",
+      "type": "array"
+    },
+    "incident_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Incident Id"
+    },
+    "recommended_action": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Recommended Action"
+    },
+    "severity": {
+      "$ref": "#/$defs/Severity"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "source_type": {
+      "$ref": "#/$defs/NotificationSourceType"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_type",
+    "source_id",
+    "severity",
+    "title",
+    "summary",
+    "body",
+    "dedup_key",
+    "created_at"
+  ],
+  "title": "NotificationPayload",
+  "type": "object"
+}

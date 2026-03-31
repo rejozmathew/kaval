@@ -1,0 +1,89 @@
+{
+  "$defs": {
+    "ChangeType": {
+      "description": "Supported change event types.",
+      "enum": [
+        "image_update",
+        "container_restart",
+        "config_change",
+        "unraid_event",
+        "plugin_update",
+        "external_change"
+      ],
+      "title": "ChangeType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A timeline event that may correlate with findings or incidents.",
+  "properties": {
+    "correlated_incidents": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Correlated Incidents",
+      "type": "array"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "new_value": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "New Value"
+    },
+    "old_value": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Old Value"
+    },
+    "service_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Service Id"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "type": {
+      "$ref": "#/$defs/ChangeType"
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "service_id",
+    "description",
+    "old_value",
+    "new_value",
+    "timestamp",
+    "correlated_incidents"
+  ],
+  "title": "Change",
+  "type": "object"
+}

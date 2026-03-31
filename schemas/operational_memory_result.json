@@ -1,0 +1,618 @@
+{
+  "$defs": {
+    "ArrayProfile": {
+      "additionalProperties": false,
+      "description": "Array and cache summary for storage-related investigations.",
+      "properties": {
+        "cache": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cache"
+        },
+        "data_drives": {
+          "minimum": 0,
+          "title": "Data Drives",
+          "type": "integer"
+        },
+        "parity_drives": {
+          "minimum": 0,
+          "title": "Parity Drives",
+          "type": "integer"
+        },
+        "total_tb": {
+          "minimum": 0.0,
+          "title": "Total Tb",
+          "type": "number"
+        },
+        "used_tb": {
+          "minimum": 0.0,
+          "title": "Used Tb",
+          "type": "number"
+        }
+      },
+      "required": [
+        "parity_drives",
+        "data_drives",
+        "cache",
+        "total_tb",
+        "used_tb"
+      ],
+      "title": "ArrayProfile",
+      "type": "object"
+    },
+    "HardwareProfile": {
+      "additionalProperties": false,
+      "description": "System hardware facts stored in operational memory.",
+      "properties": {
+        "cpu": {
+          "title": "Cpu",
+          "type": "string"
+        },
+        "gpu": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Gpu"
+        },
+        "memory_gb": {
+          "minimum": 0.0,
+          "title": "Memory Gb",
+          "type": "number"
+        },
+        "ups": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ups"
+        }
+      },
+      "required": [
+        "cpu",
+        "memory_gb",
+        "gpu",
+        "ups"
+      ],
+      "title": "HardwareProfile",
+      "type": "object"
+    },
+    "JournalConfidence": {
+      "description": "Confidence levels for journal entries.",
+      "enum": [
+        "confirmed",
+        "likely",
+        "speculative"
+      ],
+      "title": "JournalConfidence",
+      "type": "string"
+    },
+    "JournalEntry": {
+      "additionalProperties": false,
+      "description": "An operational memory journal entry written after incident resolution.",
+      "properties": {
+        "applies_to_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Applies To Version"
+        },
+        "confidence": {
+          "$ref": "#/$defs/JournalConfidence"
+        },
+        "date": {
+          "format": "date",
+          "title": "Date",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "incident_id": {
+          "title": "Incident Id",
+          "type": "string"
+        },
+        "last_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Verified At"
+        },
+        "lesson": {
+          "title": "Lesson",
+          "type": "string"
+        },
+        "model_used": {
+          "title": "Model Used",
+          "type": "string"
+        },
+        "recurrence_count": {
+          "minimum": 0,
+          "title": "Recurrence Count",
+          "type": "integer"
+        },
+        "resolution": {
+          "title": "Resolution",
+          "type": "string"
+        },
+        "root_cause": {
+          "title": "Root Cause",
+          "type": "string"
+        },
+        "services": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Services",
+          "type": "array"
+        },
+        "stale_after_days": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stale After Days"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "superseded_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Superseded By"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "time_to_resolution_minutes": {
+          "minimum": 0.0,
+          "title": "Time To Resolution Minutes",
+          "type": "number"
+        },
+        "user_confirmed": {
+          "title": "User Confirmed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "incident_id",
+        "date",
+        "services",
+        "summary",
+        "root_cause",
+        "resolution",
+        "time_to_resolution_minutes",
+        "model_used",
+        "tags",
+        "lesson",
+        "recurrence_count",
+        "confidence",
+        "user_confirmed",
+        "last_verified_at",
+        "applies_to_version",
+        "superseded_by",
+        "stale_after_days"
+      ],
+      "title": "JournalEntry",
+      "type": "object"
+    },
+    "NetworkingProfile": {
+      "additionalProperties": false,
+      "description": "Network configuration facts stored in operational memory.",
+      "properties": {
+        "dns_provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dns Provider"
+        },
+        "dns_resolver": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Dns Resolver"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Domain"
+        },
+        "reverse_proxy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reverse Proxy"
+        },
+        "ssl_strategy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ssl Strategy"
+        },
+        "tunnel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tunnel"
+        },
+        "vpn": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Vpn"
+        }
+      },
+      "required": [
+        "domain",
+        "dns_provider",
+        "reverse_proxy",
+        "tunnel",
+        "vpn",
+        "dns_resolver",
+        "ssl_strategy"
+      ],
+      "title": "NetworkingProfile",
+      "type": "object"
+    },
+    "RedactionLevel": {
+      "description": "Operational memory redaction levels.",
+      "enum": [
+        "redact_for_local",
+        "redact_for_cloud"
+      ],
+      "title": "RedactionLevel",
+      "type": "string"
+    },
+    "ServicesSummary": {
+      "additionalProperties": false,
+      "description": "Counts describing discovered services.",
+      "properties": {
+        "matched_descriptors": {
+          "minimum": 0,
+          "title": "Matched Descriptors",
+          "type": "integer"
+        },
+        "total_containers": {
+          "minimum": 0,
+          "title": "Total Containers",
+          "type": "integer"
+        },
+        "total_vms": {
+          "minimum": 0,
+          "title": "Total Vms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total_containers",
+        "total_vms",
+        "matched_descriptors"
+      ],
+      "title": "ServicesSummary",
+      "type": "object"
+    },
+    "StorageProfile": {
+      "additionalProperties": false,
+      "description": "Storage facts stored in operational memory.",
+      "properties": {
+        "array": {
+          "$ref": "#/$defs/ArrayProfile"
+        }
+      },
+      "required": [
+        "array"
+      ],
+      "title": "StorageProfile",
+      "type": "object"
+    },
+    "SystemProfile": {
+      "additionalProperties": false,
+      "description": "Auto-generated system profile captured in operational memory.",
+      "properties": {
+        "hardware": {
+          "$ref": "#/$defs/HardwareProfile"
+        },
+        "hostname": {
+          "title": "Hostname",
+          "type": "string"
+        },
+        "last_updated": {
+          "format": "date-time",
+          "title": "Last Updated",
+          "type": "string"
+        },
+        "networking": {
+          "$ref": "#/$defs/NetworkingProfile"
+        },
+        "services_summary": {
+          "$ref": "#/$defs/ServicesSummary"
+        },
+        "storage": {
+          "$ref": "#/$defs/StorageProfile"
+        },
+        "unraid_version": {
+          "title": "Unraid Version",
+          "type": "string"
+        },
+        "vms": {
+          "items": {
+            "$ref": "#/$defs/VMProfile"
+          },
+          "title": "Vms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "hostname",
+        "unraid_version",
+        "hardware",
+        "storage",
+        "networking",
+        "services_summary",
+        "vms",
+        "last_updated"
+      ],
+      "title": "SystemProfile",
+      "type": "object"
+    },
+    "UserNote": {
+      "additionalProperties": false,
+      "description": "A user-managed operational note.",
+      "properties": {
+        "added_at": {
+          "format": "date-time",
+          "title": "Added At",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "last_verified_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Verified At"
+        },
+        "note": {
+          "title": "Note",
+          "type": "string"
+        },
+        "safe_for_model": {
+          "default": true,
+          "title": "Safe For Model",
+          "type": "boolean"
+        },
+        "service_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Service Id"
+        },
+        "stale": {
+          "default": false,
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "service_id",
+        "note",
+        "last_verified_at",
+        "added_at",
+        "updated_at"
+      ],
+      "title": "UserNote",
+      "type": "object"
+    },
+    "VMProfile": {
+      "additionalProperties": false,
+      "description": "A VM entry in the operational memory system profile.",
+      "properties": {
+        "gpu_passthrough": {
+          "default": false,
+          "title": "Gpu Passthrough",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "os": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Os"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "quirks": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quirks"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "required": [
+        "name",
+        "purpose"
+      ],
+      "title": "VMProfile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The frozen result contract for operational memory lookups.",
+  "properties": {
+    "applied_redaction_level": {
+      "$ref": "#/$defs/RedactionLevel"
+    },
+    "journal_entries": {
+      "items": {
+        "$ref": "#/$defs/JournalEntry"
+      },
+      "title": "Journal Entries",
+      "type": "array"
+    },
+    "recurrence_count": {
+      "minimum": 0,
+      "title": "Recurrence Count",
+      "type": "integer"
+    },
+    "system_profile": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SystemProfile"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "user_notes": {
+      "items": {
+        "$ref": "#/$defs/UserNote"
+      },
+      "title": "User Notes",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "system_profile",
+    "journal_entries",
+    "user_notes",
+    "recurrence_count",
+    "applied_redaction_level"
+  ],
+  "title": "OperationalMemoryResult",
+  "type": "object"
+}

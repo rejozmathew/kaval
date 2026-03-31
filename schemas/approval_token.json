@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "ActionType": {
+      "description": "Executor action types frozen in Phase 0.",
+      "enum": [
+        "restart_container",
+        "pull_specific_image_tag",
+        "start_vm",
+        "stop_vm",
+        "modify_config_with_backup"
+      ],
+      "title": "ActionType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The signed approval token passed from Core to Executor.",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/ActionType"
+    },
+    "approved_by": {
+      "title": "Approved By",
+      "type": "string"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "hmac_signature": {
+      "title": "Hmac Signature",
+      "type": "string"
+    },
+    "incident_id": {
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "issued_at": {
+      "format": "date-time",
+      "title": "Issued At",
+      "type": "string"
+    },
+    "nonce": {
+      "title": "Nonce",
+      "type": "string"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Result"
+    },
+    "target": {
+      "title": "Target",
+      "type": "string"
+    },
+    "token_id": {
+      "title": "Token Id",
+      "type": "string"
+    },
+    "used_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Used At"
+    }
+  },
+  "required": [
+    "token_id",
+    "incident_id",
+    "action",
+    "target",
+    "approved_by",
+    "issued_at",
+    "expires_at",
+    "nonce",
+    "hmac_signature",
+    "used_at",
+    "result"
+  ],
+  "title": "ApprovalToken",
+  "type": "object"
+}

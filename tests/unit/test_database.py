@@ -1,0 +1,365 @@
+"""Unit tests for the Phase 0 SQLite persistence layer."""
+
+from __future__ import annotations
+
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+from kaval.database import KavalDatabase
+from kaval.models import (
+    ActionType,
+    ApprovalToken,
+    ArrayProfile,
+    Change,
+    ChangeType,
+    DescriptorSource,
+    Endpoint,
+    EndpointProtocol,
+    Evidence,
+    EvidenceKind,
+    Finding,
+    FindingStatus,
+    HardwareProfile,
+    Incident,
+    IncidentStatus,
+    Investigation,
+    InvestigationStatus,
+    InvestigationTrigger,
+    JournalConfidence,
+    JournalEntry,
+    ModelUsed,
+    NetworkingProfile,
+    Service,
+    ServicesSummary,
+    ServiceStatus,
+    ServiceType,
+    Severity,
+    StorageProfile,
+    SystemProfile,
+    UserNote,
+    VMProfile,
+)
+
+
+def ts(hour: int, minute: int = 0) -> datetime:
+    """Build a UTC timestamp for test payloads."""
+    return datetime(2026, 3, 30, hour, minute, tzinfo=UTC)
+
+
+def build_database(tmp_path: Path) -> KavalDatabase:
+    """Create and bootstrap a temporary database."""
+    database = KavalDatabase(path=tmp_path / "kaval.db")
+    database.bootstrap()
+    return database
+
+
+def build_finding() -> Finding:
+    """Create a reusable finding payload."""
+    change = Change(
+        id="chg-1",
+        type=ChangeType.CONTAINER_RESTART,
+        service_id="svc-delugevpn",
+        description="Container restarted by Watchtower.",
+        old_value="restart_count=1",
+        new_value="restart_count=2",
+        timestamp=ts(14, 20),
+        correlated_incidents=["inc-1"],
+    )
+    return Finding(
+        id="find-1",
+        title="Download client unavailable",
+        severity=Severity.HIGH,
+        domain="arr",
+        service_id="svc-radarr",
+        summary="Radarr cannot reach DelugeVPN.",
+        evidence=[
+            Evidence(
+                kind=EvidenceKind.LOG,
+                source="radarr",
+                summary="Download client not available",
+                observed_at=ts(14, 23),
+                data={"message": "Download client not available"},
+            )
+        ],
+        impact="Download pipeline blocked.",
+        confidence=0.87,
+        status=FindingStatus.NEW,
+        incident_id=None,
+        related_changes=[change],
+        created_at=ts(14, 23),
+        resolved_at=None,
+    )
+
+
+def build_incident() -> Incident:
+    """Create a reusable incident payload."""
+    return Incident(
+        id="inc-1",
+        title="Radarr and Sonarr failing",
+        severity=Severity.HIGH,
+        status=IncidentStatus.INVESTIGATING,
+        trigger_findings=["find-1"],
+        all_findings=["find-1", "find-2"],
+        affected_services=["svc-radarr", "svc-sonarr", "svc-delugevpn"],
+        triggering_symptom="Radarr health check failing",
+        suspected_cause="DelugeVPN VPN tunnel inactive",
+        confirmed_cause=None,
+        root_cause_service="svc-delugevpn",
+        resolution_mechanism=None,
+        cause_confirmation_source=None,
+        confidence=0.91,
+        investigation_id="inv-1",
+        approved_actions=[],
+        changes_correlated=["chg-1"],
+        grouping_window_start=ts(14, 23),
+        grouping_window_end=ts(14, 28),
+        created_at=ts(14, 23),
+        updated_at=ts(14, 28),
+        resolved_at=None,
+        mttr_seconds=None,
+        journal_entry_id=None,
+    )
+
+
+def build_investigation() -> Investigation:
+    """Create a reusable investigation payload."""
+    return Investigation(
+        id="inv-1",
+        incident_id="inc-1",
+        trigger=InvestigationTrigger.AUTO,
+        status=InvestigationStatus.COMPLETED,
+        evidence_steps=[],
+        research_steps=[],
+        root_cause="DelugeVPN lost its VPN tunnel.",
+        confidence=0.9,
+        model_used=ModelUsed.LOCAL,
+        cloud_model_calls=0,
+        journal_entries_referenced=[],
+        user_notes_referenced=[],
+        recurrence_count=3,
+        remediation=None,
+        started_at=ts(14, 24),
+        completed_at=ts(14, 27),
+    )
+
+
+def build_service() -> Service:
+    """Create a reusable service payload."""
+    return Service(
+        id="svc-delugevpn",
+        name="DelugeVPN",
+        type=ServiceType.CONTAINER,
+        category="downloads",
+        status=ServiceStatus.DEGRADED,
+        descriptor_id="downloads/delugevpn",
+        descriptor_source=DescriptorSource.SHIPPED,
+        container_id="container-123",
+        vm_id=None,
+        image="binhex/arch-delugevpn:2.1.1",
+        endpoints=[
+            Endpoint(
+                name="web",
+                protocol=EndpointProtocol.HTTP,
+                host="delugevpn",
+                port=8112,
+                path="/",
+                url=None,
+                auth_required=False,
+                expected_status=200,
+            )
+        ],
+        dependencies=[],
+        dependents=["svc-radarr"],
+        last_check=ts(14, 24),
+        active_findings=1,
+        active_incidents=1,
+    )
+
+
+def build_system_profile() -> SystemProfile:
+    """Create a reusable system profile payload."""
+    return SystemProfile(
+        hostname="zactower",
+        unraid_version="7.2.1",
+        hardware=HardwareProfile(
+            cpu="Intel i3-12100T",
+            memory_gb=32.0,
+            gpu="NVIDIA",
+            ups="APC Back-UPS",
+        ),
+        storage=StorageProfile(
+            array=ArrayProfile(
+                parity_drives=1,
+                data_drives=4,
+                cache="2x NVMe RAID 1",
+                total_tb=12.0,
+                used_tb=4.2,
+            )
+        ),
+        networking=NetworkingProfile(
+            domain="zactower.com",
+            dns_provider="cloudflare",
+            reverse_proxy="nginx_proxy_manager",
+            tunnel="cloudflare_zero_trust",
+            vpn="wireguard",
+            dns_resolver="pihole",
+            ssl_strategy="cloudflare_origin_certs",
+        ),
+        services_summary=ServicesSummary(
+            total_containers=25,
+            total_vms=3,
+            matched_descriptors=22,
+        ),
+        vms=[
+            VMProfile(
+                name="Ubuntu Server",
+                purpose="Hosts Moodle LMS + MariaDB",
+                os="Ubuntu 22.04 LTS",
+                quirks="LVM default partition is only ~10GB regardless of vdisk size",
+            )
+        ],
+        last_updated=ts(14),
+    )
+
+
+def build_approval_token() -> ApprovalToken:
+    """Create a reusable approval token payload."""
+    return ApprovalToken(
+        token_id="tok-1",
+        incident_id="inc-1",
+        action=ActionType.RESTART_CONTAINER,
+        target="delugevpn",
+        approved_by="user_via_telegram",
+        issued_at=ts(14, 30),
+        expires_at=ts(14, 35),
+        nonce="nonce-1",
+        hmac_signature="deadbeef",
+        used_at=None,
+        result=None,
+    )
+
+
+def build_journal_entry() -> JournalEntry:
+    """Create a reusable journal entry payload."""
+    return JournalEntry(
+        id="jrnl-1",
+        incident_id="inc-1",
+        date=date(2026, 3, 1),
+        services=["svc-delugevpn", "svc-radarr"],
+        summary="VPN tunnel dropped after ISP IP change.",
+        root_cause="ISP rotated public IP and the tunnel did not reconnect.",
+        resolution="Restarted DelugeVPN.",
+        time_to_resolution_minutes=3.0,
+        model_used="local",
+        tags=["vpn", "recurring"],
+        lesson="Restart has consistently resolved this issue.",
+        recurrence_count=3,
+        confidence=JournalConfidence.CONFIRMED,
+        user_confirmed=True,
+        last_verified_at=ts(15),
+        applies_to_version=None,
+        superseded_by=None,
+        stale_after_days=90,
+    )
+
+
+def build_user_note() -> UserNote:
+    """Create a reusable user note payload."""
+    return UserNote(
+        id="note-1",
+        service_id="svc-delugevpn",
+        note="Restart has historically been safe for this container.",
+        safe_for_model=True,
+        last_verified_at=ts(15),
+        stale=False,
+        added_at=ts(12),
+        updated_at=ts(15),
+    )
+
+
+def test_bootstrap_applies_baseline_migration(tmp_path: Path) -> None:
+    """Bootstrapping should create the expected baseline tables."""
+    database = build_database(tmp_path)
+    try:
+        tables = {
+            row["name"]
+            for row in database.connection().execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        assert "schema_migrations" in tables
+        assert "findings" in tables
+        assert "incidents" in tables
+        assert "system_profiles" in tables
+        assert database.applied_migrations() == ["0001_phase0_baseline"]
+    finally:
+        database.close()
+
+
+def test_findings_and_incidents_support_crud(tmp_path: Path) -> None:
+    """Findings and incidents should support create, read, update, and delete."""
+    database = build_database(tmp_path)
+    finding = build_finding()
+    incident = build_incident()
+    try:
+        database.upsert_finding(finding)
+        assert database.get_finding("find-1") == finding
+
+        updated_finding = finding.model_copy(
+            update={"status": FindingStatus.GROUPED, "incident_id": incident.id}
+        )
+        database.upsert_finding(updated_finding)
+        assert database.get_finding("find-1") == updated_finding
+
+        database.upsert_incident(incident)
+        assert database.get_incident("inc-1") == incident
+        assert [stored.id for stored in database.list_findings()] == ["find-1"]
+        assert [stored.id for stored in database.list_incidents()] == ["inc-1"]
+
+        database.delete_finding("find-1")
+        database.delete_incident("inc-1")
+        assert database.get_finding("find-1") is None
+        assert database.get_incident("inc-1") is None
+    finally:
+        database.close()
+
+
+def test_database_persists_supporting_phase0_records(tmp_path: Path) -> None:
+    """Phase 0 supporting entities should round-trip through SQLite."""
+    database = build_database(tmp_path)
+    investigation = build_investigation()
+    service = build_service()
+    system_profile = build_system_profile()
+    approval_token = build_approval_token()
+    journal_entry = build_journal_entry()
+    user_note = build_user_note()
+    try:
+        database.upsert_investigation(investigation)
+        database.upsert_service(service)
+        database.upsert_system_profile(system_profile)
+        database.upsert_approval_token(approval_token)
+        database.upsert_journal_entry(journal_entry)
+        database.upsert_user_note(user_note)
+
+        assert database.get_investigation(investigation.id) == investigation
+        assert database.get_service(service.id) == service
+        assert database.get_system_profile() == system_profile
+        assert database.get_approval_token(approval_token.token_id) == approval_token
+        assert database.get_journal_entry(journal_entry.id) == journal_entry
+        assert database.get_user_note(user_note.id) == user_note
+
+        database.delete_investigation(investigation.id)
+        database.delete_service(service.id)
+        database.clear_system_profile()
+        database.delete_approval_token(approval_token.token_id)
+        database.delete_journal_entry(journal_entry.id)
+        database.delete_user_note(user_note.id)
+
+        assert database.get_investigation(investigation.id) is None
+        assert database.get_service(service.id) is None
+        assert database.get_system_profile() is None
+        assert database.get_approval_token(approval_token.token_id) is None
+        assert database.get_journal_entry(journal_entry.id) is None
+        assert database.get_user_note(user_note.id) is None
+    finally:
+        database.close()

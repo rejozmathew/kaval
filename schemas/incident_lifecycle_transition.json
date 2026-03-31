@@ -1,0 +1,45 @@
+{
+  "$defs": {
+    "IncidentStatus": {
+      "description": "Lifecycle states for incidents.",
+      "enum": [
+        "open",
+        "investigating",
+        "awaiting_approval",
+        "remediating",
+        "resolved",
+        "dismissed"
+      ],
+      "title": "IncidentStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A frozen transition contract for the incident state machine.",
+  "properties": {
+    "from_status": {
+      "$ref": "#/$defs/IncidentStatus"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "to_status": {
+      "$ref": "#/$defs/IncidentStatus"
+    }
+  },
+  "required": [
+    "from_status",
+    "to_status"
+  ],
+  "title": "IncidentLifecycleTransition",
+  "type": "object"
+}

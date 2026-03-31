@@ -1,0 +1,22 @@
+services:
+  core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kaval-core
+    restart: unless-stopped
+    volumes:
+      - kaval-data:/data
+
+  executor:
+    build:
+      context: .
+      dockerfile: Dockerfile.executor
+    container_name: kaval-executor
+    restart: unless-stopped
+    network_mode: "none"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  kaval-data:

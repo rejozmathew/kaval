@@ -1,0 +1,75 @@
+{
+  "$defs": {
+    "ActionType": {
+      "description": "Executor action types frozen in Phase 0.",
+      "enum": [
+        "restart_container",
+        "pull_specific_image_tag",
+        "start_vm",
+        "stop_vm",
+        "modify_config_with_backup"
+      ],
+      "title": "ActionType",
+      "type": "string"
+    },
+    "ExecutorActionStatus": {
+      "description": "Execution outcomes returned by the executor.",
+      "enum": [
+        "success",
+        "failed",
+        "rejected"
+      ],
+      "title": "ExecutorActionStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The frozen Core\u2194Executor action response contract.",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/ActionType"
+    },
+    "detail": {
+      "title": "Detail",
+      "type": "string"
+    },
+    "executed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Executed At"
+    },
+    "incident_id": {
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ExecutorActionStatus"
+    },
+    "target": {
+      "title": "Target",
+      "type": "string"
+    },
+    "token_id": {
+      "title": "Token Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "token_id",
+    "incident_id",
+    "action",
+    "target",
+    "status",
+    "detail",
+    "executed_at"
+  ],
+  "title": "ExecutorActionResult",
+  "type": "object"
+}

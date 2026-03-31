@@ -1,0 +1,74 @@
+{
+  "$defs": {
+    "JsonValue": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "One step in the evidence gathering chain.",
+  "properties": {
+    "action": {
+      "title": "Action",
+      "type": "string"
+    },
+    "order": {
+      "minimum": 1,
+      "title": "Order",
+      "type": "integer"
+    },
+    "result_data": {
+      "$ref": "#/$defs/JsonValue"
+    },
+    "result_summary": {
+      "title": "Result Summary",
+      "type": "string"
+    },
+    "target": {
+      "title": "Target",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "order",
+    "action",
+    "target",
+    "result_summary",
+    "result_data",
+    "timestamp"
+  ],
+  "title": "EvidenceStep",
+  "type": "object"
+}

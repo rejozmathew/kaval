@@ -1,0 +1,336 @@
+{
+  "$defs": {
+    "DependencyConfidence": {
+      "description": "Confidence levels for dependency edges.",
+      "enum": [
+        "configured",
+        "runtime_observed",
+        "user_confirmed",
+        "inferred",
+        "auto_generated"
+      ],
+      "title": "DependencyConfidence",
+      "type": "string"
+    },
+    "DependencyEdge": {
+      "additionalProperties": false,
+      "description": "A directed dependency from one service to another.",
+      "properties": {
+        "confidence": {
+          "$ref": "#/$defs/DependencyConfidence"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "source": {
+          "$ref": "#/$defs/DependencySource"
+        },
+        "target_service_id": {
+          "title": "Target Service Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_service_id",
+        "confidence",
+        "source",
+        "description"
+      ],
+      "title": "DependencyEdge",
+      "type": "object"
+    },
+    "DependencySource": {
+      "description": "Sources used to infer a dependency edge.",
+      "enum": [
+        "docker_network",
+        "shared_volume",
+        "descriptor",
+        "user",
+        "llm"
+      ],
+      "title": "DependencySource",
+      "type": "string"
+    },
+    "DescriptorSource": {
+      "description": "Origins for service descriptors.",
+      "enum": [
+        "shipped",
+        "auto_generated",
+        "user"
+      ],
+      "title": "DescriptorSource",
+      "type": "string"
+    },
+    "Endpoint": {
+      "additionalProperties": false,
+      "description": "A network or application endpoint exposed by a service.",
+      "properties": {
+        "auth_required": {
+          "default": false,
+          "title": "Auth Required",
+          "type": "boolean"
+        },
+        "expected_status": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Status"
+        },
+        "host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Port"
+        },
+        "protocol": {
+          "$ref": "#/$defs/EndpointProtocol"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "name",
+        "protocol",
+        "port",
+        "expected_status"
+      ],
+      "title": "Endpoint",
+      "type": "object"
+    },
+    "EndpointProtocol": {
+      "description": "Supported endpoint protocols.",
+      "enum": [
+        "http",
+        "https",
+        "tcp"
+      ],
+      "title": "EndpointProtocol",
+      "type": "string"
+    },
+    "ServiceStatus": {
+      "description": "Supported service health states.",
+      "enum": [
+        "healthy",
+        "degraded",
+        "down",
+        "unknown",
+        "stopped"
+      ],
+      "title": "ServiceStatus",
+      "type": "string"
+    },
+    "ServiceType": {
+      "description": "Supported service types.",
+      "enum": [
+        "container",
+        "vm",
+        "plugin",
+        "share",
+        "system",
+        "external",
+        "network"
+      ],
+      "title": "ServiceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A discovered service in the monitored environment.",
+  "properties": {
+    "active_findings": {
+      "minimum": 0,
+      "title": "Active Findings",
+      "type": "integer"
+    },
+    "active_incidents": {
+      "minimum": 0,
+      "title": "Active Incidents",
+      "type": "integer"
+    },
+    "category": {
+      "title": "Category",
+      "type": "string"
+    },
+    "container_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Container Id"
+    },
+    "dependencies": {
+      "items": {
+        "$ref": "#/$defs/DependencyEdge"
+      },
+      "title": "Dependencies",
+      "type": "array"
+    },
+    "dependents": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Dependents",
+      "type": "array"
+    },
+    "descriptor_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Descriptor Id"
+    },
+    "descriptor_source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DescriptorSource"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "endpoints": {
+      "items": {
+        "$ref": "#/$defs/Endpoint"
+      },
+      "title": "Endpoints",
+      "type": "array"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "image": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Image"
+    },
+    "last_check": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Last Check"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ServiceStatus"
+    },
+    "type": {
+      "$ref": "#/$defs/ServiceType"
+    },
+    "vm_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Vm Id"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "type",
+    "category",
+    "status",
+    "descriptor_id",
+    "descriptor_source",
+    "container_id",
+    "vm_id",
+    "image",
+    "endpoints",
+    "dependencies",
+    "dependents",
+    "last_check",
+    "active_findings",
+    "active_incidents"
+  ],
+  "title": "Service",
+  "type": "object"
+}
