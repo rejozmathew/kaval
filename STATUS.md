@@ -4,8 +4,8 @@
 - Name: Kaval
 - PRD version: 4.1
 - Current phase: Phase 1
-- Current task: Phase 1 exit verification pending
-- Overall status: in progress
+- Current task: Human checkpoint / commit review
+- Overall status: ready for checkpoint
 
 ## Phase gates
 - [x] Phase 0 complete
@@ -222,10 +222,17 @@
 - Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`, and `npm run build` in `src/web` all passed.
 - Failures/blockers: none.
 - Next task: Phase 1 exit verification on a real Unraid environment.
+- 2026-03-31: Resolved the Phase 1 CI dependency gap for FastAPI integration test collection.
+- Added `httpx` to the Python `dev` extra in `pyproject.toml` so the existing GitHub Actions install step (`python -m pip install '.[dev]'`) now installs the package required by `fastapi.testclient` / `starlette.testclient`; no workflow change was required.
+- Files changed: `pyproject.toml`, `STATUS.md`.
+- Validations run: `.pkg/local/bin/python -m pip install --dry-run --ignore-installed --break-system-packages -e '.[dev]'` confirmed `httpx` is now resolved from `kaval==0.1.0`; `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/integration/test_fastapi_app.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: a full editable reinstall into the repo-local prefix still hits this shell’s mixed system/prefix Python packaging behavior when pip attempts to replace distro-managed packages; that is a local environment quirk, not a CI blocker, and the dry-run resolution check is sufficient to verify the dependency fix for GitHub Actions.
+- Next task: Human checkpoint / commit review before any Phase 2A work.
 
 ## Current focus
 - All planned Phase 1 implementation tasks (`P1-01` through `P1-22`) are complete.
-- Phase 1 exit verification is still pending before the phase gate can be marked complete, because the plan requires fresh-install behavior on a real Unraid server and that was not exercised in this workspace.
+- The GitHub Actions dependency/install gap is resolved, and the repository is back to a passing local validation state for the declared Python test surface.
+- Phase 1 is ready for checkpoint / commit from the repository-validation perspective; do not begin Phase 2A until that checkpoint is reviewed.
 - Approved `CR-0001` remains the authoritative control decision for DNS targeting in Phase 1: `P1-11` used optional descriptor/service DNS metadata, not `P1-18 System profile`.
 
 ## Decisions log
@@ -265,14 +272,15 @@
 - 2026-03-31: Added `fastapi` as a production dependency because P1-19 requires a typed read-only HTTP application that exposes the Phase 1 monitoring state without introducing action or remediation behavior early.
 - 2026-03-31: Added the frontend dependencies `react`, `react-dom`, `vite`, `typescript`, `@vitejs/plugin-react`, `@types/react`, `@types/react-dom`, and `@types/node` under `src/web/package.json` because P1-21 requires a buildable React service-map UI that consumes the Phase 1 API and can be served by the FastAPI application once built.
 - 2026-03-31: P1-22 keeps real-time updates read-only and phase-appropriate by streaming full UI snapshots from the existing SQLite state over WebSocket polling, avoiding executor hooks, mutation paths, or speculative event infrastructure.
+- 2026-03-31: Added `httpx` to the `dev` extra because the FastAPI/Starlette `TestClient` import path now used by `tests/integration/test_fastapi_app.py` requires `httpx`, and GitHub Actions already installs `.[dev]` as its CI environment contract.
 
 ## Open blockers
 - None currently.
 
 ## Next 3 tasks
-1. Phase 1 exit verification on a real Unraid environment
-2. Phase 2 planning hold
-3. No further implementation until the Phase 1 gate is reviewed
+1. Human checkpoint / commit review for Phase 1
+2. Phase 2A planning hold
+3. No further implementation until Phase 2A is explicitly requested
 
 ## Validation snapshots
 - lint: `ruff check .` passed via `.pkg/local/bin/ruff`
