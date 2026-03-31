@@ -19,20 +19,17 @@ The security boundary is foundational:
 - Core handles discovery, monitoring, investigation, notifications, and state.
 - Executor handles only allowlisted, approved system-modifying actions.
 
-## Phase 0 Status
+## Current Status
 
-The repository currently contains the completed Phase 0 foundation:
+The repository is no longer Phase 0-only.
 
-- typed Pydantic models for the core entities and frozen interface contracts
-- SQLite persistence plus a baseline migration
-- checked-in JSON schemas and contract tests
-- finding-to-incident grouping logic
-- a proof-of-life mock pipeline that stores a finding and incident in SQLite
-- GitHub Actions for lint, type checking, tests, and schema consistency
-- Docker assets for the Core and Executor development setup
-- the initial ADR set captured under [`docs/adr/`](docs/adr/)
+The current local checkpoint includes:
 
-The current proof-of-life path is intentionally narrow: a mock check produces a finding, the finding is grouped into an incident, both artifacts are persisted, and the Core container prints a console summary.
+- completed Phase 0 foundations: typed Pydantic models, SQLite persistence, checked-in schemas, ADRs, and Docker/dev scaffolding
+- completed Phase 1 monitoring surfaces: Unraid + Docker discovery, shipped service descriptors, dependency graph construction, deterministic checks, incident management, system profile generation, FastAPI endpoints, CLI commands, and the React/WebSocket service map UI
+- completed Phase 2A work through `P2A-08`: Tier 1 evidence collection, investigation prompt templates, LangGraph investigation workflow, optional local OpenAI-compatible synthesis, Apprise delivery, incident-centered notification formatting, incident-grouped dispatch, and Telegram interactive delivery
+
+`Operate` mode is not complete yet. `P2A-09 Executor sidecar` remains blocked by the current contradiction between the frozen PRD localhost-only Core-to-Executor transport contract and the isolated Executor runtime in `docker-compose.yml`. Treat [`STATUS.md`](STATUS.md) as the authoritative project state and blocker log.
 
 ## Quick Start
 
@@ -47,15 +44,18 @@ Local development install:
 python -m pip install -e ".[dev]"
 ```
 
-Validation commands:
+Common validation commands:
 
 ```bash
-python -m pytest
+python -m pytest tests/unit tests/integration
+python -m pytest tests/contract
+python -m pytest tests/unit/test_investigation tests/scenario
+python -m pytest tests/security
 ruff check .
 mypy src
 ```
 
-Start the Phase 0 proof-of-life stack:
+Start the current local stack:
 
 ```bash
 docker compose up --build
@@ -63,13 +63,14 @@ docker compose up --build
 
 Expected behavior:
 
-- `kaval-core` starts, bootstraps SQLite under `/data/kaval.db`, and runs the mock finding -> incident pipeline.
-- `kaval-executor` starts as an isolated placeholder sidecar with `docker.sock`.
-- Core logs include a proof-of-life summary showing the stored finding and incident.
+- `kaval-core` starts with SQLite state under `/data/kaval.db` and the current monitoring/investigation codebase.
+- `kaval-executor` starts as the isolated sidecar placeholder, but the approval-gated restart path is not wired yet because `P2A-09` remains blocked.
+- The repository includes the completed Phase 1 monitoring stack and the completed Phase 2A investigation/notification work through `P2A-08`.
 
 ## Documentation
 
 - Product and architecture contract: [`docs/prd.md`](docs/prd.md)
-- Phase execution contract: [`plans/phase-0.md`](plans/phase-0.md)
+- Active phase execution contract: [`plans/phase-2a.md`](plans/phase-2a.md)
+- Completed monitoring phase plan: [`plans/phase-1.md`](plans/phase-1.md)
 - Running project state: [`STATUS.md`](STATUS.md)
 - Architecture decisions: [`docs/adr/`](docs/adr/)

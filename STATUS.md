@@ -3,13 +3,13 @@
 ## Project
 - Name: Kaval
 - PRD version: 4.1
-- Current phase: Phase 1
-- Current task: Human checkpoint / commit review
-- Overall status: ready for checkpoint
+- Current phase: Phase 2A
+- Current task: P2A-09 Executor sidecar
+- Overall status: Phase 2A blocked on P2A-09 transport decision
 
 ## Phase gates
 - [x] Phase 0 complete
-- [ ] Phase 1 complete
+- [x] Phase 1 complete
 - [ ] Phase 2A complete
 - [ ] Phase 2B complete
 - [ ] Phase 3 complete
@@ -227,13 +227,78 @@
 - Files changed: `pyproject.toml`, `STATUS.md`.
 - Validations run: `.pkg/local/bin/python -m pip install --dry-run --ignore-installed --break-system-packages -e '.[dev]'` confirmed `httpx` is now resolved from `kaval==0.1.0`; `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/integration/test_fastapi_app.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
 - Failures/blockers: a full editable reinstall into the repo-local prefix still hits this shell’s mixed system/prefix Python packaging behavior when pip attempts to replace distro-managed packages; that is a local environment quirk, not a CI blocker, and the dry-run resolution check is sufficient to verify the dependency fix for GitHub Actions.
-- Next task: Human checkpoint / commit review before any Phase 2A work.
+- Next task: P2A-01 Evidence collection module (Tier 1).
+- 2026-03-31: Completed P2A-01 Evidence collection module (Tier 1).
+- Added `src/kaval/investigation/evidence.py` with a typed read-only evidence collector that assembles ordered `EvidenceStep` records from incident findings, affected service state, Docker log excerpts, dependency context, tracked changes, and Operational Memory context while redacting secret-like text before prompt use.
+- Exported the new evidence collector from `src/kaval/investigation/__init__.py` and added deterministic unit, scenario, and security coverage for DelugeVPN tunnel-drop evidence collection plus note/log redaction behavior.
+- Files changed: `src/kaval/investigation/__init__.py`, `src/kaval/investigation/evidence.py`, `tests/unit/test_investigation/test_evidence.py`, `tests/scenario/test_delugevpn_tier1_evidence.py`, `tests/security/test_investigation_evidence_security.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: initial validation exposed only local implementation issues in the new evidence collector and tests (formatting, strict typing, and step scoping); all were fixed before the final validation pass. No remaining blocker.
+- Next task: P2A-02 Investigation prompt templates.
+- 2026-03-31: Completed P2A-02 Investigation prompt templates.
+- Added `src/kaval/investigation/prompts.py` with a typed prompt bundle, a restart-only structured response contract, and rendered incident/evidence/memory/constraint sections that keep Phase 2A synthesis bounded to evidence → inference → recommendation.
+- Updated `src/kaval/investigation/__init__.py` exports and added prompt-focused unit and security coverage to lock the response schema, degraded-mode wording, and Phase 2A guardrails before workflow/model integration depends on them.
+- Files changed: `src/kaval/investigation/__init__.py`, `src/kaval/investigation/prompts.py`, `tests/unit/test_investigation/test_prompts.py`, `tests/security/test_investigation_prompt_security.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: initial prompt validation exposed only local prompt-template issues (line wrapping and JSON typing in rendered sections); all were fixed before the final validation pass. No remaining blocker.
+- Next task: P2A-03 LangGraph investigation workflow (Tier 1).
+- 2026-03-31: Completed P2A-03 LangGraph investigation workflow (Tier 1).
+- Added `src/kaval/investigation/workflow.py` with a typed LangGraph investigation loop that loads persisted incident context, gathers Tier 1 evidence plus Operational Memory, renders the structured prompt bundle, applies bounded synthesis, and persists a completed `Investigation` with restart-only remediation when justified.
+- Added deterministic workflow coverage in `tests/unit/test_investigation/test_workflow.py` for single-finding evidence ordering, multi-finding dependency-walk behavior, and Operational Memory recurrence/reference propagation, plus a fixture-backed end-to-end DelugeVPN workflow scenario in `tests/scenario/test_delugevpn_tunnel_drop.py`.
+- Files changed: `src/kaval/investigation/workflow.py`, `tests/unit/test_investigation/test_workflow.py`, `tests/scenario/test_delugevpn_tunnel_drop.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: initial focused validation exposed a workflow graph initialization bug plus local test/formatting/type issues in the new workflow files; all were fixed before the final full validation pass. No remaining blocker.
+- Next task: P2A-04 Local model integration (OpenAI-compatible).
+- 2026-03-31: Completed P2A-04 Local model integration (OpenAI-compatible).
+- Added `src/kaval/investigation/local_model.py` with a typed OpenAI-compatible chat-completions client for local investigation synthesis, environment-driven endpoint configuration, structured JSON response parsing, and transport/error handling that stays compatible with local endpoints such as Ollama-style servers.
+- Updated `src/kaval/investigation/workflow.py` so the workflow uses the local model automatically when configured and falls back to deterministic synthesis with an explicit degraded-mode note when the config is missing, invalid, or the local model request fails.
+- Added deterministic unit coverage in `tests/unit/test_investigation/test_local_model.py` for config loading, request shaping, and structured response parsing, and extended `tests/unit/test_investigation/test_workflow.py` with the no-config fallback path.
+- Files changed: `src/kaval/investigation/local_model.py`, `src/kaval/investigation/workflow.py`, `tests/unit/test_investigation/test_local_model.py`, `tests/unit/test_investigation/test_workflow.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: no blocker. This shell has no live local-model endpoint or model config set, so validation covered the typed transport path with deterministic test doubles plus the workflow fallback path rather than a real endpoint call.
+- Next task: P2A-05 Notification bus (apprise).
+- 2026-03-31: Completed P2A-05 Notification bus (apprise).
+- Added `src/kaval/notifications/bus.py` with a typed Apprise-backed notification bus, environment-driven channel loading, explicit send/skip/fail delivery results, and clean handling for missing notification config or adapter failures.
+- Updated `src/kaval/notifications/__init__.py`, added `tests/unit/test_notifications/test_bus.py`, and declared `apprise` in `pyproject.toml` because Phase 2A requires a real notification transport dependency for later incident-grouped delivery and Telegram/approval work.
+- Files changed: `src/kaval/notifications/bus.py`, `src/kaval/notifications/__init__.py`, `tests/unit/test_notifications/test_bus.py`, `pyproject.toml`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_notifications/test_bus.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: no blocker. Installing `apprise` into the repo-local prefix completed successfully; pip reported only existing-target warnings for already-installed shared transitive packages in `.pkg/local`.
+- Next task: P2A-06 Notification formatter.
+- 2026-03-31: Completed P2A-06 Notification formatter.
+- Added `src/kaval/notifications/formatter.py` with an incident-centered formatter that maps persisted `Incident` and `Investigation` records into the frozen `NotificationPayload` contract while preserving explicit evidence, inference, recommendation, recurrence, and dedup fields.
+- Updated `src/kaval/notifications/__init__.py` and added `tests/unit/test_notifications/test_formatter.py` so Phase 2A now has deterministic formatter coverage for restart versus no-action investigations, structured evidence lines, and stable incident dedup keys.
+- Files changed: `src/kaval/notifications/formatter.py`, `src/kaval/notifications/__init__.py`, `tests/unit/test_notifications/test_formatter.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_notifications`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P2A-07 Incident-grouped notifications.
+- 2026-03-31: Completed P2A-07 Incident-grouped notifications.
+- Added `src/kaval/notifications/grouped.py` with an in-process incident notification dispatcher that composes the formatter and Apprise bus, uses the incident dedup key, and suppresses duplicates inside the Phase 2A 15-minute dedup window instead of sending per raw finding.
+- Updated `src/kaval/notifications/__init__.py` and added `tests/unit/test_notifications/test_grouped.py` so Phase 2A now has deterministic coverage for first-send behavior, duplicate suppression, and resend after the dedup window expires.
+- Files changed: `src/kaval/notifications/grouped.py`, `src/kaval/notifications/__init__.py`, `tests/unit/test_notifications/test_grouped.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_notifications`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P2A-08 Telegram interactive handler.
+- 2026-03-31: Completed P2A-08 Telegram interactive handler.
+- Added `src/kaval/notifications/telegram_interactive.py` with a typed optional Telegram Bot API client that loads bot credentials from environment variables, sends incident-centered messages, and shapes inline approval/details/dismiss buttons without invoking executor behavior yet.
+- Updated `src/kaval/notifications/__init__.py` and added `tests/unit/test_notifications/test_telegram_interactive.py` so Phase 2A now has deterministic coverage for Telegram config loading, inline keyboard request shaping, and no-config skip behavior.
+- Files changed: `src/kaval/notifications/telegram_interactive.py`, `src/kaval/notifications/__init__.py`, `tests/unit/test_notifications/test_telegram_interactive.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_notifications`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: no blocker. This shell has no Telegram bot token or chat ID configured, so validation covered the typed Bot API request path with deterministic test doubles plus the explicit no-config skip path rather than a live Telegram call.
+- Next task: P2A-09 Executor sidecar.
 
 ## Current focus
-- All planned Phase 1 implementation tasks (`P1-01` through `P1-22`) are complete.
-- The GitHub Actions dependency/install gap is resolved, and the repository is back to a passing local validation state for the declared Python test surface.
-- Phase 1 is ready for checkpoint / commit from the repository-validation perspective; do not begin Phase 2A until that checkpoint is reviewed.
-- Approved `CR-0001` remains the authoritative control decision for DNS targeting in Phase 1: `P1-11` used optional descriptor/service DNS metadata, not `P1-18 System profile`.
+- Phase 1 is complete and its validation state remains green.
+- `P2A-01` is complete: Tier 1 evidence collection now produces ordered, structured evidence plus Operational Memory context for incidents without crossing the Core↔Executor boundary.
+- `P2A-02` is complete: prompt rendering now enforces a restart-only structured synthesis contract for later workflow/model tasks.
+- `P2A-03` is complete: the LangGraph workflow now persists structured investigations with ordered evidence, inferred root cause, recurrence context, and bounded restart-only remediation when the target stays inside the affected container scope.
+- `P2A-04` is complete: the workflow now supports an optional local OpenAI-compatible endpoint for investigation synthesis and degrades cleanly to deterministic reasoning when no local model config is present.
+- `P2A-05` is complete: incident-level notifications now have a typed Apprise-backed bus with explicit no-config and delivery-failure behavior, ready for formatter and grouping layers.
+- `P2A-06` is complete: investigation results now render into a stable incident notification payload that reflects evidence, inference, and recommendation without raw-finding spam.
+- `P2A-07` is complete: incident notifications now dedup per incident and per window in-process, reusing the formatter and bus rather than reintroducing finding-level spam.
+- `P2A-08` is complete: Telegram delivery now has an optional interactive handler with inline approval-oriented controls and explicit no-config behavior.
+- `P2A-09` is blocked pending a transport/runtime decision: the current Compose isolation (`executor` on `network_mode: "none"`) cannot satisfy the frozen PRD requirement that Core reaches Executor via `localhost`, while changing the transport away from localhost or sharing Core's network namespace would alter a frozen contract or security boundary.
+- The next in-order task remains `P2A-09 Executor sidecar` once that decision is made.
+- Approved `CR-0001` remains the authoritative control decision for DNS targeting in Phase 1 only; there is no phase-relevant approved CR overriding the Phase 2A plan.
 
 ## Decisions log
 - 2026-03-30: PRD v4.1 accepted as implementation-ready product spec.
@@ -273,21 +338,36 @@
 - 2026-03-31: Added the frontend dependencies `react`, `react-dom`, `vite`, `typescript`, `@vitejs/plugin-react`, `@types/react`, `@types/react-dom`, and `@types/node` under `src/web/package.json` because P1-21 requires a buildable React service-map UI that consumes the Phase 1 API and can be served by the FastAPI application once built.
 - 2026-03-31: P1-22 keeps real-time updates read-only and phase-appropriate by streaming full UI snapshots from the existing SQLite state over WebSocket polling, avoiding executor hooks, mutation paths, or speculative event infrastructure.
 - 2026-03-31: Added `httpx` to the `dev` extra because the FastAPI/Starlette `TestClient` import path now used by `tests/integration/test_fastapi_app.py` requires `httpx`, and GitHub Actions already installs `.[dev]` as its CI environment contract.
+- 2026-03-31: P2A-01 keeps investigation evidence collection strictly Tier 1 and read-only by reusing persisted findings, service graph state, Docker log reads, change tracking, and Operational Memory inputs while redacting secret-like content before any model-facing context is assembled.
+- 2026-03-31: P2A-02 keeps the model-facing synthesis contract explicit and phase-bounded: prompts request structured evidence, inference, and recommendation output, forbid Tier 2 research or non-restart remediation, and expose a restart-only response schema for later local-model integration.
+- 2026-03-31: P2A-03 keeps the investigation loop deterministic and phase-bounded by using LangGraph only for the Tier 1 evidence → prompt → synthesis → persistence flow, persisting structured `Investigation` records without introducing Executor access or broader action scope.
+- 2026-03-31: P2A-04 keeps local-model integration optional and local-safe by targeting a generic OpenAI-compatible chat-completions endpoint, validating structured JSON output into the frozen investigation schema, and falling back to deterministic synthesis when runtime model configuration is absent or unhealthy.
+- 2026-03-31: Added `apprise` as a production dependency because P2A-05 requires a real notification transport layer that can fan out incident-level messages to later Phase 2A channels without building bespoke adapters first.
+- 2026-03-31: P2A-05 keeps notification transport narrow and phase-bounded by sending only already-formatted incident payloads through Apprise, leaving formatting, grouping, and interactive approval behavior to later dedicated Phase 2A tasks.
+- 2026-03-31: P2A-06 keeps notification content aligned to ADR-012 by formatting one incident payload around evidence, inference, and recommendation, with stable incident deduping and no interactive approval buttons until the Telegram task lands.
+- 2026-03-31: P2A-07 keeps incident-grouped notification logic lightweight and phase-appropriate by using an in-memory dedup window keyed to the stable incident payload dedup key, avoiding schema changes or persistence expansion before the later approval and executor tasks are in place.
+- 2026-03-31: P2A-08 keeps Telegram handling explicit and approval-driven by using the Bot API directly for inline buttons, while still treating missing Telegram credentials as a clean no-op so the rest of the notification pipeline remains usable.
 
 ## Open blockers
-- None currently.
+- 2026-03-31: `P2A-09 Executor sidecar` is blocked by a frozen transport/runtime contradiction.
+- Attempted: reviewed `docs/prd.md` Section 3.1 / 7.4, ADR-008, current `docker-compose.yml`, `Dockerfile.executor`, and the placeholder `src/executor` package to confirm the intended Core↔Executor trust boundary before implementing the sidecar.
+- Conflict: the PRD/frozen architecture requires Core to call Executor via a localhost-only internal API, but the current runtime isolates Executor with `network_mode: "none"` in a separate container, which prevents any localhost path from Core; changing to a shared network namespace would give Executor Core's broader network reach, violating the current security posture, while switching to a Unix socket or other non-localhost transport would change the frozen contract.
+- Smallest unblocking decision needed: approve one transport/runtime model for Phase 2A that preserves the no-internet executor boundary, specifically either:
+- 1. amend the frozen Core↔Executor transport contract away from localhost-only to a shared Unix domain socket or equivalent local IPC, or
+- 2. approve a container runtime pattern that preserves Executor's no-internet property while still giving Core a true localhost path.
 
 ## Next 3 tasks
-1. Human checkpoint / commit review for Phase 1
-2. Phase 2A planning hold
-3. No further implementation until Phase 2A is explicitly requested
+1. P2A-09 Executor sidecar
+2. P2A-10 Executor client in Core
+3. P2A-11 Scenario: DelugeVPN tunnel drop
 
 ## Validation snapshots
 - lint: `ruff check .` passed via `.pkg/local/bin/ruff`
 - typecheck: `mypy src` passed via `.pkg/local/bin/mypy`
 - tests: `pytest tests/unit tests/integration` passed via repo-local Python path and prefix install (`93 passed`)
 - contract tests: `pytest tests/contract` passed (`5 passed`)
-- scenario tests: `tests/integration/test_mock_pipeline.py` passed as the Phase 0 proof-of-life scenario
+- scenario tests: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario` passed (`13 passed`)
+- security tests: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security` passed (`4 passed`)
 - frontend: `npm run build` passed in `src/web`
 - docs review: `README.md`, `CHANGELOG.md`, and all 13 ADRs reviewed against `docs/prd.md` and `plans/phase-0.md`
 - docker:

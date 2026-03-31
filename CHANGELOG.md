@@ -21,3 +21,14 @@ The format follows Keep a Changelog, and this file is append-only.
 ### Fixed
 
 - Core container bootstrap now passes the packaged `/app/migrations` path explicitly so the SQLite schema is initialized correctly inside Docker.
+
+## [Unreleased]
+
+### Added
+
+- Completed the Phase 1 checkpoint: Unraid and Docker discovery, shipped service descriptors, dependency graph confidence, deterministic monitoring checks, change tracking, incident management, Operational Memory system profile, FastAPI read APIs, CLI commands, and the React/WebSocket service map UI.
+- Completed the Phase 2A checkpoint through `P2A-08`: Tier 1 evidence collection, investigation prompt templates, LangGraph investigation workflow, optional local OpenAI-compatible synthesis, Apprise notification delivery, incident-centered notification formatting, incident-grouped dispatch, and Telegram interactive message delivery.
+
+### Changed
+
+- Top-level project docs and package metadata now describe the current Phase 1 + Phase 2A-through-`P2A-08` checkpoint instead of only the original Phase 0 scaffold.
