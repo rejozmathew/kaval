@@ -1,0 +1,36 @@
+id: uptime_kuma
+name: Uptime Kuma
+category: monitoring
+project_url: https://uptime.kuma.pet/
+icon: uptime_kuma.svg
+match:
+  image_patterns:
+    - "louislam/uptime-kuma*"
+    - "*uptime-kuma*"
+  container_name_patterns:
+    - "uptime-kuma*"
+    - "kuma*"
+endpoints:
+  web_ui:
+    port: 3001
+    path: /
+log_signals:
+  errors:
+    - "Database connection error"
+    - "Monitor heartbeat failed"
+    - "socket hang up"
+  warnings:
+    - "Monitor is down"
+    - "Notification provider error"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "Notification provider error"
+    likely_cause: "Outbound notification configuration or upstream provider failed"
+    check_first:
+      - notification credentials
+      - external connectivity
+investigation_context: |
+  Uptime Kuma is itself a monitoring dependency. If it fails, alerting fidelity
+  drops even when the services it watches are still healthy.

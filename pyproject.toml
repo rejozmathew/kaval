@@ -9,8 +9,13 @@ description = "Kaval Phase 0 foundation scaffold."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.115,<1",
     "pydantic>=2.11,<3",
+    "PyYAML>=6.0,<7",
 ]
+
+[project.scripts]
+kaval = "kaval.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -42,4 +47,3 @@ python_version = "3.12"
 mypy_path = ["src"]
 strict = true
 packages = ["kaval", "executor"]
-

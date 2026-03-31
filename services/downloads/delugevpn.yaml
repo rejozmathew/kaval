@@ -1,0 +1,38 @@
+id: delugevpn
+name: DelugeVPN
+category: downloads
+project_url: https://github.com/binhex/arch-delugevpn
+icon: delugevpn.svg
+match:
+  image_patterns:
+    - "binhex/arch-delugevpn*"
+    - "*delugevpn*"
+  container_name_patterns:
+    - "delugevpn*"
+    - "deluge*vpn*"
+endpoints:
+  web_ui:
+    port: 8112
+    path: /
+log_signals:
+  errors:
+    - "VPN tunnel inactive"
+    - "Unable to connect to VPN"
+    - "Authentication failed"
+  warnings:
+    - "Port forward unavailable"
+    - "Reconnecting to VPN endpoint"
+typical_dependencies:
+  shares:
+    - downloads
+    - appdata
+common_failure_modes:
+  - trigger: "VPN tunnel inactive"
+    likely_cause: "VPN session dropped or upstream connectivity changed"
+    check_first:
+      - VPN provider reachability
+      - container restart count
+investigation_context: |
+  DelugeVPN commonly sits downstream of Radarr and Sonarr. When its tunnel
+  drops, ARR applications usually report download client failures rather than
+  their own root cause.

@@ -1,0 +1,362 @@
+{
+  "$defs": {
+    "DescriptorContainerDependency": {
+      "additionalProperties": false,
+      "description": "A named container dependency with optional alternatives.",
+      "properties": {
+        "alternatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Alternatives",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "DescriptorContainerDependency",
+      "type": "object"
+    },
+    "DescriptorCredentialHint": {
+      "additionalProperties": false,
+      "description": "Instructions for locating a service credential.",
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "location": {
+          "title": "Location",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "location"
+      ],
+      "title": "DescriptorCredentialHint",
+      "type": "object"
+    },
+    "DescriptorDependencies": {
+      "additionalProperties": false,
+      "description": "Typical dependencies captured by a service descriptor.",
+      "properties": {
+        "containers": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/DescriptorContainerDependency"
+              }
+            ]
+          },
+          "title": "Containers",
+          "type": "array"
+        },
+        "shares": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Shares",
+          "type": "array"
+        }
+      },
+      "title": "DescriptorDependencies",
+      "type": "object"
+    },
+    "DescriptorEndpoint": {
+      "additionalProperties": false,
+      "description": "A health or UI endpoint defined by a service descriptor.",
+      "properties": {
+        "auth": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth"
+        },
+        "auth_header": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Header"
+        },
+        "healthy_when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Healthy When"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "port"
+      ],
+      "title": "DescriptorEndpoint",
+      "type": "object"
+    },
+    "DescriptorFailureMode": {
+      "additionalProperties": false,
+      "description": "A common failure mode captured by a service descriptor.",
+      "properties": {
+        "check_first": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Check First",
+          "type": "array"
+        },
+        "likely_cause": {
+          "title": "Likely Cause",
+          "type": "string"
+        },
+        "trigger": {
+          "title": "Trigger",
+          "type": "string"
+        }
+      },
+      "required": [
+        "trigger",
+        "likely_cause"
+      ],
+      "title": "DescriptorFailureMode",
+      "type": "object"
+    },
+    "DescriptorLogSignals": {
+      "additionalProperties": false,
+      "description": "Log signal patterns associated with a service.",
+      "properties": {
+        "errors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "title": "DescriptorLogSignals",
+      "type": "object"
+    },
+    "DescriptorMatchRule": {
+      "additionalProperties": false,
+      "description": "Patterns used to match a discovered service to a descriptor.",
+      "properties": {
+        "container_name_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Container Name Patterns",
+          "type": "array"
+        },
+        "image_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Image Patterns",
+          "type": "array"
+        }
+      },
+      "title": "DescriptorMatchRule",
+      "type": "object"
+    },
+    "DescriptorSource": {
+      "description": "Origins for service descriptors.",
+      "enum": [
+        "shipped",
+        "auto_generated",
+        "user"
+      ],
+      "title": "DescriptorSource",
+      "type": "string"
+    },
+    "DnsRecordType": {
+      "description": "Supported deterministic DNS record types for Phase 1.",
+      "enum": [
+        "A",
+        "AAAA"
+      ],
+      "title": "DnsRecordType",
+      "type": "string"
+    },
+    "DnsTarget": {
+      "additionalProperties": false,
+      "description": "A DNS record target that should resolve for a service.",
+      "properties": {
+        "expected_values": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expected Values",
+          "type": "array"
+        },
+        "host": {
+          "title": "Host",
+          "type": "string"
+        },
+        "record_type": {
+          "$ref": "#/$defs/DnsRecordType"
+        }
+      },
+      "required": [
+        "host",
+        "record_type"
+      ],
+      "title": "DnsTarget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A strict YAML-backed service descriptor.",
+  "properties": {
+    "category": {
+      "title": "Category",
+      "type": "string"
+    },
+    "common_failure_modes": {
+      "items": {
+        "$ref": "#/$defs/DescriptorFailureMode"
+      },
+      "title": "Common Failure Modes",
+      "type": "array"
+    },
+    "credential_hints": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DescriptorCredentialHint"
+      },
+      "title": "Credential Hints",
+      "type": "object"
+    },
+    "dns_targets": {
+      "items": {
+        "$ref": "#/$defs/DnsTarget"
+      },
+      "title": "Dns Targets",
+      "type": "array"
+    },
+    "endpoints": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DescriptorEndpoint"
+      },
+      "title": "Endpoints",
+      "type": "object"
+    },
+    "icon": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Icon"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "investigation_context": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Investigation Context"
+    },
+    "log_signals": {
+      "$ref": "#/$defs/DescriptorLogSignals"
+    },
+    "match": {
+      "$ref": "#/$defs/DescriptorMatchRule"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "project_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Project Url"
+    },
+    "source": {
+      "$ref": "#/$defs/DescriptorSource",
+      "default": "shipped"
+    },
+    "typical_dependencies": {
+      "$ref": "#/$defs/DescriptorDependencies"
+    },
+    "verified": {
+      "default": true,
+      "title": "Verified",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "category",
+    "match"
+  ],
+  "title": "ServiceDescriptor",
+  "type": "object"
+}

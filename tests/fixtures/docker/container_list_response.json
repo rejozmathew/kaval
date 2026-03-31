@@ -1,0 +1,22 @@
+[
+  {
+    "Id": "abc123",
+    "Names": [
+      "/radarr"
+    ],
+    "Image": "lscr.io/linuxserver/radarr:latest",
+    "ImageID": "sha256:img-radarr",
+    "State": "running",
+    "Status": "Up 2 hours"
+  },
+  {
+    "Id": "def456",
+    "Names": [
+      "/delugevpn"
+    ],
+    "Image": "binhex/arch-delugevpn:latest",
+    "ImageID": "sha256:img-delugevpn",
+    "State": "running",
+    "Status": "Up 2 hours"
+  }
+]

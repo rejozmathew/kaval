@@ -13,6 +13,8 @@ from kaval.models import (
     Change,
     ChangeType,
     DescriptorSource,
+    DnsRecordType,
+    DnsTarget,
     Endpoint,
     EndpointProtocol,
     Evidence,
@@ -166,6 +168,13 @@ def build_service() -> Service:
                 url=None,
                 auth_required=False,
                 expected_status=200,
+            )
+        ],
+        dns_targets=[
+            DnsTarget(
+                host="downloads.example.test",
+                record_type=DnsRecordType.A,
+                expected_values=["192.0.2.10"],
             )
         ],
         dependencies=[],
@@ -347,6 +356,8 @@ def test_database_persists_supporting_phase0_records(tmp_path: Path) -> None:
         assert database.get_approval_token(approval_token.token_id) == approval_token
         assert database.get_journal_entry(journal_entry.id) == journal_entry
         assert database.get_user_note(user_note.id) == user_note
+        assert [stored.id for stored in database.list_investigations()] == [investigation.id]
+        assert [stored.id for stored in database.list_services()] == [service.id]
 
         database.delete_investigation(investigation.id)
         database.delete_service(service.id)
@@ -361,5 +372,36 @@ def test_database_persists_supporting_phase0_records(tmp_path: Path) -> None:
         assert database.get_approval_token(approval_token.token_id) is None
         assert database.get_journal_entry(journal_entry.id) is None
         assert database.get_user_note(user_note.id) is None
+    finally:
+        database.close()
+
+
+def test_database_lists_changes_in_timestamp_order(tmp_path: Path) -> None:
+    """Change records should be listed in deterministic timestamp order."""
+    database = build_database(tmp_path)
+    earlier = Change(
+        id="chg-1",
+        type=ChangeType.CONTAINER_RESTART,
+        service_id="svc-delugevpn",
+        description="Container restarted.",
+        old_value="1",
+        new_value="2",
+        timestamp=ts(10, 0),
+        correlated_incidents=[],
+    )
+    later = Change(
+        id="chg-2",
+        type=ChangeType.IMAGE_UPDATE,
+        service_id="svc-delugevpn",
+        description="Image updated.",
+        old_value="old",
+        new_value="new",
+        timestamp=ts(10, 5),
+        correlated_incidents=[],
+    )
+    try:
+        database.upsert_change(later)
+        database.upsert_change(earlier)
+        assert [stored.id for stored in database.list_changes()] == ["chg-1", "chg-2"]
     finally:
         database.close()

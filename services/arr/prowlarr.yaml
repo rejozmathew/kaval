@@ -1,0 +1,46 @@
+id: prowlarr
+name: Prowlarr
+category: arr
+project_url: https://prowlarr.com/
+icon: prowlarr.svg
+match:
+  image_patterns:
+    - "lscr.io/linuxserver/prowlarr*"
+    - "hotio/prowlarr*"
+    - "*prowlarr*"
+  container_name_patterns:
+    - "prowlarr*"
+endpoints:
+  web_ui:
+    port: 9696
+    path: /
+  health_api:
+    port: 9696
+    path: /api/v1/health
+    auth: api_key
+    auth_header: X-Api-Key
+    healthy_when: json_array_empty
+log_signals:
+  errors:
+    - "Unable to connect to indexer"
+    - "Request Failed"
+    - "API key is invalid"
+  warnings:
+    - "No applications are configured"
+    - "Indexer status check failed"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "Unable to connect to indexer"
+    likely_cause: "Indexer upstream is unavailable or credentials changed"
+    check_first:
+      - DNS resolution
+      - indexer credentials
+investigation_context: |
+  Prowlarr brokers indexers for the ARR stack. When it fails, Radarr and
+  Sonarr often surface secondary indexer or search errors.
+credential_hints:
+  api_key:
+    description: Prowlarr API Key
+    location: Prowlarr Web UI -> Settings -> General -> API Key

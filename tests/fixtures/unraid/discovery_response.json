@@ -1,0 +1,94 @@
+{
+  "data": {
+    "info": {
+      "hostname": "zactower",
+      "os": {
+        "platform": "linux",
+        "distro": "Unraid",
+        "release": "7.2.1",
+        "uptime": 86400
+      },
+      "cpu": {
+        "manufacturer": "Intel",
+        "brand": "Intel i3-12100T",
+        "cores": 4,
+        "threads": 8
+      },
+      "memory": {
+        "total": 34359738368
+      }
+    },
+    "array": {
+      "state": "STARTED",
+      "capacity": {
+        "free": 8589934592,
+        "used": 4519714816,
+        "total": 13109649408
+      },
+      "disks": [
+        {
+          "name": "parity",
+          "size": 4000000000000,
+          "status": "VALID",
+          "temp": 35
+        },
+        {
+          "name": "disk1",
+          "size": 4000000000000,
+          "status": "OK",
+          "temp": 34
+        }
+      ]
+    },
+    "dockerContainers": [
+      {
+        "id": "abc123",
+        "names": [
+          "radarr"
+        ],
+        "image": "lscr.io/linuxserver/radarr:latest",
+        "state": "running",
+        "status": "Up 2 hours",
+        "autoStart": true
+      },
+      {
+        "id": "def456",
+        "names": [
+          "delugevpn"
+        ],
+        "image": "binhex/arch-delugevpn:latest",
+        "state": "running",
+        "status": "Up 2 hours",
+        "autoStart": true
+      }
+    ],
+    "vms": [
+      {
+        "id": "vm-ubuntu",
+        "name": "Ubuntu Server",
+        "state": "running",
+        "os": "Ubuntu 22.04 LTS",
+        "autoStart": true
+      }
+    ],
+    "shares": [
+      {
+        "name": "media",
+        "path": "/mnt/user/media",
+        "free": 4294967296,
+        "used": 2147483648,
+        "total": 6442450944,
+        "primaryStorage": "array",
+        "secondaryStorage": "cache"
+      }
+    ],
+    "plugins": [
+      {
+        "name": "community.applications",
+        "version": "2026.03.30",
+        "enabled": true,
+        "hasUpdate": false
+      }
+    ]
+  }
+}

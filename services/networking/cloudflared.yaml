@@ -1,0 +1,35 @@
+id: cloudflared
+name: cloudflared
+category: networking
+project_url: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+icon: cloudflared.svg
+match:
+  image_patterns:
+    - "cloudflare/cloudflared*"
+    - "*cloudflared*"
+  container_name_patterns:
+    - "cloudflared*"
+endpoints:
+  metrics:
+    port: 2000
+    path: /ready
+log_signals:
+  errors:
+    - "Failed to serve tunnel connection"
+    - "Unable to reach the origin service"
+    - "Connection terminated"
+  warnings:
+    - "Temporary tunnel failure"
+    - "Retrying connection"
+typical_dependencies:
+  containers:
+    - nginx_proxy_manager
+common_failure_modes:
+  - trigger: "Unable to reach the origin service"
+    likely_cause: "Origin proxy or target service is unavailable"
+    check_first:
+      - nginx_proxy_manager
+      - local endpoint probe
+investigation_context: |
+  cloudflared bridges external traffic into local services. Failures often
+  indicate an origin outage, tunnel instability, or Cloudflare-side issues.

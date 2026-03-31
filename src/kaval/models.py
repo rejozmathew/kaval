@@ -233,6 +233,13 @@ class EndpointProtocol(StrEnum):
     TCP = "tcp"
 
 
+class DnsRecordType(StrEnum):
+    """Supported deterministic DNS record types for Phase 1."""
+
+    A = "A"
+    AAAA = "AAAA"
+
+
 class EvidenceKind(StrEnum):
     """Supported evidence categories."""
 
@@ -313,6 +320,14 @@ class Endpoint(KavalModel):
             msg = "endpoint must define url or host/port details"
             raise ValueError(msg)
         return self
+
+
+class DnsTarget(KavalModel):
+    """A DNS record target that should resolve for a service."""
+
+    host: str
+    record_type: DnsRecordType
+    expected_values: list[str] = Field(default_factory=list)
 
 
 class RiskCheck(KavalModel):
@@ -475,6 +490,7 @@ class Service(KavalModel):
     vm_id: str | None
     image: str | None
     endpoints: list[Endpoint]
+    dns_targets: list[DnsTarget] = Field(default_factory=list)
     dependencies: list[DependencyEdge]
     dependents: list[str]
     last_check: datetime | None

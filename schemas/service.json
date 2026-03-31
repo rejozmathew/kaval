@@ -69,6 +69,41 @@
       "title": "DescriptorSource",
       "type": "string"
     },
+    "DnsRecordType": {
+      "description": "Supported deterministic DNS record types for Phase 1.",
+      "enum": [
+        "A",
+        "AAAA"
+      ],
+      "title": "DnsRecordType",
+      "type": "string"
+    },
+    "DnsTarget": {
+      "additionalProperties": false,
+      "description": "A DNS record target that should resolve for a service.",
+      "properties": {
+        "expected_values": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expected Values",
+          "type": "array"
+        },
+        "host": {
+          "title": "Host",
+          "type": "string"
+        },
+        "record_type": {
+          "$ref": "#/$defs/DnsRecordType"
+        }
+      },
+      "required": [
+        "host",
+        "record_type"
+      ],
+      "title": "DnsTarget",
+      "type": "object"
+    },
     "Endpoint": {
       "additionalProperties": false,
       "description": "A network or application endpoint exposed by a service.",
@@ -256,6 +291,13 @@
           "type": "null"
         }
       ]
+    },
+    "dns_targets": {
+      "items": {
+        "$ref": "#/$defs/DnsTarget"
+      },
+      "title": "Dns Targets",
+      "type": "array"
     },
     "endpoints": {
       "items": {

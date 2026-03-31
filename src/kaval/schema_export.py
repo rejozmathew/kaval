@@ -1,10 +1,11 @@
-"""Schema export helpers for Phase 0 contracts."""
+"""Schema export helpers for repository contracts."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
+from kaval.discovery.descriptors import ServiceDescriptor
 from kaval.models import (
     ApprovalToken,
     Change,
@@ -28,7 +29,7 @@ from kaval.models import (
     UserNote,
 )
 
-PHASE0_SCHEMA_MODELS: tuple[tuple[str, type[KavalModel]], ...] = (
+SCHEMA_MODELS: tuple[tuple[str, type[KavalModel]], ...] = (
     ("approval_token.json", ApprovalToken),
     ("change.json", Change),
     ("evidence_step.json", EvidenceStep),
@@ -46,16 +47,17 @@ PHASE0_SCHEMA_MODELS: tuple[tuple[str, type[KavalModel]], ...] = (
     ("research_step.json", ResearchStep),
     ("risk_assessment.json", RiskAssessment),
     ("service.json", Service),
+    ("service_descriptor.json", ServiceDescriptor),
     ("system_profile.json", SystemProfile),
     ("user_note.json", UserNote),
 )
 
 
-def export_phase0_schemas(output_dir: Path) -> list[Path]:
-    """Export the Phase 0 model schemas into the target directory."""
+def export_schemas(output_dir: Path) -> list[Path]:
+    """Export repository model schemas into the target directory."""
     output_dir.mkdir(parents=True, exist_ok=True)
     exported_paths: list[Path] = []
-    for filename, model_type in PHASE0_SCHEMA_MODELS:
+    for filename, model_type in SCHEMA_MODELS:
         schema_path = output_dir / filename
         schema = model_type.model_json_schema()
         schema_path.write_text(
@@ -64,3 +66,8 @@ def export_phase0_schemas(output_dir: Path) -> list[Path]:
         )
         exported_paths.append(schema_path)
     return exported_paths
+
+
+def export_phase0_schemas(output_dir: Path) -> list[Path]:
+    """Backwards-compatible wrapper for the existing export entrypoint."""
+    return export_schemas(output_dir)

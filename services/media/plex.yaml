@@ -1,0 +1,38 @@
+id: plex
+name: Plex
+category: media
+project_url: https://www.plex.tv/
+icon: plex.svg
+match:
+  image_patterns:
+    - "lscr.io/linuxserver/plex*"
+    - "plexinc/pms-docker*"
+    - "*plex*"
+  container_name_patterns:
+    - "plex*"
+endpoints:
+  web_ui:
+    port: 32400
+    path: /web
+log_signals:
+  errors:
+    - "Playback Error"
+    - "Failed to start transcode session"
+    - "Database corruption"
+  warnings:
+    - "SLOW QUERY"
+    - "Library scan incomplete"
+typical_dependencies:
+  shares:
+    - media
+    - appdata
+common_failure_modes:
+  - trigger: "Failed to start transcode session"
+    likely_cause: "Transcoder dependency or mapped media path is unavailable"
+    check_first:
+      - media share mount
+      - GPU availability
+investigation_context: |
+  Plex serves media libraries and often depends on GPU access for hardware
+  transcoding. Playback failures are commonly caused by missing media paths,
+  exhausted transcoder space, or GPU-related issues.

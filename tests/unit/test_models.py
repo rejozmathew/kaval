@@ -18,6 +18,8 @@ from kaval.models import (
     DependencyEdge,
     DependencySource,
     DescriptorSource,
+    DnsRecordType,
+    DnsTarget,
     Endpoint,
     EndpointProtocol,
     Evidence,
@@ -334,6 +336,13 @@ def test_service_and_operational_memory_contracts_round_trip() -> None:
                 url=None,
                 auth_required=False,
                 expected_status=200,
+            )
+        ],
+        dns_targets=[
+            DnsTarget(
+                host="downloads.example.test",
+                record_type=DnsRecordType.A,
+                expected_values=["192.0.2.10"],
             )
         ],
         dependencies=[

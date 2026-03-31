@@ -1,0 +1,39 @@
+id: pihole
+name: Pi-hole
+category: networking
+project_url: https://pi-hole.net/
+icon: pihole.svg
+match:
+  image_patterns:
+    - "pihole/pihole*"
+    - "*pihole*"
+  container_name_patterns:
+    - "pihole*"
+    - "pi-hole*"
+endpoints:
+  web_ui:
+    port: 80
+    path: /admin/
+dns_targets:
+  - host: pi.hole
+    record_type: A
+log_signals:
+  errors:
+    - "DNS resolution is currently unavailable"
+    - "FTL failed to start"
+    - "gravity database is busy"
+  warnings:
+    - "Rate-limiting"
+    - "Ignoring query from non-local network"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "FTL failed to start"
+    likely_cause: "Pi-hole DNS engine failed during boot"
+    check_first:
+      - container health
+      - mapped configuration volume
+investigation_context: |
+  Pi-hole is often a core DNS dependency for the whole homelab. When it fails,
+  wide DNS symptoms can appear across otherwise healthy services.

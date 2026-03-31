@@ -1,0 +1,78 @@
+{
+  "Id": "def456",
+  "Name": "/delugevpn",
+  "Image": "sha256:img-delugevpn",
+  "RestartCount": 4,
+  "Args": [
+    "start"
+  ],
+  "Config": {
+    "Image": "binhex/arch-delugevpn:latest",
+    "Env": [
+      "VPN_ENABLED=yes",
+      "VPN_USER=hidden",
+      "VPN_PASS=hidden"
+    ],
+    "Labels": {
+      "net.unraid.docker.webui": "http://[IP]:[PORT:8112]/"
+    }
+  },
+  "State": {
+    "Status": "running",
+    "Running": true,
+    "Restarting": false,
+    "ExitCode": 0,
+    "StartedAt": "2026-03-31T13:15:00Z",
+    "FinishedAt": "2026-03-31T13:05:00Z",
+    "Health": {
+      "Status": "unhealthy",
+      "FailingStreak": 3,
+      "Log": [
+        {
+          "Start": "2026-03-31T14:00:00Z",
+          "End": "2026-03-31T14:00:02Z",
+          "ExitCode": 1,
+          "Output": "VPN tunnel inactive"
+        }
+      ]
+    }
+  },
+  "Mounts": [
+    {
+      "Type": "bind",
+      "Source": "/mnt/user/appdata/delugevpn",
+      "Destination": "/config",
+      "Mode": "rw",
+      "RW": true
+    },
+    {
+      "Type": "bind",
+      "Source": "/mnt/user/downloads",
+      "Destination": "/downloads",
+      "Mode": "rw",
+      "RW": true
+    }
+  ],
+  "NetworkSettings": {
+    "Networks": {
+      "bridge": {
+        "NetworkID": "network-1",
+        "EndpointID": "endpoint-2",
+        "Gateway": "172.17.0.1",
+        "IPAddress": "172.17.0.11",
+        "Aliases": [
+          "delugevpn"
+        ]
+      }
+    },
+    "Ports": {
+      "8112/tcp": [
+        {
+          "HostIp": "0.0.0.0",
+          "HostPort": "8112"
+        }
+      ],
+      "58846/tcp": null
+    }
+  }
+}

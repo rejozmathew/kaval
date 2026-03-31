@@ -1,0 +1,34 @@
+id: mariadb
+name: MariaDB
+category: databases
+project_url: https://mariadb.org/
+icon: mariadb.svg
+match:
+  image_patterns:
+    - "mariadb*"
+    - "linuxserver/mariadb*"
+    - "*mariadb*"
+  container_name_patterns:
+    - "mariadb*"
+    - "mysql*"
+log_signals:
+  errors:
+    - "InnoDB: Unable to lock"
+    - "Access denied for user"
+    - "Table is marked as crashed"
+  warnings:
+    - "Aborted connection"
+    - "Too many connections"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "Access denied for user"
+    likely_cause: "Database credentials changed or were misconfigured"
+    check_first:
+      - consuming service credentials
+      - recent config changes
+investigation_context: |
+  MariaDB is a common backend dependency for services like Nextcloud and
+  Authentik. Database availability issues usually cascade into higher-level
+  application failures.

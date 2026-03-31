@@ -1,0 +1,80 @@
+{
+  "Id": "abc123",
+  "Name": "/radarr",
+  "Image": "sha256:img-radarr",
+  "RestartCount": 2,
+  "Args": [
+    "run",
+    "--nobrowser"
+  ],
+  "Config": {
+    "Image": "lscr.io/linuxserver/radarr:latest",
+    "Env": [
+      "PUID=99",
+      "PGID=100",
+      "TZ=America/Chicago",
+      "API_KEY=super-secret"
+    ],
+    "Labels": {
+      "net.unraid.docker.webui": "http://[IP]:[PORT:7878]/",
+      "com.docker.compose.service": "radarr"
+    }
+  },
+  "State": {
+    "Status": "running",
+    "Running": true,
+    "Restarting": false,
+    "ExitCode": 0,
+    "StartedAt": "2026-03-31T13:10:00Z",
+    "FinishedAt": "2026-03-31T13:05:00Z",
+    "Health": {
+      "Status": "healthy",
+      "FailingStreak": 0,
+      "Log": [
+        {
+          "Start": "2026-03-31T14:00:00Z",
+          "End": "2026-03-31T14:00:01Z",
+          "ExitCode": 0,
+          "Output": "OK"
+        }
+      ]
+    }
+  },
+  "Mounts": [
+    {
+      "Type": "bind",
+      "Source": "/mnt/user/appdata/radarr",
+      "Destination": "/config",
+      "Mode": "rw",
+      "RW": true
+    },
+    {
+      "Type": "bind",
+      "Source": "/mnt/user/media",
+      "Destination": "/media",
+      "Mode": "ro",
+      "RW": false
+    }
+  ],
+  "NetworkSettings": {
+    "Networks": {
+      "bridge": {
+        "NetworkID": "network-1",
+        "EndpointID": "endpoint-1",
+        "Gateway": "172.17.0.1",
+        "IPAddress": "172.17.0.10",
+        "Aliases": [
+          "radarr"
+        ]
+      }
+    },
+    "Ports": {
+      "7878/tcp": [
+        {
+          "HostIp": "0.0.0.0",
+          "HostPort": "7878"
+        }
+      ]
+    }
+  }
+}

@@ -3,9 +3,9 @@
 ## Project
 - Name: Kaval
 - PRD version: 4.1
-- Current phase: Phase 0
-- Current task: Phase 0 complete
-- Overall status: complete
+- Current phase: Phase 1
+- Current task: Phase 1 exit verification pending
+- Overall status: in progress
 
 ## Phase gates
 - [x] Phase 0 complete
@@ -54,9 +54,179 @@
 - Expanded `README.md` into a bootstrap document that explains the product shape, Core/Executor boundary, current Phase 0 scope, validation commands, and Docker startup path.
 - Added `CHANGELOG.md` in append-only Keep a Changelog format with the initial Phase 0 foundation entry.
 - Reviewed the README, changelog, and ADR set for consistency with `docs/prd.md` and `plans/phase-0.md`; no contract contradictions were found.
+- 2026-03-31: Completed P1-01 Unraid API discovery.
+- Added `src/kaval/discovery/unraid.py` with a read-only Unraid GraphQL client, typed discovery snapshot models, GraphQL error handling, and a deterministic discovery query covering system info, array state, containers, VMs, shares, and plugins.
+- Added fixture-backed test coverage in `tests/unit/test_unraid_discovery.py`, `tests/integration/test_unraid_discovery_client.py`, and `tests/fixtures/unraid/` to verify snapshot parsing, GraphQL error handling, `x-api-key` request construction, and end-to-end discovery loading.
+- Files changed: `src/kaval/discovery/unraid.py`, `tests/unit/test_unraid_discovery.py`, `tests/integration/test_unraid_discovery_client.py`, `tests/fixtures/unraid/discovery_response.json`, `tests/fixtures/unraid/graphql_error_response.json`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: initial validation exposed a duplicate pytest module basename and a small `ruff` cleanup in the new client; both were fixed before the final validation pass. No remaining blocker.
+- Next task: P1-02 Docker API discovery.
+- 2026-03-31: Completed P1-02 Docker API discovery.
+- Added `src/kaval/discovery/docker.py` with a read-only Docker HTTP client, typed inspect/image snapshot models, environment-name redaction, and discovery logic for networks, mounts, ports, health state, restart counts, labels, and image metadata.
+- Added fixture-backed test coverage in `tests/unit/test_docker_discovery.py`, `tests/integration/test_docker_discovery_client.py`, and `tests/fixtures/docker/` to verify versioned request paths, inspect/image parsing, HTTP-only request behavior, and end-to-end discovery snapshot loading.
+- Files changed: `src/kaval/discovery/docker.py`, `tests/unit/test_docker_discovery.py`, `tests/integration/test_docker_discovery_client.py`, `tests/fixtures/docker/container_list_response.json`, `tests/fixtures/docker/container_inspect_abc123.json`, `tests/fixtures/docker/container_inspect_def456.json`, `tests/fixtures/docker/image_inspect_sha256_img-radarr.json`, `tests/fixtures/docker/image_inspect_sha256_img-delugevpn.json`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: initial validation exposed one line-wrap issue and one unused import in the new Docker discovery files; both were fixed before the final validation pass. No remaining blocker.
+- Next task: P1-03 Service descriptor schema + loader.
+- 2026-03-31: Completed P1-03 Service descriptor schema + loader.
+- Added `src/kaval/discovery/descriptors.py` with strict Pydantic-backed YAML descriptor models, recursive loader utilities, duplicate-ID detection, and on-disk descriptor file discovery for the existing `services/` tree.
+- Extended schema export and contract coverage so `schemas/service_descriptor.json` is checked in and validated by `tests/contract/test_schemas.py`, and added `tests/unit/test_service_descriptors.py` plus a descriptor fixture under `tests/fixtures/descriptors/`.
+- Files changed: `src/kaval/discovery/descriptors.py`, `src/kaval/schema_export.py`, `schemas/service_descriptor.json`, `tests/contract/test_schemas.py`, `tests/unit/test_service_descriptors.py`, `tests/fixtures/descriptors/radarr.yaml`, `pyproject.toml`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: initial validation exposed missing `PyYAML` type stubs during `mypy`; the loader import is now explicitly marked untyped and no blocker remains.
+- Next task: P1-04 Write 15 shipped service descriptors.
+- 2026-03-31: Completed doc-only Phase 1 consistency patch.
+- Updated `plans/phase-1.md` to follow PRD v4.1 exactly for Phase 1 ordering and dependencies: `P1-04` is now `Write 15 shipped service descriptors`, `P1-05` is `Dependency graph with edge confidence`, and the standalone `P1-04 Service matcher` task was removed.
+- Recorded in the plan that matcher behavior is part of the service descriptor subsystem and may be completed within `P1-03` and `P1-04` without a separate task ID.
+- Files changed: `plans/phase-1.md`, `STATUS.md`.
+- Validations run: not run for this doc-only consistency patch.
+- Failures/blockers: resolved the P1-04 PRD vs phase-plan ordering conflict by aligning the phase plan to PRD v4.1.
+- Next task: P1-04 Write 15 shipped service descriptors.
+- 2026-03-31: Completed P1-04 Write 15 shipped service descriptors.
+- Added 15 shipped service descriptors under `services/` covering Plex, Jellyfin, Radarr, Sonarr, Prowlarr, DelugeVPN, qBittorrent, Nginx Proxy Manager, cloudflared, Pi-hole, Authentik, Nextcloud, Home Assistant, Uptime Kuma, and MariaDB with real image/container match patterns plus basic endpoints, log signals, dependency hints, and failure-mode context.
+- Added `tests/contract/test_service_descriptors.py` to load the real `services/` tree, verify the shipped catalog count and IDs, and keep the shipped descriptors out of `auto_generated/`.
+- Files changed: `services/media/plex.yaml`, `services/media/jellyfin.yaml`, `services/arr/radarr.yaml`, `services/arr/sonarr.yaml`, `services/arr/prowlarr.yaml`, `services/downloads/delugevpn.yaml`, `services/downloads/qbittorrent.yaml`, `services/networking/nginx_proxy_manager.yaml`, `services/networking/cloudflared.yaml`, `services/networking/pihole.yaml`, `services/identity/authentik.yaml`, `services/cloud/nextcloud.yaml`, `services/automation/home_assistant.yaml`, `services/monitoring/uptime_kuma.yaml`, `services/databases/mariadb.yaml`, `tests/contract/test_service_descriptors.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P1-05 Dependency graph with edge confidence.
+- 2026-03-31: Completed P1-05 Dependency graph with edge confidence.
+- Added `src/kaval/discovery/matcher.py` and `src/kaval/discovery/dependency_mapper.py` to match Docker containers against shipped descriptors, materialize typed `Service` records, create share service nodes, and build dependency edges with explicit `inferred` versus `configured` confidence based on descriptor hints plus corroborating Docker network or share-mount evidence.
+- Added `tests/unit/test_service_matcher.py` and `tests/unit/test_dependency_mapper.py` to verify descriptor selection, service materialization, descriptor-to-container edges, share edges, and Docker-network upgrades to configured confidence.
+- Files changed: `src/kaval/discovery/matcher.py`, `src/kaval/discovery/dependency_mapper.py`, `tests/unit/test_service_matcher.py`, `tests/unit/test_dependency_mapper.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: initial validation exposed `ruff` import-order and line-wrap issues only; they were fixed before the final validation pass.
+- Next task: P1-06 Check framework + scheduler.
+- 2026-03-31: Completed P1-06 Check framework + scheduler.
+- Added `src/kaval/monitoring/checks/base.py` and `src/kaval/monitoring/scheduler.py` with a typed deterministic check context, reusable finding-construction helper, in-memory due-check scheduler, and a persistence helper that writes scheduled findings into the existing SQLite store.
+- Added `tests/unit/test_scheduler.py` and `tests/integration/test_scheduler_persistence.py` to verify deterministic execution order, interval gating, duplicate registration rejection, and persistence of scheduled findings into SQLite.
+- Files changed: `src/kaval/monitoring/checks/base.py`, `src/kaval/monitoring/scheduler.py`, `tests/unit/test_scheduler.py`, `tests/integration/test_scheduler_persistence.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: one `ruff` cleanup plus one mistyped local validation command path were corrected before the final validation pass; no remaining blocker.
+- Next task: P1-07 Container health check.
+- 2026-03-31: Completed P1-07 Container health check.
+- Added `src/kaval/monitoring/checks/container_health.py` with a typed, deterministic Docker-state check that emits findings only for unhealthy, restarting, paused/created, or stopped/exited containers and includes structured API evidence for observed state, health, and restart count.
+- Added `tests/unit/test_container_health_check.py` and `tests/integration/test_container_health_scheduler.py` to verify healthy-container suppression, high-severity findings for unhealthy or exited services, and scheduler-compatible execution against the existing Docker fixture snapshots.
+- Files changed: `src/kaval/monitoring/checks/container_health.py`, `tests/unit/test_container_health_check.py`, `tests/integration/test_container_health_scheduler.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: initial type-check validation exposed missing explicit annotations in the new check helpers; they were added before the final validation pass. No remaining blocker.
+- Next task: P1-08 Restart storm detection.
+- 2026-03-31: Completed P1-08 Restart storm detection.
+- Added `src/kaval/monitoring/checks/restart_storm.py` with a typed, deterministic restart-frequency check that baselines Docker restart counters per service and emits a high-severity finding only when the counter jumps by the configured threshold inside a bounded observation window.
+- Added `tests/unit/test_restart_storm_check.py` and `tests/integration/test_restart_storm_scheduler.py` to verify baseline suppression, threshold-based restart storm detection, small-delta suppression, and scheduler-compatible execution across repeated observations.
+- Files changed: `src/kaval/monitoring/checks/restart_storm.py`, `tests/unit/test_restart_storm_check.py`, `tests/integration/test_restart_storm_scheduler.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P1-09 Endpoint probe check.
+- 2026-03-31: Completed P1-09 Endpoint probe check.
+- Added `src/kaval/monitoring/checks/endpoint_probe.py` with a typed, read-only HTTP/HTTPS endpoint probe check that evaluates service endpoints materialized from the descriptor-backed service graph, skips auth-required endpoints that would create false positives in Phase 1, and emits structured probe evidence for connection failures or unhealthy HTTP responses.
+- Added `tests/unit/test_endpoint_probe_check.py` and `tests/integration/test_endpoint_probe_scheduler.py` to verify non-auth endpoint selection, transport-failure findings, unhealthy-status findings, and scheduler-compatible execution with an injected deterministic probe transport.
+- Files changed: `src/kaval/monitoring/checks/endpoint_probe.py`, `tests/unit/test_endpoint_probe_check.py`, `tests/integration/test_endpoint_probe_scheduler.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: an initial full-validation pass exposed one `ruff` import-order issue in the new probe module; it was fixed before the final validation pass. No remaining blocker.
+- Next task: P1-10 TLS cert check.
+- 2026-03-31: Completed P1-10 TLS cert check.
+- Added `src/kaval/monitoring/checks/tls_cert.py` with a typed, deterministic TLS certificate check that inspects HTTPS endpoints only, fetches certificate metadata with the standard-library `ssl` module, and emits expiry or certificate-retrieval findings using explicit `7-day` warning and `1-day` critical thresholds from the PRD.
+- Added `tests/unit/test_tls_cert_check.py` and `tests/integration/test_tls_cert_scheduler.py` to verify HTTPS-only selection, expired and near-expiry threshold behavior, long-lived certificate suppression, and scheduler-compatible execution through an injected deterministic certificate fetcher.
+- Files changed: `src/kaval/monitoring/checks/tls_cert.py`, `tests/unit/test_tls_cert_check.py`, `tests/integration/test_tls_cert_scheduler.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: initial validation exposed one `ruff` import-order issue in the new TLS module; it was fixed before the final validation pass. No remaining blocker.
+- Next task: P1-11 DNS resolution check.
+- 2026-03-31: Completed doc-only control patch for CR-0001 DNS target source.
+- Updated `plans/phase-1.md` to state that `P1-11` authoritative DNS targets come from optional descriptor/service DNS metadata, not from `P1-18 System profile`.
+- Updated `STATUS.md` to resolve the `P1-11` blocker, record `CR-0001` as the authoritative approved decision for this issue, and keep the active task at `P1-11 DNS resolution check`.
+- Files changed: `plans/phase-1.md`, `STATUS.md`.
+- Validations run: not run for this doc-only control patch.
+- Failures/blockers: resolved the `P1-11` DNS target source blocker via approved `CR-0001`.
+- Next task: P1-11 DNS resolution check.
+- 2026-03-31: Completed P1-11 DNS resolution check.
+- Added typed optional `dns_targets` metadata to descriptor and service contracts, materialized that metadata during service matching, and implemented `src/kaval/monitoring/checks/dns_resolution.py` so Phase 1 DNS checks validate only explicitly declared targets and skip all other services.
+- Added narrow shipped DNS metadata to `services/networking/pihole.yaml`, supporting a deterministic A-record presence check for `pi.hole`, and added unit/integration/contract coverage for descriptor loading, service materialization, DNS findings, and checked-in schema updates.
+- Files changed: `src/kaval/models.py`, `src/kaval/discovery/descriptors.py`, `src/kaval/discovery/matcher.py`, `src/kaval/monitoring/checks/dns_resolution.py`, `services/networking/pihole.yaml`, `schemas/service.json`, `schemas/service_descriptor.json`, `tests/unit/test_models.py`, `tests/unit/test_database.py`, `tests/unit/test_service_descriptors.py`, `tests/unit/test_service_matcher.py`, `tests/unit/test_dns_resolution_check.py`, `tests/integration/test_dns_resolution_scheduler.py`, `tests/contract/test_schemas.py`, `tests/contract/test_service_descriptors.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P1-12 Unraid system checks.
+- 2026-03-31: Completed P1-12 Unraid system checks.
+- Added `src/kaval/monitoring/checks/unraid_system.py` with a typed, read-only Unraid system check that evaluates the existing discovery snapshot for degraded array state, non-healthy disk status, and near-capacity shares without introducing new Unraid privileges or speculative discovery expansions.
+- Added `tests/unit/test_unraid_system_check.py` and `tests/integration/test_unraid_system_scheduler.py` to verify healthy-snapshot suppression, degraded array/disk findings, share-capacity threshold findings, and scheduler-compatible execution against the existing Unraid fixture surface.
+- Files changed: `src/kaval/monitoring/checks/unraid_system.py`, `tests/unit/test_unraid_system_check.py`, `tests/integration/test_unraid_system_scheduler.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P1-13 VM health check.
+- 2026-03-31: Completed P1-13 VM health check.
+- Extended `src/kaval/discovery/dependency_mapper.py` to materialize stable VM service nodes from the existing Unraid discovery snapshot, then added `src/kaval/monitoring/checks/vm_health.py` with a typed, read-only VM health check that emits findings for non-running VM states and probes hosted services only when explicit HTTP/HTTPS endpoints already exist on VM service records.
+- Added `tests/unit/test_vm_health_check.py`, `tests/integration/test_vm_health_scheduler.py`, and expanded `tests/unit/test_dependency_mapper.py` so Phase 1 now covers VM-node materialization, healthy VM suppression, paused/stopped VM findings, opt-in hosted-service probe failures, and scheduler-compatible execution.
+- Files changed: `src/kaval/discovery/dependency_mapper.py`, `src/kaval/monitoring/checks/vm_health.py`, `tests/unit/test_dependency_mapper.py`, `tests/unit/test_vm_health_check.py`, `tests/integration/test_vm_health_scheduler.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P1-14 Log pattern check.
+- 2026-03-31: Completed P1-14 Log pattern check.
+- Extended `src/kaval/discovery/docker.py` with a minimal read-only recent-log fetch path, then added `src/kaval/monitoring/checks/log_pattern.py` with a typed deterministic log-pattern check that matches shipped descriptor `log_signals` against recent container logs and emits structured findings for matched error and warning signals only.
+- Added `tests/unit/test_log_pattern_check.py`, `tests/integration/test_log_pattern_scheduler.py`, updated `tests/integration/test_docker_discovery_client.py`, and added `tests/fixtures/docker/container_logs_def456.txt` so Phase 1 now has fixture-backed coverage for Docker log retrieval, clean-log suppression, matched descriptor patterns, and scheduler-compatible execution.
+- Files changed: `src/kaval/discovery/docker.py`, `src/kaval/monitoring/checks/log_pattern.py`, `tests/unit/test_log_pattern_check.py`, `tests/integration/test_log_pattern_scheduler.py`, `tests/integration/test_docker_discovery_client.py`, `tests/fixtures/docker/container_logs_def456.txt`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P1-15 Change detection + tracker.
+- 2026-03-31: Completed P1-15 Change detection + tracker.
+- Added `src/kaval/change_tracker.py` with a typed Docker-backed change tracker that baselines prior container observations and emits deterministic `Change` records for image updates and restart-count increases, while optionally attaching `service_id` values when the service graph is available.
+- Added `tests/unit/test_change_tracker.py` and `tests/integration/test_change_tracker_persistence.py` to verify initial-baseline suppression, image-update detection, restart detection without a service graph, and persistence of emitted change events into the existing SQLite `changes` table.
+- Files changed: `src/kaval/change_tracker.py`, `tests/unit/test_change_tracker.py`, `tests/integration/test_change_tracker_persistence.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P1-16 Dependency chain check.
+- 2026-03-31: Completed P1-16 Dependency chain check.
+- Added `src/kaval/monitoring/checks/dependency_chain.py` with a typed deterministic dependency-chain validator that walks the existing service graph and emits downstream findings when configured or inferred upstream dependencies are down, stopped, or degraded, while ignoring healthy and unknown-only edges.
+- Added `tests/unit/test_dependency_chain_check.py` and `tests/integration/test_dependency_chain_scheduler.py` to verify configured-versus-inferred confidence handling, high-versus-medium severity based on upstream status, healthy/unknown suppression, and scheduler-compatible execution against the real descriptor-backed service graph.
+- Files changed: `src/kaval/monitoring/checks/dependency_chain.py`, `tests/unit/test_dependency_chain_check.py`, `tests/integration/test_dependency_chain_scheduler.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P1-17 Incident manager.
+- 2026-03-31: Completed P1-17 Incident manager.
+- Added `src/kaval/incident_manager.py` with a typed database-backed incident manager that persists incoming findings, regroups active findings with the Phase 0 grouping rules, creates or updates incidents, dismisses superseded duplicate incidents when groups collapse, and keeps grouped findings linked to the chosen incident without introducing investigation behavior early.
+- Added `tests/unit/test_incident_manager.py` and `tests/integration/test_incident_manager_flow.py` to verify incident construction, incident updates across grouped findings, and the end-to-end database flow where related findings persist into one shared incident with grouped finding state.
+- Files changed: `src/kaval/incident_manager.py`, `tests/unit/test_incident_manager.py`, `tests/integration/test_incident_manager_flow.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P1-18 System profile (Operational Memory).
+- 2026-03-31: Completed P1-18 System profile (Operational Memory).
+- Added `src/kaval/system_profile.py` with a typed Layer 1 system-profile builder that materializes factual hardware, storage, networking-role, service-summary, and VM entries from the current Unraid and Docker discovery surfaces and persists the singleton profile through the existing SQLite operational-memory record.
+- Added `tests/unit/test_system_profile.py` and `tests/integration/test_system_profile_persistence.py` to verify fixture-backed profile construction, explicit fallback handling for currently undiscoverable VM purpose fields, and round-trip persistence through `KavalDatabase.get_system_profile()`.
+- Files changed: `src/kaval/system_profile.py`, `tests/unit/test_system_profile.py`, `tests/integration/test_system_profile_persistence.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: none.
+- Next task: P1-19 FastAPI application.
+- 2026-03-31: Completed P1-19 FastAPI application.
+- Added `src/kaval/api/app.py` and `src/kaval/api/schemas.py` with a typed FastAPI app factory, `/healthz`, and read-only Phase 1 endpoints for services, findings, incidents, investigations, changes, graph, system profile, and widget summary over the existing SQLite-backed monitoring state.
+- Extended `src/kaval/database.py` with list helpers for services, investigations, and changes, and added `tests/integration/test_fastapi_app.py` plus updated `tests/unit/test_database.py` so endpoint behavior and supporting read helpers are validated against seeded temporary databases.
+- Files changed: `pyproject.toml`, `src/kaval/api/__init__.py`, `src/kaval/api/app.py`, `src/kaval/api/schemas.py`, `src/kaval/database.py`, `tests/integration/test_fastapi_app.py`, `tests/unit/test_database.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: focused validation initially exposed one FastAPI lifespan typing annotation issue and one import-order cleanup in the new API integration test; both were fixed before the final validation pass. No remaining blocker.
+- Next task: P1-20 CLI.
+- 2026-03-31: Completed P1-20 CLI.
+- Added `src/kaval/cli/app.py`, `src/kaval/cli/__main__.py`, and the `kaval` console-script entry point so the Phase 1 state is visible through `kaval status`, `kaval findings`, and `kaval incidents` without adding any new production dependency beyond the existing standard library.
+- Added `tests/integration/test_cli.py` to verify summary output plus persisted finding and incident listing against seeded temporary SQLite state, and updated `src/kaval/cli/__init__.py` and `pyproject.toml` to export the command entry point cleanly.
+- Files changed: `pyproject.toml`, `src/kaval/cli/__init__.py`, `src/kaval/cli/__main__.py`, `src/kaval/cli/app.py`, `tests/integration/test_cli.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
+- Failures/blockers: focused validation initially exposed one line-wrap issue in the new CLI summary output and one import-order cleanup in the new CLI integration test; both were fixed before the final validation pass. No remaining blocker.
+- Next task: P1-21 React service map UI.
+- 2026-03-31: Completed P1-21 React service map UI.
+- Replaced the frontend placeholder under `src/web/` with a small React + TypeScript + Vite application that fetches the Phase 1 graph, incidents, and widget summary, renders a responsive SVG-based service map plus incident feed, and builds into `src/web/dist`.
+- Updated `src/kaval/api/app.py` so the FastAPI app serves built frontend assets when a `dist/` directory is present, and added `tests/integration/test_fastapi_app.py` coverage for that static mount path in addition to the existing API endpoints.
+- Files changed: `src/kaval/api/app.py`, `tests/integration/test_fastapi_app.py`, `src/web/package.json`, `src/web/package-lock.json`, `src/web/index.html`, `src/web/tsconfig.json`, `src/web/tsconfig.node.json`, `src/web/vite.config.ts`, `src/web/src/main.tsx`, `src/web/src/App.tsx`, `src/web/src/styles.css`, `src/web/src/types.ts`, `src/web/src/vite-env.d.ts`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`, and `npm run build` in `src/web` all passed.
+- Failures/blockers: frontend setup initially failed because `npm` tried to write cache state to the read-only home directory, then the first builds exposed TypeScript config issues for TypeScript 6/Vite and one tuple-typing error in the graph layout helper; these were fixed by using a writable `/tmp` cache, adding the required Node typing/config, and tightening the helper annotation before the final validation pass. No remaining blocker.
+- Next task: P1-22 WebSocket real-time updates.
+- 2026-03-31: Completed P1-22 WebSocket real-time updates.
+- Added a typed `/api/v1/ws` WebSocket endpoint that streams the latest Phase 1 UI snapshot on connect and re-sends only when persisted services, incidents, findings, or widget state change, keeping the implementation read-only by polling SQLite instead of introducing a heavier event bus.
+- Updated the React UI to consume those live snapshots and surface a connection-state badge in the service-map panel, and extended `tests/integration/test_fastapi_app.py` with initial-snapshot and changed-state WebSocket coverage.
+- Files changed: `src/kaval/api/app.py`, `src/kaval/api/schemas.py`, `tests/integration/test_fastapi_app.py`, `src/web/src/App.tsx`, `src/web/src/types.ts`, `src/web/src/styles.css`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`, and `npm run build` in `src/web` all passed.
+- Failures/blockers: none.
+- Next task: Phase 1 exit verification on a real Unraid environment.
 
 ## Current focus
-- Phase 0 exit criteria are satisfied. Hold Phase 1 work until the next execution request.
+- All planned Phase 1 implementation tasks (`P1-01` through `P1-22`) are complete.
+- Phase 1 exit verification is still pending before the phase gate can be marked complete, because the plan requires fresh-install behavior on a real Unraid server and that was not exercised in this workspace.
+- Approved `CR-0001` remains the authoritative control decision for DNS targeting in Phase 1: `P1-11` used optional descriptor/service DNS metadata, not `P1-18 System profile`.
 
 ## Decisions log
 - 2026-03-30: PRD v4.1 accepted as implementation-ready product spec.
@@ -72,21 +242,45 @@
 - 2026-03-30: Draft Docker assets for P0-08 were prepared locally. Static validation now confirms `docker compose config` succeeds, but runtime validation remains blocked by daemon permissions.
 - 2026-03-31: The containerized Core runtime must receive `migrations_dir=Path('/app/migrations')` explicitly because the package-install location inside the image does not preserve the repo-relative path assumptions used by local execution.
 - 2026-03-31: The initial ADR set, checked-in schemas, and manual docs review now establish the Phase 0 frozen interfaces as stable enough to support Phase 1 parallel work when requested.
+- 2026-03-31: P1-01 uses the documented Unraid GraphQL `x-api-key` request header for the initial read-only discovery client and keeps the Phase 0 Core↔Executor trust boundary unchanged.
+- 2026-03-31: Repo-local validation in this shell requires `PYTHONPATH` to include `.pkg/local/lib/python3.12/dist-packages` so the existing `.pkg/local/bin/*` wrappers resolve their installed packages consistently.
+- 2026-03-31: P1-02 keeps Docker discovery HTTP-only and optional `x-api-key` protected so Core can inspect container metadata without introducing `docker.sock` or host-level privilege.
+- 2026-03-31: Added `PyYAML` as a production dependency because the PRD’s service descriptor library is YAML-based and P1-03 now loads shipped descriptors from disk under strict schema validation.
+- 2026-03-31: Resolved the P1-04 planning conflict by aligning `plans/phase-1.md` to PRD v4.1; Phase 1 task ordering now treats shipped descriptors as `P1-04`, with matcher behavior remaining inside the descriptor subsystem rather than a separate task ID.
+- 2026-03-31: P1-05 keeps dependency confidence conservative by treating descriptor hints as `inferred` edges and only upgrading them to `configured` when Docker discovery corroborates the relationship via non-default networks or mounted Unraid share paths.
+- 2026-03-31: P1-06 keeps the monitoring substrate read-only and deterministic: checks return `Finding` models, the scheduler enforces intervals in-memory, and persistence reuses the existing SQLite store without introducing incident or action behavior early.
+- 2026-03-31: P1-07 interprets Docker-reported state directly and keeps health evaluation deterministic by emitting findings from explicit container status, restart, and health signals rather than inferred heuristics.
+- 2026-03-31: P1-08 treats restart storms as restart-counter spikes between observations, using an in-memory baseline per service so the check stays deterministic and read-only without depending on later change-tracking infrastructure.
+- 2026-03-31: P1-09 probes only non-auth HTTP/HTTPS endpoints declared on `Service` records, keeping endpoint checks descriptor-driven and avoiding false positives from credential-gated health APIs before credential-vault features exist.
+- 2026-03-31: P1-10 uses explicit PRD-backed certificate thresholds (`7`-day warning, `1`-day critical) and keeps TLS inspection local and deterministic by reading certificate metadata directly rather than depending on later investigation workflows.
+- 2026-03-31: `CR-0001` is the authoritative approved delta for `P1-11`: DNS targets come from optional descriptor/service DNS metadata materialized during Phase 1, and `P1-18 System profile` is not a prerequisite.
+- 2026-03-31: P1-11 keeps DNS checks narrowly deterministic by validating only explicit descriptor/service DNS targets and currently limits shipped coverage to A-record presence checks needed by the Phase 1 descriptor catalog.
+- 2026-03-31: P1-12 keeps Unraid system checks limited to the current discovery surface: array state, disk status, and share-capacity signals are monitored deterministically, while deeper SMART and cache-pool health remain future discovery-surface expansions if needed.
+- 2026-03-31: P1-13 materializes VM service nodes from the Unraid snapshot and keeps hosted-service reachability strictly opt-in by probing only explicit VM endpoints already present on `Service` records, avoiding any dependency on later system-profile or inventory surfaces.
+- 2026-03-31: P1-14 keeps log pattern monitoring descriptor-driven and read-only by adding only a minimal recent-log fetch to the existing Docker adapter and matching shipped `log_signals` against recent container logs without introducing broader evidence-gathering workflows early.
+- 2026-03-31: P1-15 keeps the Phase 1 change timeline narrowly deterministic by tracking Docker image-id/ref changes and restart-count increases between snapshots, while deferring broader config-drift heuristics until a later task explicitly requires them.
+- 2026-03-31: P1-16 treats dependency-chain validation as a graph-state check only: downstream findings are emitted from explicit dependency edges plus current upstream service status, without reaching into later incident or investigation workflows.
+- 2026-03-31: P1-17 keeps incident management in Phase 1 focused on grouping and lifecycle orchestration only: active findings are regrouped against the stable graph rules, one primary incident is retained per group, and no investigation or notification side effects are introduced yet.
+- 2026-03-31: P1-18 writes the frozen Layer 1 system profile from current discovery facts only; fields the current discovery surface does not expose, such as VM purpose, are stored with explicit stable fallbacks rather than changing the Phase 0 Operational Memory contract.
+- 2026-03-31: Added `fastapi` as a production dependency because P1-19 requires a typed read-only HTTP application that exposes the Phase 1 monitoring state without introducing action or remediation behavior early.
+- 2026-03-31: Added the frontend dependencies `react`, `react-dom`, `vite`, `typescript`, `@vitejs/plugin-react`, `@types/react`, `@types/react-dom`, and `@types/node` under `src/web/package.json` because P1-21 requires a buildable React service-map UI that consumes the Phase 1 API and can be served by the FastAPI application once built.
+- 2026-03-31: P1-22 keeps real-time updates read-only and phase-appropriate by streaming full UI snapshots from the existing SQLite state over WebSocket polling, avoiding executor hooks, mutation paths, or speculative event infrastructure.
 
 ## Open blockers
-- None yet.
+- None currently.
 
 ## Next 3 tasks
-1. Phase 1 planning hold
-2. P1-01 Unraid GraphQL client
-3. P1-02 Docker adapter (read-only)
+1. Phase 1 exit verification on a real Unraid environment
+2. Phase 2 planning hold
+3. No further implementation until the Phase 1 gate is reviewed
 
 ## Validation snapshots
 - lint: `ruff check .` passed via `.pkg/local/bin/ruff`
 - typecheck: `mypy src` passed via `.pkg/local/bin/mypy`
-- tests: `python -m pytest` passed via repo-local Python path and prefix install (`19 passed`)
-- contract tests: `tests/contract/test_schemas.py` passed
+- tests: `pytest tests/unit tests/integration` passed via repo-local Python path and prefix install (`93 passed`)
+- contract tests: `pytest tests/contract` passed (`5 passed`)
 - scenario tests: `tests/integration/test_mock_pipeline.py` passed as the Phase 0 proof-of-life scenario
+- frontend: `npm run build` passed in `src/web`
 - docs review: `README.md`, `CHANGELOG.md`, and all 13 ADRs reviewed against `docs/prd.md` and `plans/phase-0.md`
 - docker:
 - `docker --version` passed

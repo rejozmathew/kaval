@@ -171,6 +171,10 @@ class KavalDatabase:
         """Fetch an investigation by identifier."""
         return self._get_record("investigations", "id", investigation_id, Investigation)
 
+    def list_investigations(self) -> list[Investigation]:
+        """List investigations ordered by start time and identifier."""
+        return self._list_records("investigations", "started_at, id", Investigation)
+
     def delete_investigation(self, investigation_id: str) -> None:
         """Delete an investigation by identifier."""
         self._delete_record("investigations", "id", investigation_id)
@@ -193,6 +197,10 @@ class KavalDatabase:
         """Fetch a service by identifier."""
         return self._get_record("services", "id", service_id, Service)
 
+    def list_services(self) -> list[Service]:
+        """List services ordered by type and identifier."""
+        return self._list_records("services", "type, id", Service)
+
     def delete_service(self, service_id: str) -> None:
         """Delete a service by identifier."""
         self._delete_record("services", "id", service_id)
@@ -214,6 +222,10 @@ class KavalDatabase:
     def get_change(self, change_id: str) -> Change | None:
         """Fetch a change by identifier."""
         return self._get_record("changes", "id", change_id, Change)
+
+    def list_changes(self) -> list[Change]:
+        """List changes ordered by timestamp and identifier."""
+        return self._list_records("changes", "timestamp, id", Change)
 
     def delete_change(self, change_id: str) -> None:
         """Delete a change by identifier."""

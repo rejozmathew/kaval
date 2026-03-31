@@ -1,4 +1,4 @@
-"""Contract tests for Phase 0 JSON schemas."""
+"""Contract tests for repository JSON schemas."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 
 from jsonschema.validators import validator_for
 
+from kaval.discovery.descriptors import ServiceDescriptor
 from kaval.models import (
     ActionType,
     ApprovalToken,
@@ -15,6 +16,8 @@ from kaval.models import (
     Change,
     ChangeType,
     DescriptorSource,
+    DnsRecordType,
+    DnsTarget,
     Endpoint,
     EndpointProtocol,
     Evidence,
@@ -61,7 +64,7 @@ from kaval.models import (
     UserNote,
     VMProfile,
 )
-from kaval.schema_export import PHASE0_SCHEMA_MODELS, export_phase0_schemas
+from kaval.schema_export import SCHEMA_MODELS, export_schemas
 
 SCHEMAS_DIR = Path(__file__).resolve().parents[2] / "schemas"
 
@@ -229,6 +232,13 @@ def build_service() -> Service:
                 expected_status=200,
             )
         ],
+        dns_targets=[
+            DnsTarget(
+                host="downloads.example.test",
+                record_type=DnsRecordType.A,
+                expected_values=["192.0.2.10"],
+            )
+        ],
         dependencies=[],
         dependents=["svc-radarr", "svc-sonarr"],
         last_check=ts(14, 24),
@@ -338,6 +348,70 @@ def build_approval_token() -> ApprovalToken:
     )
 
 
+def build_service_descriptor() -> ServiceDescriptor:
+    """Create a reusable service descriptor sample."""
+    return ServiceDescriptor(
+        id="radarr",
+        name="Radarr",
+        category="arr",
+        project_url="https://radarr.video",
+        icon="radarr.svg",
+        match={
+            "image_patterns": [
+                "lscr.io/linuxserver/radarr*",
+                "hotio/radarr*",
+                "*radarr*",
+            ],
+            "container_name_patterns": ["radarr*"],
+        },
+        endpoints={
+            "web_ui": {"port": 7878, "path": "/"},
+            "health_api": {
+                "port": 7878,
+                "path": "/api/v3/health",
+                "auth": "api_key",
+                "auth_header": "X-Api-Key",
+                "healthy_when": "json_array_empty",
+            },
+        },
+        dns_targets=[
+            {
+                "host": "radarr.example.test",
+                "record_type": "A",
+                "expected_values": ["192.0.2.20"],
+            }
+        ],
+        log_signals={
+            "errors": [
+                "Unable to connect to indexer",
+                "Download client .* not available",
+            ],
+            "warnings": ["No indexers available"],
+        },
+        typical_dependencies={
+            "containers": [
+                "prowlarr",
+                {"name": "delugevpn", "alternatives": ["qbittorrent", "transmission"]},
+            ],
+            "shares": ["media", "downloads"],
+        },
+        common_failure_modes=[
+            {
+                "trigger": "Download client .* not available",
+                "likely_cause": "Download client container is down or has lost VPN tunnel",
+                "check_first": ["delugevpn", "qbittorrent"],
+            }
+        ],
+        investigation_context="Radarr health returns an empty array when healthy.",
+        credential_hints={
+            "api_key": {
+                "description": "Radarr API Key",
+                "location": "Radarr Web UI → Settings → General → API Key",
+            }
+        },
+    )
+
+
 def load_schema(schema_name: str) -> dict[str, object]:
     """Load a checked-in schema file from the repository."""
     schema_path = SCHEMAS_DIR / schema_name
@@ -355,8 +429,8 @@ def validate_with_schema(schema_name: str, instance: object) -> None:
 
 def test_checked_in_schemas_match_exported_models(tmp_path: Path) -> None:
     """Checked-in schema artifacts should stay synchronized with the exporter."""
-    exported_paths = export_phase0_schemas(tmp_path)
-    expected_names = {filename for filename, _ in PHASE0_SCHEMA_MODELS}
+    exported_paths = export_schemas(tmp_path)
+    expected_names = {filename for filename, _ in SCHEMA_MODELS}
     actual_names = {path.name for path in exported_paths}
 
     assert actual_names == expected_names
@@ -367,8 +441,8 @@ def test_checked_in_schemas_match_exported_models(tmp_path: Path) -> None:
         assert generated == checked_in
 
 
-def test_phase0_sample_payloads_validate_against_schemas() -> None:
-    """Representative Phase 0 payloads should validate against frozen schemas."""
+def test_sample_payloads_validate_against_schemas() -> None:
+    """Representative payloads should validate against checked-in schemas."""
     incident = build_incident()
     finding = build_finding()
     investigation = build_investigation()
@@ -377,11 +451,16 @@ def test_phase0_sample_payloads_validate_against_schemas() -> None:
     journal_entry = build_journal_entry()
     user_note = build_user_note()
     approval_token = build_approval_token()
+    service_descriptor = build_service_descriptor()
 
     validate_with_schema("incident.json", incident.model_dump(mode="json"))
     validate_with_schema("finding.json", finding.model_dump(mode="json"))
     validate_with_schema("investigation.json", investigation.model_dump(mode="json"))
     validate_with_schema("service.json", service.model_dump(mode="json"))
+    validate_with_schema(
+        "service_descriptor.json",
+        service_descriptor.model_dump(mode="json"),
+    )
     validate_with_schema("system_profile.json", system_profile.model_dump(mode="json"))
     validate_with_schema("journal_entry.json", journal_entry.model_dump(mode="json"))
     validate_with_schema("user_note.json", user_note.model_dump(mode="json"))

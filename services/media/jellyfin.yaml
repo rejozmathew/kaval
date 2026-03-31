@@ -1,0 +1,38 @@
+id: jellyfin
+name: Jellyfin
+category: media
+project_url: https://jellyfin.org/
+icon: jellyfin.svg
+match:
+  image_patterns:
+    - "lscr.io/linuxserver/jellyfin*"
+    - "jellyfin/jellyfin*"
+    - "*jellyfin*"
+  container_name_patterns:
+    - "jellyfin*"
+endpoints:
+  web_ui:
+    port: 8096
+    path: /
+log_signals:
+  errors:
+    - "Playback stopped due to a fatal player error"
+    - "Error processing request"
+    - "Library scan failed"
+  warnings:
+    - "Slow response"
+    - "Could not determine item metadata"
+typical_dependencies:
+  shares:
+    - media
+    - appdata
+common_failure_modes:
+  - trigger: "Playback stopped due to a fatal player error"
+    likely_cause: "Media path or transcoding dependency is unavailable"
+    check_first:
+      - media share mount
+      - transcoding path
+investigation_context: |
+  Jellyfin serves local media and usually depends on persistent media mounts
+  plus optional hardware acceleration. Library and playback failures commonly
+  trace back to missing paths, permissions, or transcoder issues.

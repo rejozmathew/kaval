@@ -1,0 +1,10 @@
+{
+  "Id": "sha256:img-radarr",
+  "RepoTags": [
+    "lscr.io/linuxserver/radarr:latest"
+  ],
+  "RepoDigests": [
+    "lscr.io/linuxserver/radarr@sha256:deadbeef"
+  ],
+  "Created": "2026-03-30T11:00:00Z"
+}

@@ -1,0 +1,60 @@
+id: sonarr
+name: Sonarr
+category: arr
+project_url: https://sonarr.tv/
+icon: sonarr.svg
+match:
+  image_patterns:
+    - "lscr.io/linuxserver/sonarr*"
+    - "hotio/sonarr*"
+    - "*sonarr*"
+  container_name_patterns:
+    - "sonarr*"
+endpoints:
+  web_ui:
+    port: 8989
+    path: /
+  health_api:
+    port: 8989
+    path: /api/v3/health
+    auth: api_key
+    auth_header: X-Api-Key
+    healthy_when: json_array_empty
+log_signals:
+  errors:
+    - "Unable to connect to indexer"
+    - "Download client .* not available"
+    - "Import failed"
+    - "Database is locked"
+  warnings:
+    - "No indexers available"
+    - "Queue import blocked"
+typical_dependencies:
+  containers:
+    - prowlarr
+    - name: delugevpn
+      alternatives:
+        - qbittorrent
+        - transmission
+        - sabnzbd
+  shares:
+    - media
+    - downloads
+common_failure_modes:
+  - trigger: "Download client .* not available"
+    likely_cause: "Download client container is down or unreachable"
+    check_first:
+      - delugevpn
+      - qbittorrent
+  - trigger: "Unable to connect to indexer"
+    likely_cause: "Prowlarr is unavailable or its API key changed"
+    check_first:
+      - prowlarr
+investigation_context: |
+  Sonarr manages TV downloads and mirrors the common ARR dependency chain:
+  Sonarr -> Prowlarr -> download client -> downloads/media shares. Its health
+  API returns an empty array when the service is healthy.
+credential_hints:
+  api_key:
+    description: Sonarr API Key
+    location: Sonarr Web UI -> Settings -> General -> API Key

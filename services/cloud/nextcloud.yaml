@@ -1,0 +1,44 @@
+id: nextcloud
+name: Nextcloud
+category: cloud
+project_url: https://nextcloud.com/
+icon: nextcloud.svg
+match:
+  image_patterns:
+    - "nextcloud*"
+    - "lscr.io/linuxserver/nextcloud*"
+    - "*nextcloud*"
+  container_name_patterns:
+    - "nextcloud*"
+endpoints:
+  web_ui:
+    port: 80
+    path: /
+  status_api:
+    port: 80
+    path: /status.php
+    healthy_when: json_status_ok
+log_signals:
+  errors:
+    - "SQLSTATE"
+    - "RedisException"
+    - "Could not open file"
+  warnings:
+    - "Your data directory is invalid"
+    - "Background jobs not running"
+typical_dependencies:
+  containers:
+    - mariadb
+  shares:
+    - appdata
+    - data
+common_failure_modes:
+  - trigger: "SQLSTATE"
+    likely_cause: "Database backend is unavailable or unhealthy"
+    check_first:
+      - mariadb
+      - database credentials
+investigation_context: |
+  Nextcloud commonly depends on a database backend and persistent storage. File
+  access and SQL errors usually point to storage, permissions, or database
+  availability rather than the web process alone.

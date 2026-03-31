@@ -1,0 +1,37 @@
+id: authentik
+name: Authentik
+category: identity
+project_url: https://goauthentik.io/
+icon: authentik.svg
+match:
+  image_patterns:
+    - "ghcr.io/goauthentik/server*"
+    - "*authentik*"
+  container_name_patterns:
+    - "authentik*"
+endpoints:
+  web_ui:
+    port: 9000
+    path: /
+log_signals:
+  errors:
+    - "database is unavailable"
+    - "redis connection error"
+    - "OAuth source request failed"
+  warnings:
+    - "task queue delayed"
+    - "outpost connection degraded"
+typical_dependencies:
+  containers:
+    - mariadb
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "database is unavailable"
+    likely_cause: "Backing database is down or misconfigured"
+    check_first:
+      - mariadb
+      - database credentials
+investigation_context: |
+  Authentik often sits in front of multiple protected services. A failure here
+  can create broad SSO symptoms even when downstream apps are healthy.

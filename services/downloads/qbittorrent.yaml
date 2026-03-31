@@ -1,0 +1,38 @@
+id: qbittorrent
+name: qBittorrent
+category: downloads
+project_url: https://www.qbittorrent.org/
+icon: qbittorrent.svg
+match:
+  image_patterns:
+    - "lscr.io/linuxserver/qbittorrent*"
+    - "hotio/qbittorrent*"
+    - "*qbittorrent*"
+  container_name_patterns:
+    - "qbittorrent*"
+    - "qbit*"
+endpoints:
+  web_ui:
+    port: 8080
+    path: /
+log_signals:
+  errors:
+    - "Connection error"
+    - "I/O error"
+    - "Failed to write to disk"
+  warnings:
+    - "WebAPI login failure"
+    - "Tracker warning"
+typical_dependencies:
+  shares:
+    - downloads
+    - appdata
+common_failure_modes:
+  - trigger: "Failed to write to disk"
+    likely_cause: "Downloads share is unavailable or full"
+    check_first:
+      - downloads share mount
+      - share capacity
+investigation_context: |
+  qBittorrent is a common ARR download client. Disk write failures usually map
+  to downloads share mount issues or storage capacity problems.

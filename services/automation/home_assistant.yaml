@@ -1,0 +1,38 @@
+id: home_assistant
+name: Home Assistant
+category: automation
+project_url: https://www.home-assistant.io/
+icon: home_assistant.svg
+match:
+  image_patterns:
+    - "ghcr.io/home-assistant/home-assistant*"
+    - "homeassistant/home-assistant*"
+    - "*home-assistant*"
+  container_name_patterns:
+    - "home-assistant*"
+    - "homeassistant*"
+endpoints:
+  web_ui:
+    port: 8123
+    path: /
+log_signals:
+  errors:
+    - "Error setting up integration"
+    - "Login attempt or request with invalid authentication"
+    - "Recorder database error"
+  warnings:
+    - "Setup timed out for integration"
+    - "Cannot connect to host"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "Recorder database error"
+    likely_cause: "Persistent storage or recorder backend is unavailable"
+    check_first:
+      - appdata volume
+      - database backend
+investigation_context: |
+  Home Assistant aggregates many integrations, so a single broken dependency
+  can surface as broad automation failures. Recorder and integration startup
+  errors are usually high-signal log events.

@@ -1,0 +1,36 @@
+id: nginx_proxy_manager
+name: Nginx Proxy Manager
+category: networking
+project_url: https://nginxproxymanager.com/
+icon: nginx_proxy_manager.svg
+match:
+  image_patterns:
+    - "jc21/nginx-proxy-manager*"
+    - "*nginx-proxy-manager*"
+  container_name_patterns:
+    - "nginx-proxy-manager*"
+    - "npm*"
+endpoints:
+  web_ui:
+    port: 81
+    path: /
+log_signals:
+  errors:
+    - "SSL routines"
+    - "502 Bad Gateway"
+    - "connect() failed"
+  warnings:
+    - "certificate renewal failed"
+    - "proxy host offline"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "502 Bad Gateway"
+    likely_cause: "Upstream service is unavailable or reverse proxy routing is broken"
+    check_first:
+      - upstream endpoint
+      - recent image changes
+investigation_context: |
+  Nginx Proxy Manager fronts many internal services. Reverse proxy failures are
+  often caused by upstream outages, TLS issues, or recent image changes.
