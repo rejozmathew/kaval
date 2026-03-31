@@ -18,4 +18,4 @@ RUN useradd --create-home --uid 10001 kaval \
 
 USER kaval
 
-CMD ["python", "-c", "from pathlib import Path; from kaval.database import KavalDatabase; from kaval.pipeline import run_mock_pipeline; db = KavalDatabase(Path('/data/kaval.db')); db.bootstrap(); result = run_mock_pipeline(db); print(result.console_output, flush=True); db.close(); import time; time.sleep(10**9)"]
+CMD ["python", "-c", "from pathlib import Path; from kaval.database import KavalDatabase; from kaval.pipeline import run_mock_pipeline; db = KavalDatabase(Path('/data/kaval.db'), migrations_dir=Path('/app/migrations')); db.bootstrap(); result = run_mock_pipeline(db); print(result.console_output, flush=True); db.close(); import time; time.sleep(10**9)"]
