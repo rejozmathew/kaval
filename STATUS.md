@@ -24,6 +24,13 @@
 - [x] Operational Memory query/result schema
 
 ## Completed work
+- 2026-04-01: Resolved clean-environment CI mypy failure for the LangGraph workflow import.
+- Goal: keep the Phase 2B codebase frozen while restoring clean-environment `mypy src` success.
+- Goal: fix the root cause in packaging rather than suppressing the `langgraph.graph` import in typed production code.
+- Added `langgraph>=1.0,<2` to `pyproject.toml` because `src/kaval/investigation/workflow.py` imports `langgraph.graph` directly and the CI install step only provisions dependencies declared by `.[dev]`.
+- This records the reason for the production dependency explicitly: LangGraph is already the PRD-defined investigation framework and an existing runtime import, so the fix is to declare the missing dependency rather than broaden mypy ignore rules.
+- Validations run: `PIP_CACHE_DIR=/tmp/pip-cache .pkg/local/bin/python -m pip install --dry-run --ignore-installed --break-system-packages -e '.[dev]'`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/scenario tests/security`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_memory tests/unit/test_research`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first dry-run attempt hit the repo's known PEP 668 externally-managed-environment constraint; rerunning the same resolution check with `--break-system-packages` succeeded. Local repo-prefix tooling already had `langgraph` installed, so the regression surfaced through the clean-install CI path and missing dependency declaration in `pyproject.toml`.
 - 2026-03-30: Completed P0-01 Repo scaffold.
 - Created the Phase 0 repository skeleton under `src/`, `tests/`, `schemas/`, `services/`, and `docs/adr/`.
 - Added `pyproject.toml`, Python package init files, frontend placeholder metadata, and scaffold smoke tests.
