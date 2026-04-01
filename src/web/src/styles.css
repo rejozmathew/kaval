@@ -396,8 +396,36 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.investigation-grid {
+  display: grid;
+  gap: 1rem;
+}
+
 .detail-block {
   grid-column: 1 / -1;
+}
+
+.action-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.action-pill,
+.check-result {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.action-pill {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(244, 239, 231, 0.82);
 }
 
 .chip-list,
@@ -448,6 +476,22 @@ select {
     rgba(8, 13, 19, 0.78);
   border: 1px solid rgba(255, 255, 255, 0.06);
   animation: rise-in 360ms ease both;
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.incident-card:hover,
+.incident-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(255, 179, 96, 0.45);
+}
+
+.incident-card.selected {
+  border-color: rgba(255, 179, 96, 0.6);
+  box-shadow: 0 0 0 1px rgba(255, 179, 96, 0.16);
 }
 
 .incident-heading {
@@ -472,6 +516,75 @@ select {
   margin: 0.8rem 0 0;
   color: rgba(244, 239, 231, 0.82);
   line-height: 1.5;
+}
+
+.step-list,
+.warning-list,
+.risk-check-list {
+  margin: 0.75rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.step-item,
+.warning-list li {
+  margin-top: 0.75rem;
+}
+
+.step-item:first-child,
+.warning-list li:first-child {
+  margin-top: 0;
+}
+
+.step-heading,
+.risk-check-title,
+.recommendation-lead {
+  margin: 0;
+  color: #f4efe7;
+}
+
+.step-meta {
+  margin: 0.2rem 0 0;
+  color: rgba(244, 239, 231, 0.52);
+  font-family: "Courier New", monospace;
+  font-size: 0.78rem;
+}
+
+.risk-check-list {
+  list-style: none;
+  padding: 0;
+}
+
+.risk-check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.85rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.risk-check:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.check-result {
+  min-width: 4.8rem;
+}
+
+.result-pass {
+  background: rgba(120, 216, 164, 0.16);
+  color: #8af2b9;
+}
+
+.result-fail {
+  background: rgba(255, 102, 91, 0.16);
+  color: #ff8c82;
+}
+
+.result-unknown {
+  background: rgba(255, 255, 255, 0.06);
+  color: #d0d6de;
 }
 
 .message-card {

@@ -13,10 +13,14 @@ dependencies = [
     "fastapi>=0.115,<1",
     "pydantic>=2.11,<3",
     "PyYAML>=6.0,<7",
+    "uvicorn>=0.34,<1",
 ]
 
 [project.scripts]
 kaval = "kaval.cli:main"
+kaval-core = "kaval.runtime.core:main"
+kaval-executor = "kaval.executor.server:main"
+kaval-supervisor = "kaval.runtime.supervisor:main"
 
 [project.optional-dependencies]
 dev = [
@@ -32,7 +36,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["executor*", "kaval*"]
+include = ["kaval*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -48,4 +52,4 @@ select = ["E", "F", "I"]
 python_version = "3.12"
 mypy_path = ["src"]
 strict = true
-packages = ["kaval", "executor"]
+packages = ["kaval"]

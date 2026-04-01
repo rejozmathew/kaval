@@ -262,10 +262,12 @@ def _load_realtime_snapshot(settings: ApiSettings) -> RealtimeSnapshotResponse:
     try:
         services = database.list_services()
         incidents = database.list_incidents()
+        investigations = database.list_investigations()
         return RealtimeSnapshotResponse(
             kind="snapshot",
             graph=build_service_graph(services),
             incidents=incidents,
+            investigations=investigations,
             widget=build_widget_summary(
                 services=services,
                 findings=database.list_findings(),

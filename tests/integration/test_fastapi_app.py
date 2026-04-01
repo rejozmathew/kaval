@@ -171,6 +171,7 @@ def test_websocket_endpoint_streams_initial_snapshot(tmp_path: Path) -> None:
     assert payload["widget"]["total_services"] == 2
     assert len(payload["graph"]["services"]) == 2
     assert len(payload["incidents"]) == 1
+    assert len(payload["investigations"]) == 1
 
 
 def test_websocket_endpoint_streams_updates_after_database_changes(tmp_path: Path) -> None:
@@ -186,7 +187,9 @@ def test_websocket_endpoint_streams_updates_after_database_changes(tmp_path: Pat
             updated_payload = websocket.receive_json()
 
     assert len(initial_payload["incidents"]) == 1
+    assert len(initial_payload["investigations"]) == 1
     assert len(updated_payload["incidents"]) == 2
+    assert len(updated_payload["investigations"]) == 1
     assert updated_payload["widget"]["active_incidents"] == 2
 
 

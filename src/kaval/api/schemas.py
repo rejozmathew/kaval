@@ -9,6 +9,7 @@ from kaval.models import (
     DependencyConfidence,
     DependencySource,
     Incident,
+    Investigation,
     KavalModel,
     Service,
 )
@@ -58,4 +59,5 @@ class RealtimeSnapshotResponse(KavalModel):
     kind: Literal["snapshot"]
     graph: ServiceGraphResponse
     incidents: list[Incident]
+    investigations: list[Investigation]
     widget: WidgetSummaryResponse

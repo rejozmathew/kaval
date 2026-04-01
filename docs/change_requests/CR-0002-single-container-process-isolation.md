@@ -3,7 +3,7 @@
 ## Metadata
 - CR ID: CR-0002
 - Title: Single container with two internal processes (replaces two-container Core/Executor split)
-- Status: Proposed
+- Status: Approved
 - PRD Baseline: v4.1
 - Phase Impacted: Phase 2A (unblocks P2A-09, affects P2A-10)
 - Raised On: 2026-03-31

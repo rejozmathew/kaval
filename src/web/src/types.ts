@@ -64,9 +64,54 @@ export interface Incident {
   severity: string;
   status: string;
   affected_services: string[];
+  triggering_symptom: string | null;
   suspected_cause: string | null;
+  investigation_id: string | null;
+  approved_actions: string[];
   confidence: number;
   updated_at: string;
+}
+
+export interface EvidenceStep {
+  order: number;
+  action: string;
+  target: string;
+  result_summary: string;
+  result_data: unknown;
+  timestamp: string;
+}
+
+export interface RiskCheck {
+  check: string;
+  result: string;
+  detail: string;
+}
+
+export interface RemediationProposal {
+  action_type: string;
+  target: string;
+  rationale: string;
+  status: string;
+  risk_assessment: {
+    overall_risk: string;
+    checks: RiskCheck[];
+    reversible: boolean;
+    warnings: string[];
+  };
+}
+
+export interface Investigation {
+  id: string;
+  incident_id: string;
+  status: string;
+  evidence_steps: EvidenceStep[];
+  root_cause: string | null;
+  confidence: number;
+  model_used: string;
+  recurrence_count: number;
+  remediation: RemediationProposal | null;
+  started_at: string;
+  completed_at: string | null;
 }
 
 export interface WidgetSummary {
@@ -85,5 +130,6 @@ export interface RealtimeSnapshot {
   kind: "snapshot";
   graph: GraphResponse;
   incidents: Incident[];
+  investigations: Investigation[];
   widget: WidgetSummary;
 }

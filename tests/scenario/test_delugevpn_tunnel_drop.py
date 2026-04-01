@@ -3,22 +3,26 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import cast
 
+from kaval.actions import ExecutorClient, ExecutorClientConfig
 from kaval.database import KavalDatabase
 from kaval.discovery.dependency_mapper import build_dependency_graph
 from kaval.discovery.descriptors import LoadedServiceDescriptor, load_service_descriptors
 from kaval.discovery.docker import DockerDiscoverySnapshot, build_discovery_snapshot
 from kaval.discovery.unraid import build_discovery_snapshot as build_unraid_discovery_snapshot
 from kaval.discovery.unraid import decode_graphql_data
+from kaval.executor.server import ExecutorServerConfig, create_executor_server
 from kaval.investigation.workflow import InvestigationWorkflow
 from kaval.models import (
     Change,
     ChangeType,
     Evidence,
     EvidenceKind,
+    ExecutorActionStatus,
     Finding,
     FindingStatus,
     Incident,
@@ -27,6 +31,7 @@ from kaval.models import (
     JournalConfidence,
     JournalEntry,
     Service,
+    ServiceStatus,
     Severity,
     UserNote,
 )
@@ -35,6 +40,7 @@ from kaval.system_profile import build_system_profile
 DOCKER_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "docker"
 UNRAID_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "unraid"
 SERVICES_DIR = Path(__file__).resolve().parents[2] / "services"
+_TEST_SECRET = "test-secret"
 
 
 def load_docker_fixture(name: str) -> dict[str, object]:
@@ -56,6 +62,30 @@ def load_unraid_fixture(name: str) -> dict[str, object]:
 def ts(hour: int, minute: int = 0) -> datetime:
     """Build a deterministic UTC timestamp for scenario assertions."""
     return datetime(2026, 3, 31, hour, minute, tzinfo=UTC)
+
+
+class _SequencedClock:
+    """Return a fixed sequence of timestamps for deterministic socket tests."""
+
+    def __init__(self, *timestamps: datetime) -> None:
+        self._timestamps = iter(timestamps)
+
+    def __call__(self) -> datetime:
+        return next(self._timestamps)
+
+
+class _RestartAwareDockerClient:
+    """Fake executor dependency that toggles the scenario into recovery."""
+
+    def __init__(self, state: "DelugeVpnTunnelDropState") -> None:
+        self.state = state
+        self.calls: list[str] = []
+
+    def restart_container(self, container: str, *, wait_timeout_seconds: int = 10) -> None:
+        """Record the bounded restart and move the fixture state into recovery."""
+        del wait_timeout_seconds
+        self.calls.append(container)
+        self.state.apply_restart(container)
 
 
 def test_delugevpn_tunnel_drop_workflow_persists_structured_investigation(
@@ -105,11 +135,97 @@ def test_delugevpn_tunnel_drop_workflow_persists_structured_investigation(
         database.close()
 
 
+def test_delugevpn_tunnel_drop_scenario_covers_approval_gated_restart_path(
+    tmp_path: Path,
+) -> None:
+    """The DelugeVPN scenario should cover approval, execution, and recovery verification."""
+    state = DelugeVpnTunnelDropState()
+    database_path = tmp_path / "delugevpn-remediation.db"
+    database = seed_database(database_path, state=state)
+    socket_path = tmp_path / "run" / "executor.sock"
+    docker_client = _RestartAwareDockerClient(state)
+    server = create_executor_server(
+        ExecutorServerConfig(
+            socket_path=socket_path,
+            database_path=database_path,
+            approval_hmac_secret=_TEST_SECRET,
+        ),
+        docker_client=docker_client,
+        now_factory=_SequencedClock(ts(14, 36), ts(14, 37)),
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        workflow = InvestigationWorkflow(
+            database=database,
+            descriptors=tuple(state.descriptors),
+            log_reader=state.log_reader,
+            docker_snapshot_provider=lambda: state.docker_snapshot,
+        )
+        workflow_result = workflow.run(
+            incident_id="inc-delugevpn",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(14, 30),
+        )
+
+        remediation = workflow_result.investigation.remediation
+        assert remediation is not None
+        assert remediation.action_type.value == "restart_container"
+        persisted_incident = database.get_incident("inc-delugevpn")
+        assert persisted_incident is not None
+        assert persisted_incident.status == IncidentStatus.AWAITING_APPROVAL
+        assert docker_client.calls == []
+
+        client = ExecutorClient(
+            config=ExecutorClientConfig(
+                socket_path=socket_path,
+                database_path=database_path,
+                approval_hmac_secret=_TEST_SECRET,
+            ),
+            now_factory=lambda: ts(14, 35),
+            token_id_factory=lambda: "tok-delugevpn-restart",
+            nonce_factory=lambda: "nonce-delugevpn-restart",
+        )
+        token = client.issue_approval_token(
+            incident_id="inc-delugevpn",
+            action=remediation.action_type,
+            target=remediation.target,
+            approved_by="telegram-user",
+        )
+        stored_token_before = database.get_approval_token(token.token_id)
+        assert stored_token_before is not None
+        assert stored_token_before.used_at is None
+
+        executor_result = client.execute_approved_action(token)
+
+        assert executor_result.status is ExecutorActionStatus.SUCCESS
+        assert docker_client.calls == ["delugevpn"]
+        stored_token_after = database.get_approval_token(token.token_id)
+        assert stored_token_after is not None
+        assert stored_token_after.used_at == ts(14, 36)
+        assert stored_token_after.result is not None
+        assert stored_token_after.result.startswith("success:")
+
+        verification = state.verification_result()
+        assert verification["vpn_tunnel_restored"] is True
+        assert verification["delugevpn_status"] == ServiceStatus.HEALTHY.value
+        assert verification["radarr_status"] == ServiceStatus.HEALTHY.value
+        assert "inactive" not in str(verification["delugevpn_log"]).lower()
+        assert "restored" in str(verification["radarr_log"]).lower()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+        database.close()
+
+
 class DelugeVpnTunnelDropState:
     """Deterministic DelugeVPN tunnel-drop scenario inputs."""
 
     def __init__(self) -> None:
         """Build the shared fixture-backed workflow inputs."""
+        self._vpn_tunnel_restored = False
         self.descriptors = load_service_descriptors([SERVICES_DIR])
         self.docker_snapshot = build_discovery_snapshot(
             [
@@ -132,6 +248,18 @@ class DelugeVpnTunnelDropState:
             self.descriptors,
             unraid_snapshot=unraid_snapshot,
         ).services
+        self.recovered_services = [
+            service.model_copy(
+                update={
+                    "status": (
+                        ServiceStatus.HEALTHY
+                        if service.id in {"svc-delugevpn", "svc-radarr"}
+                        else service.status
+                    )
+                }
+            )
+            for service in self.services
+        ]
         self.system_profile = build_system_profile(
             unraid_snapshot,
             self.docker_snapshot,
@@ -289,15 +417,39 @@ class DelugeVpnTunnelDropState:
                 DOCKER_FIXTURES_DIR / "container_logs_def456.txt"
             ).read_text(encoding="utf-8"),
         }
+        self._recovered_logs_by_container_id = {
+            "abc123": "2026-03-31T14:38:01Z info: Download client DelugeVPN connection restored\n",
+            "def456": "2026-03-31T14:38:00Z info: VPN tunnel established and healthy\n",
+        }
 
     descriptors: list[LoadedServiceDescriptor]
     docker_snapshot: DockerDiscoverySnapshot
     services: list[Service]
+    recovered_services: list[Service]
 
     def log_reader(self, container_id: str, tail_lines: int) -> str:
         """Return deterministic fixture logs for the requested container."""
         assert tail_lines == 200
+        if self._vpn_tunnel_restored:
+            return self._recovered_logs_by_container_id[container_id]
         return self._logs_by_container_id[container_id]
+
+    def apply_restart(self, container: str) -> None:
+        """Mark the scenario as recovered after the bounded restart executes."""
+        assert container == "delugevpn"
+        self._vpn_tunnel_restored = True
+
+    def verification_result(self) -> dict[str, bool | str]:
+        """Return the deterministic post-restart verification view."""
+        services = self.recovered_services if self._vpn_tunnel_restored else self.services
+        service_statuses = {service.id: service.status.value for service in services}
+        return {
+            "vpn_tunnel_restored": self._vpn_tunnel_restored,
+            "delugevpn_status": service_statuses["svc-delugevpn"],
+            "radarr_status": service_statuses["svc-radarr"],
+            "delugevpn_log": self.log_reader("def456", 200),
+            "radarr_log": self.log_reader("abc123", 200),
+        }
 
 
 def seed_database(database_path: Path, *, state: DelugeVpnTunnelDropState) -> KavalDatabase:

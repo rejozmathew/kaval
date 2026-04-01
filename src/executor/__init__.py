@@ -1,2 +1,0 @@
-"""Kaval executor sidecar package."""
-

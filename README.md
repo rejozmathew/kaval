@@ -6,18 +6,18 @@ Kaval is not another monitoring dashboard. Tools like Uptime Kuma tell you that 
 
 ## Product Shape
 
-Kaval is built around three operating profiles:
+Kaval is built around three operating profiles within one Docker container:
 
-- `Monitor`: one unprivileged Core container for discovery, deterministic checks, findings, and incidents.
+- `Monitor`: `kaval-core` handles discovery, deterministic checks, findings, and incidents.
 - `Assist`: Monitor plus a local OpenAI-compatible model endpoint for investigation and root-cause analysis.
-- `Operate`: Assist plus a minimal Executor sidecar for bounded, approval-gated remediation actions.
+- `Operate`: Assist plus the internal `kaval-executor` process for bounded, approval-gated remediation actions.
 
 The security boundary is foundational:
 
 - Core is unprivileged, non-root, and does not receive `docker.sock`.
-- Executor is the only container allowed to mount `docker.sock`.
-- Core handles discovery, monitoring, investigation, notifications, and state.
-- Executor handles only allowlisted, approved system-modifying actions.
+- Executor is the only process that uses the mounted `docker.sock`.
+- Core handles discovery, monitoring, investigation, notifications, API/UI, and state.
+- Executor handles only allowlisted, approved system-modifying actions over a Unix domain socket.
 
 ## Current Status
 
@@ -27,9 +27,9 @@ The current local checkpoint includes:
 
 - completed Phase 0 foundations: typed Pydantic models, SQLite persistence, checked-in schemas, ADRs, and Docker/dev scaffolding
 - completed Phase 1 monitoring surfaces: Unraid + Docker discovery, shipped service descriptors, dependency graph construction, deterministic checks, incident management, system profile generation, FastAPI endpoints, CLI commands, and the React/WebSocket service map UI
-- completed Phase 2A work through `P2A-08`: Tier 1 evidence collection, investigation prompt templates, LangGraph investigation workflow, optional local OpenAI-compatible synthesis, Apprise delivery, incident-centered notification formatting, incident-grouped dispatch, and Telegram interactive delivery
+- completed Phase 2A: Tier 1 evidence collection, investigation prompt templates, LangGraph investigation workflow, optional local OpenAI-compatible synthesis, Apprise delivery, incident-centered notification formatting, incident-grouped dispatch, Telegram interactive delivery, the internal Executor over `/run/kaval/executor.sock`, the Core Unix-socket action client, DelugeVPN/cert-expiry/crash-loop scenarios, and the basic investigation detail UI
 
-`Operate` mode is not complete yet. `P2A-09 Executor sidecar` remains blocked by the current contradiction between the frozen PRD localhost-only Core-to-Executor transport contract and the isolated Executor runtime in `docker-compose.yml`. Treat [`STATUS.md`](STATUS.md) as the authoritative project state and blocker log.
+Phase 2A is complete under the approved CR-0002 / ADR-014 runtime: one Docker container with two internal processes, where `kaval-core` serves the API/UI on port `9800` and `kaval-executor` listens on `/run/kaval/executor.sock`. Treat [`STATUS.md`](STATUS.md) as the authoritative current-state source while the repo waits at the phase boundary for review.
 
 ## Quick Start
 
@@ -63,9 +63,9 @@ docker compose up --build
 
 Expected behavior:
 
-- `kaval-core` starts with SQLite state under `/data/kaval.db` and the current monitoring/investigation codebase.
-- `kaval-executor` starts as the isolated sidecar placeholder, but the approval-gated restart path is not wired yet because `P2A-09` remains blocked.
-- The repository includes the completed Phase 1 monitoring stack and the completed Phase 2A investigation/notification work through `P2A-08`.
+- `kaval` starts one container with two internal processes: `kaval-core` serves the FastAPI/API + UI on port `9800`, and `kaval-executor` listens on `/run/kaval/executor.sock`.
+- `/var/run/docker.sock` is mounted once and is intended for the executor process only; Core still communicates over the internal Unix socket.
+- The repository includes the completed Phase 1 monitoring stack and the completed Phase 2A investigation, approval-gated restart, scenario, and investigation-detail UI surfaces.
 
 ## Documentation
 

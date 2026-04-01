@@ -4,6 +4,7 @@ import type {
   GraphEdge,
   GraphResponse,
   Incident,
+  Investigation,
   RealtimeSnapshot,
   Service,
   WidgetSummary,
@@ -18,6 +19,7 @@ const ROW_GAP = 128;
 interface LoadState {
   graph: GraphResponse | null;
   incidents: Incident[];
+  investigations: Investigation[];
   widget: WidgetSummary | null;
   error: string | null;
   loading: boolean;
@@ -41,11 +43,13 @@ export default function App() {
   const [state, setState] = useState<LoadState>({
     graph: null,
     incidents: [],
+    investigations: [],
     widget: null,
     error: null,
     loading: true,
   });
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [liveState, setLiveState] = useState<"connecting" | "live" | "offline">("connecting");
 
   useEffect(() => {
@@ -53,20 +57,28 @@ export default function App() {
 
     async function load() {
       try {
-        const [graphResponse, incidentResponse, widgetResponse] = await Promise.all([
+        const [graphResponse, incidentResponse, investigationResponse, widgetResponse] =
+          await Promise.all([
           fetch("/api/v1/graph"),
           fetch("/api/v1/incidents"),
+          fetch("/api/v1/investigations"),
           fetch("/api/v1/widget"),
-        ]);
-        if (!graphResponse.ok || !incidentResponse.ok || !widgetResponse.ok) {
+          ]);
+        if (
+          !graphResponse.ok ||
+          !incidentResponse.ok ||
+          !investigationResponse.ok ||
+          !widgetResponse.ok
+        ) {
           throw new Error("Kaval UI could not load monitoring data.");
         }
 
-        const [graph, incidents, widget] = (await Promise.all([
+        const [graph, incidents, investigations, widget] = (await Promise.all([
           graphResponse.json(),
           incidentResponse.json(),
+          investigationResponse.json(),
           widgetResponse.json(),
-        ])) as [GraphResponse, Incident[], WidgetSummary];
+        ])) as [GraphResponse, Incident[], Investigation[], WidgetSummary];
 
         if (cancelled) {
           return;
@@ -76,18 +88,10 @@ export default function App() {
           setState({
             graph,
             incidents,
+            investigations,
             widget,
             error: null,
             loading: false,
-          });
-          setSelectedServiceId((currentSelection) => {
-            if (
-              currentSelection !== null &&
-              graph.services.some((service) => service.id === currentSelection)
-            ) {
-              return currentSelection;
-            }
-            return graph.services[0]?.id ?? null;
           });
         });
       } catch (error) {
@@ -99,6 +103,7 @@ export default function App() {
           setState({
             graph: null,
             incidents: [],
+            investigations: [],
             widget: null,
             error: message,
             loading: false,
@@ -143,6 +148,7 @@ export default function App() {
           setState({
             graph: snapshot.graph,
             incidents: snapshot.incidents,
+            investigations: snapshot.investigations,
             widget: snapshot.widget,
             error: null,
             loading: false,
@@ -183,8 +189,26 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const nextIncidentId = chooseIncidentId(state.incidents, selectedIncidentId);
+    if (nextIncidentId !== selectedIncidentId) {
+      setSelectedIncidentId(nextIncidentId);
+    }
+
+    const nextServiceId = chooseServiceId(
+      state.graph?.services ?? [],
+      state.incidents,
+      selectedServiceId,
+      nextIncidentId,
+    );
+    if (nextServiceId !== selectedServiceId) {
+      setSelectedServiceId(nextServiceId);
+    }
+  }, [state.graph, state.incidents, selectedIncidentId, selectedServiceId]);
+
   const services = state.graph?.services ?? [];
   const edges = state.graph?.edges ?? [];
+  const serviceNames = new Map(services.map((service) => [service.id, service.name]));
   const categories = groupServicesByCategory(services);
   const layouts = buildLayouts(categories);
   const layoutById = new Map(layouts.map((layout) => [layout.service.id, layout]));
@@ -193,6 +217,19 @@ export default function App() {
   const sortedIncidents = [...state.incidents].sort((left, right) =>
     right.updated_at.localeCompare(left.updated_at),
   );
+  const selectedIncident =
+    sortedIncidents.find((incident) => incident.id === selectedIncidentId) ??
+    sortedIncidents[0] ??
+    null;
+  const selectedInvestigation =
+    selectedIncident === null
+      ? null
+      : state.investigations.find((investigation) => {
+          if (selectedIncident.investigation_id !== null) {
+            return investigation.id === selectedIncident.investigation_id;
+          }
+          return investigation.incident_id === selectedIncident.id;
+        }) ?? null;
   const surfaceWidth = Math.max(categories.length * COLUMN_WIDTH + 120, 720);
   const surfaceHeight =
     Math.max(...layouts.map((layout) => layout.y), 0) + CARD_HEIGHT + HEADER_HEIGHT + 96;
@@ -203,12 +240,12 @@ export default function App() {
       <div className="ambient ambient-b" />
       <header className="hero">
         <div>
-          <p className="eyebrow">Kaval Phase 1</p>
-          <h1>Service map and incidents, without the noise.</h1>
+          <p className="eyebrow">Kaval Phase 2A</p>
+          <h1>Incidents with evidence, inference, and a bounded next step.</h1>
           <p className="hero-copy">
-            Deterministic monitoring state from the current homelab graph. No actions,
-            no investigation flow, just the monitored topology and the incidents it is
-            generating right now.
+            Deterministic monitoring plus structured investigation detail. The current
+            view stays incident-centered: evidence trail, root-cause inference, and the
+            current restart-only action state when Phase 2A remediation is in play.
           </p>
         </div>
         <div className="summary-grid">
@@ -231,7 +268,7 @@ export default function App() {
       </header>
 
       {state.loading ? (
-        <section className="message-card">Loading Phase 1 monitoring state…</section>
+        <section className="message-card">Loading Phase 2A investigation state…</section>
       ) : null}
       {state.error ? <section className="message-card error">{state.error}</section> : null}
 
@@ -315,69 +352,142 @@ export default function App() {
             <section className="panel detail-panel">
               <div className="panel-header">
                 <div>
-                  <p className="section-label">Selected Service</p>
-                  <h2>{selectedService?.name ?? "No service selected"}</h2>
+                  <p className="section-label">Investigation Detail</p>
+                  <h2>{selectedIncident?.title ?? "No incident selected"}</h2>
                 </div>
-                {selectedService ? (
-                  <span className={`status-pill status-${selectedService.status}`}>
-                    {statusLabel[selectedService.status]}
-                  </span>
+                {selectedIncident ? (
+                  <div className="panel-status">
+                    <span className={`severity severity-${selectedIncident.severity}`}>
+                      {selectedIncident.severity}
+                    </span>
+                    <span className="incident-status">{formatLabel(selectedIncident.status)}</span>
+                  </div>
                 ) : null}
               </div>
 
-              {selectedService ? (
-                <div className="detail-grid">
-                  <div>
-                    <p className="detail-label">Category</p>
-                    <p>{selectedService.category}</p>
+              {selectedIncident && selectedInvestigation ? (
+                <div className="investigation-grid">
+                  <div className="action-strip">
+                    <span className="action-pill">
+                      Incident {formatLabel(selectedIncident.status)}
+                    </span>
+                    <span className="action-pill">
+                      Investigation {formatLabel(selectedInvestigation.status)}
+                    </span>
+                    <span className="action-pill">
+                      Action {formatLabel(selectedInvestigation.remediation?.status ?? "none")}
+                    </span>
+                    <span className="action-pill">
+                      {selectedIncident.approved_actions.length} approvals recorded
+                    </span>
                   </div>
-                  <div>
-                    <p className="detail-label">Type</p>
-                    <p>{selectedService.type}</p>
-                  </div>
-                  <div>
-                    <p className="detail-label">Active findings</p>
-                    <p>{selectedService.active_findings}</p>
-                  </div>
-                  <div>
-                    <p className="detail-label">Active incidents</p>
-                    <p>{selectedService.active_incidents}</p>
-                  </div>
+
                   <div className="detail-block">
-                    <p className="detail-label">Dependencies</p>
-                    {selectedService.dependencies.length > 0 ? (
-                      <ul className="chip-list">
-                        {selectedService.dependencies.map((dependency) => (
-                          <li key={dependency.target_service_id}>
-                            <span className="chip">{dependency.target_service_id}</span>
-                            <span className="chip ghost">{dependency.confidence}</span>
+                    <p className="detail-label">Affected Services</p>
+                    <ul className="chip-list">
+                      {selectedIncident.affected_services.map((serviceId) => (
+                        <li key={serviceId}>
+                          <span className="chip">{serviceNames.get(serviceId) ?? serviceId}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {selectedIncident.triggering_symptom ? (
+                      <p className="muted">Symptom: {selectedIncident.triggering_symptom}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="detail-block">
+                    <p className="detail-label">Evidence</p>
+                    {selectedInvestigation.evidence_steps.length > 0 ? (
+                      <ol className="step-list">
+                        {selectedInvestigation.evidence_steps.map((step) => (
+                          <li key={`${step.order}-${step.action}`} className="step-item">
+                            <p className="step-heading">
+                              {step.order}. {formatLabel(step.action)}
+                            </p>
+                            <p className="step-meta">
+                              {step.target} · {formatTimestamp(step.timestamp)}
+                            </p>
+                            <p>{step.result_summary}</p>
                           </li>
                         ))}
-                      </ul>
+                      </ol>
                     ) : (
-                      <p className="muted">No dependency edges recorded.</p>
+                      <p className="muted">No evidence steps were persisted.</p>
                     )}
                   </div>
+
                   <div className="detail-block">
-                    <p className="detail-label">Endpoints</p>
-                    {selectedService.endpoints.length > 0 ? (
-                      <ul className="endpoint-list">
-                        {selectedService.endpoints.map((endpoint) => (
-                          <li key={endpoint.name}>
-                            {endpoint.url ??
-                              `${endpoint.protocol}://${endpoint.host ?? "unknown"}:${
-                                endpoint.port ?? "?"
-                              }${endpoint.path ?? ""}`}
-                          </li>
-                        ))}
-                      </ul>
+                    <p className="detail-label">Inference</p>
+                    <p className="investigation-root">
+                      {selectedInvestigation.root_cause ??
+                        selectedIncident.suspected_cause ??
+                        selectedIncident.triggering_symptom ??
+                        "No root cause recorded yet."}
+                    </p>
+                    <p className="muted">
+                      Confidence {selectedInvestigation.confidence.toFixed(2)} · recurrence{" "}
+                      {selectedInvestigation.recurrence_count} · model{" "}
+                      {formatLabel(selectedInvestigation.model_used)}
+                    </p>
+                  </div>
+
+                  <div className="detail-block">
+                    <p className="detail-label">Recommendation</p>
+                    {selectedInvestigation.remediation ? (
+                      <>
+                        <p className="recommendation-lead">
+                          {formatLabel(selectedInvestigation.remediation.action_type)}{" "}
+                          {selectedInvestigation.remediation.target}
+                        </p>
+                        <p className="muted">{selectedInvestigation.remediation.rationale}</p>
+                        <p className="muted">
+                          Risk {formatLabel(
+                            selectedInvestigation.remediation.risk_assessment.overall_risk,
+                          )}{" "}
+                          · reversible{" "}
+                          {selectedInvestigation.remediation.risk_assessment.reversible
+                            ? "yes"
+                            : "no"}
+                        </p>
+                        {selectedInvestigation.remediation.risk_assessment.checks.length > 0 ? (
+                          <ul className="risk-check-list">
+                            {selectedInvestigation.remediation.risk_assessment.checks.map(
+                              (check) => (
+                                <li key={`${check.check}-${check.result}`} className="risk-check">
+                                  <span className={`check-result result-${check.result}`}>
+                                    {formatLabel(check.result)}
+                                  </span>
+                                  <div>
+                                    <p className="risk-check-title">{check.check}</p>
+                                    <p className="muted">{check.detail}</p>
+                                  </div>
+                                </li>
+                              ),
+                            )}
+                          </ul>
+                        ) : null}
+                        {selectedInvestigation.remediation.risk_assessment.warnings.length > 0 ? (
+                          <ul className="warning-list">
+                            {selectedInvestigation.remediation.risk_assessment.warnings.map(
+                              (warning) => (
+                                <li key={warning}>{warning}</li>
+                              ),
+                            )}
+                          </ul>
+                        ) : null}
+                      </>
                     ) : (
-                      <p className="muted">No endpoints declared.</p>
+                      <p className="muted">
+                        No restart recommendation is justified from the current evidence.
+                      </p>
                     )}
                   </div>
                 </div>
+              ) : selectedIncident ? (
+                <p className="muted">No investigation has been persisted for this incident yet.</p>
               ) : (
-                <p className="muted">No services were returned by the API.</p>
+                <p className="muted">No incidents are currently persisted.</p>
               )}
             </section>
 
@@ -395,21 +505,40 @@ export default function App() {
                   sortedIncidents.map((incident, index) => (
                     <article
                       key={incident.id}
-                      className="incident-card"
+                      className={`incident-card ${
+                        incident.id === selectedIncident?.id ? "selected" : ""
+                      }`}
                       style={{ animationDelay: `${index * 70}ms` }}
+                      onClick={() => {
+                        setSelectedIncidentId(incident.id);
+                        setSelectedServiceId(incident.affected_services[0] ?? null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedIncidentId(incident.id);
+                          setSelectedServiceId(incident.affected_services[0] ?? null);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
                     >
                       <div className="incident-heading">
                         <span className={`severity severity-${incident.severity}`}>
                           {incident.severity}
                         </span>
-                        <span className="incident-status">{incident.status}</span>
+                        <span className="incident-status">{formatLabel(incident.status)}</span>
                       </div>
                       <h3>{incident.title}</h3>
                       <p className="muted">
-                        {incident.affected_services.join(", ") || "No services recorded"}
+                        {incident.affected_services
+                          .map((serviceId) => serviceNames.get(serviceId) ?? serviceId)
+                          .join(", ") || "No services recorded"}
                       </p>
                       <p className="incident-cause">
-                        {incident.suspected_cause ?? "No suspected cause recorded yet."}
+                        {incident.triggering_symptom ??
+                          incident.suspected_cause ??
+                          "No suspected cause recorded yet."}
                       </p>
                     </article>
                   ))
@@ -422,6 +551,56 @@ export default function App() {
         </main>
       ) : null}
     </div>
+  );
+}
+
+function formatLabel(value: string): string {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatTimestamp(value: string): string {
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function chooseIncidentId(incidents: Incident[], currentId: string | null): string | null {
+  if (currentId !== null && incidents.some((incident) => incident.id === currentId)) {
+    return currentId;
+  }
+  return latestIncident(incidents)?.id ?? null;
+}
+
+function chooseServiceId(
+  services: Service[],
+  incidents: Incident[],
+  currentServiceId: string | null,
+  selectedIncidentId: string | null,
+): string | null {
+  if (currentServiceId !== null && services.some((service) => service.id === currentServiceId)) {
+    return currentServiceId;
+  }
+
+  const selectedIncident =
+    incidents.find((incident) => incident.id === selectedIncidentId) ??
+    latestIncident(incidents) ??
+    null;
+  const incidentServiceId = selectedIncident?.affected_services.find((serviceId) =>
+    services.some((service) => service.id === serviceId),
+  );
+  return incidentServiceId ?? services[0]?.id ?? null;
+}
+
+function latestIncident(incidents: Incident[]): Incident | null {
+  return (
+    [...incidents].sort((left, right) => right.updated_at.localeCompare(left.updated_at))[0] ??
+    null
   );
 }
 

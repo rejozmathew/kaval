@@ -1,21 +1,16 @@
 services:
-  core:
+  kaval:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: kaval-core
+    container_name: kaval
     restart: unless-stopped
+    environment:
+      KAVAL_APPROVAL_HMAC_SECRET: local-dev-approval-secret
+    ports:
+      - "9800:9800"
     volumes:
       - kaval-data:/data
-
-  executor:
-    build:
-      context: .
-      dockerfile: Dockerfile.executor
-    container_name: kaval-executor
-    restart: unless-stopped
-    network_mode: "none"
-    volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:

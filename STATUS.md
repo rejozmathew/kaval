@@ -4,13 +4,13 @@
 - Name: Kaval
 - PRD version: 4.1
 - Current phase: Phase 2A
-- Current task: P2A-09 Executor sidecar
-- Overall status: Phase 2A blocked on P2A-09 transport decision
+- Current task: Phase 2A complete; awaiting phase-boundary review
+- Overall status: Phase 2A implementation is complete under CR-0002 / ADR-014; all P2A tasks and validations are green
 
 ## Phase gates
 - [x] Phase 0 complete
 - [x] Phase 1 complete
-- [ ] Phase 2A complete
+- [x] Phase 2A complete
 - [ ] Phase 2B complete
 - [ ] Phase 3 complete
 - [ ] Phase 4 complete
@@ -284,7 +284,57 @@
 - Files changed: `src/kaval/notifications/telegram_interactive.py`, `src/kaval/notifications/__init__.py`, `tests/unit/test_notifications/test_telegram_interactive.py`, `STATUS.md`.
 - Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_notifications`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src` all passed.
 - Failures/blockers: no blocker. This shell has no Telegram bot token or chat ID configured, so validation covered the typed Bot API request path with deterministic test doubles plus the explicit no-config skip path rather than a live Telegram call.
-- Next task: P2A-09 Executor sidecar.
+- 2026-03-31: Applied CR-0002 / ADR-014 control patch for the Phase 2A executor architecture.
+- Approved the move from the old two-container Core/Executor sidecar model to one Docker container with two internal processes: `kaval-core` and `kaval-executor`.
+- Adopted Unix domain socket transport for Core↔Executor communication at `/run/kaval/executor.sock`, preserving the approval-token contract and restart-only allowlist while removing the old localhost-versus-sidecar contradiction.
+- Updated the active Phase 2A execution contract so `P2A-09` is now `Executor internal process (Unix socket, restart-container only)` and `P2A-10` is `Core→Executor Unix socket client`.
+- Files changed: `docs/change_requests/CR-0002-single-container-process-isolation.md`, `docs/adr/014-single-container-process-isolation.md`, `docs/adr/008-core-executor-split.md`, `plans/phase-2a.md`, `STATUS.md`.
+- Validations run: not run for this control-doc architecture patch.
+- Failures/blockers: resolved the previous P2A-09 transport/runtime contradiction via approved CR-0002 and accepted ADR-014. No remaining blocker at the control-doc level.
+- Next task: P2A-09 Executor internal process (Unix socket, restart-container only).
+- 2026-03-31: Completed P2A-09 Executor internal process (Unix socket, restart-container only).
+- Added `src/kaval/actions/approvals.py`, `src/kaval/executor/`, and `src/kaval/runtime/` so Kaval now has deterministic HMAC approval helpers, a restart-only internal executor on `/run/kaval/executor.sock`, a bounded Docker Unix-socket client, and a root supervisor that starts `kaval-core` plus `kaval-executor` as separate UNIX users inside one container.
+- Merged the packaged runtime to one image/container by updating `Dockerfile` and `docker-compose.yml`, removing `Dockerfile.executor`, switching local Compose to one `kaval` service, exposing the existing FastAPI/UI surface on port `9800`, and using the mounted Docker socket only from the executor process path.
+- Added executor/runtime test coverage under `tests/unit/test_executor/`, `tests/unit/test_runtime/`, and `tests/security/test_executor_security.py` for HMAC integrity, allowlist rejection, replay/expiry rejection, Docker restart request shaping, socket round-trip behavior, and supervisor group/runtime-directory setup.
+- Files changed: `Dockerfile`, `Dockerfile.executor`, `README.md`, `docker-compose.yml`, `pyproject.toml`, `src/executor/__init__.py`, `src/kaval/actions/__init__.py`, `src/kaval/actions/approvals.py`, `src/kaval/executor/__init__.py`, `src/kaval/executor/docker_actions.py`, `src/kaval/executor/server.py`, `src/kaval/runtime/__init__.py`, `src/kaval/runtime/core.py`, `src/kaval/runtime/supervisor.py`, `tests/unit/test_executor/test_approvals.py`, `tests/unit/test_executor/test_docker_actions.py`, `tests/unit/test_executor/test_server.py`, `tests/unit/test_runtime/test_supervisor.py`, `tests/security/test_executor_security.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_executor tests/unit/test_runtime`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`, `docker compose up --build -d`, `docker compose up -d --remove-orphans`, `docker compose ps`, host `GET /healthz` against `http://127.0.0.1:9800/healthz`, in-container expired-token executor socket validation, and `docker compose down --remove-orphans`.
+- Failures/blockers: initial focused validation exposed one Docker Unix-socket partial-read bug plus minor local lint/type cleanup; all were fixed before the final validation pass. No remaining blocker.
+- Next task: P2A-10 Core→Executor Unix socket client.
+- 2026-03-31: Completed P2A-10 Core→Executor Unix socket client.
+- Added `src/kaval/actions/client.py` so Core now has a typed Unix-socket client that issues and persists signed restart approval tokens, enforces the restart-only allowlist before transport, sends the frozen request contract over `/run/kaval/executor.sock`, and parses the frozen executor result back into `ExecutorActionResult`.
+- Updated `src/kaval/actions/__init__.py` exports and added deterministic unit/security coverage for token issuance persistence, request round-trips against the live executor socket server, client-side allowlist rejection, and environment-driven client config loading.
+- Files changed: `src/kaval/actions/__init__.py`, `src/kaval/actions/client.py`, `tests/unit/test_actions/test_client.py`, `tests/security/test_executor_security.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_actions tests/unit/test_executor tests/unit/test_runtime`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`, `docker compose up --build -d`, `docker compose ps`, host `GET /healthz` against `http://127.0.0.1:9800/healthz`, in-container `ExecutorClient` token-issuance plus expired-token socket validation, and `docker compose down --remove-orphans`.
+- Failures/blockers: a local default-transport wiring bug and one TTL edge case were caught during focused review before the full validation pass; both were fixed and no blocker remains.
+- Next task: P2A-11 Scenario: DelugeVPN tunnel drop.
+- 2026-03-31: Completed P2A-11 Scenario: DelugeVPN tunnel drop.
+- Extended `tests/scenario/test_delugevpn_tunnel_drop.py` so the DelugeVPN acceptance surface now covers the full Phase 2A path: structured investigation output, restart recommendation, approval-token issuance through the Core client, execution over the internal executor socket, persisted execution result, and deterministic post-restart recovery verification.
+- Kept the scenario fixture-driven by modeling recovery inside the existing DelugeVPN state object and using a bounded fake Docker restart dependency, so the scenario proves approval remains mandatory and `restart_container` stays the only system-modifying path without introducing Phase 2B behavior.
+- Files changed: `tests/scenario/test_delugevpn_tunnel_drop.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/scenario/test_delugevpn_tunnel_drop.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_actions tests/unit/test_executor tests/unit/test_runtime`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: none.
+- Next task: P2A-12 Scenario: Cert expiry.
+- 2026-03-31: Completed P2A-12 Scenario: Cert expiry.
+- Added `tests/scenario/test_cert_expiry.py` so the Phase 2A acceptance surface now covers a deterministic no-action investigation path for certificate expiry: structured evidence, bounded inference, Operational Memory recurrence context, and an explicit `none` recommendation when no container-scoped restart target is justified.
+- Kept the scenario fully fixture-driven and Phase 2A-bounded by reusing the existing investigation workflow, shipped service descriptors, and persisted journal/user-note surfaces without adding executor or broader remediation behavior.
+- Files changed: `tests/scenario/test_cert_expiry.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/scenario/test_cert_expiry.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_actions tests/unit/test_executor tests/unit/test_runtime`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: initial scenario assertions assumed the condensed evidence summary would repeat the certificate host detail; the assertion was tightened to the actual prompt/evidence surface and no blocker remains.
+- Next task: P2A-13 Scenario: Container crash loop.
+- 2026-03-31: Completed P2A-13 Scenario: Container crash loop.
+- Added `tests/scenario/test_container_crash_loop.py` so the Phase 2A acceptance surface now covers a deterministic crash-loop path with restart-storm evidence, bounded restart recommendation, approval-token issuance, executor socket execution, persisted execution result, and deterministic post-restart recovery verification.
+- Kept the scenario fixture-driven and phase-bounded by reusing shipped Docker discovery fixtures plus the existing Core/executor path, without adding any non-restart action scope or Phase 2B research behavior.
+- Files changed: `tests/scenario/test_container_crash_loop.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/scenario/test_container_crash_loop.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_actions tests/unit/test_executor tests/unit/test_runtime`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: initial focused validation exposed only long-line formatting in the new scenario test; fixed before the final validation pass. No blocker remains.
+- Next task: P2A-14 UI: Basic investigation detail.
+- 2026-03-31: Completed P2A-14 UI: Basic investigation detail.
+- Extended the FastAPI realtime snapshot to include persisted investigations and updated the React UI to render an incident-selected investigation panel with clearly separated evidence, inference, recommendation, and action-state sections while staying inside the existing Phase 1 service-map surface.
+- Kept the UI scope narrow to Phase 2A by adding only investigation-detail visibility, recommendation risk checks, and action-state context; no approval queue, no broader action controls, and no Phase 2B memory/research UX was introduced.
+- Files changed: `src/kaval/api/app.py`, `src/kaval/api/schemas.py`, `src/web/src/App.tsx`, `src/web/src/types.ts`, `src/web/src/styles.css`, `tests/integration/test_fastapi_app.py`, `STATUS.md`.
+- Validations run: `npm run build` in `src/web`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/integration/test_fastapi_app.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_actions tests/unit/test_executor tests/unit/test_runtime`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: none.
+- Next task: Phase 2A exit verification and human review gate.
 
 ## Current focus
 - Phase 1 is complete and its validation state remains green.
@@ -296,9 +346,16 @@
 - `P2A-06` is complete: investigation results now render into a stable incident notification payload that reflects evidence, inference, and recommendation without raw-finding spam.
 - `P2A-07` is complete: incident notifications now dedup per incident and per window in-process, reusing the formatter and bus rather than reintroducing finding-level spam.
 - `P2A-08` is complete: Telegram delivery now has an optional interactive handler with inline approval-oriented controls and explicit no-config behavior.
-- `P2A-09` is blocked pending a transport/runtime decision: the current Compose isolation (`executor` on `network_mode: "none"`) cannot satisfy the frozen PRD requirement that Core reaches Executor via `localhost`, while changing the transport away from localhost or sharing Core's network namespace would alter a frozen contract or security boundary.
-- The next in-order task remains `P2A-09 Executor sidecar` once that decision is made.
-- Approved `CR-0001` remains the authoritative control decision for DNS targeting in Phase 1 only; there is no phase-relevant approved CR overriding the Phase 2A plan.
+- Approved `CR-0002` and accepted `ADR-014` resolved the previous `P2A-09` sidecar transport/runtime contradiction by changing the runtime model to one Docker container with two internal processes.
+- `P2A-09` is complete: the packaged runtime now uses one container with `kaval-core` plus `kaval-executor`, a Unix socket at `/run/kaval/executor.sock`, restart-only allowlist enforcement, replay/expiry rejection, and actual Compose/runtime validation of the merged packaging path.
+- `P2A-10` is complete: Core can now issue/persist signed restart approval tokens and dispatch the frozen executor request contract over the packaged Unix socket client path without exposing any non-restart action surface.
+- `P2A-11` is complete: the DelugeVPN scenario now covers investigation, approval-token issuance, executor socket execution, persisted result capture, and deterministic recovery verification end-to-end.
+- `P2A-12` is complete: the cert-expiry scenario now covers a bounded no-action investigation path with explicit evidence, inference, recommendation, and recurrence context.
+- `P2A-13` is complete: the crash-loop scenario now covers restart-storm evidence, bounded restart recommendation, approval-gated execution, and deterministic recovery verification.
+- `P2A-14` is complete: the UI now exposes incident-centered investigation detail with evidence, inference, recommendation, and action-state visibility over the existing realtime service-map surface.
+- The Phase 2A task list is complete and the phase exit criteria are satisfied; Kaval is waiting at the phase boundary for human review before any Phase 2B work.
+- Approved `CR-0001` remains the authoritative control decision for DNS targeting in Phase 1.
+- Approved `CR-0002` is the authoritative control decision for the Phase 2A runtime model and Executor transport.
 
 ## Decisions log
 - 2026-03-30: PRD v4.1 accepted as implementation-ready product spec.
@@ -347,41 +404,37 @@
 - 2026-03-31: P2A-06 keeps notification content aligned to ADR-012 by formatting one incident payload around evidence, inference, and recommendation, with stable incident deduping and no interactive approval buttons until the Telegram task lands.
 - 2026-03-31: P2A-07 keeps incident-grouped notification logic lightweight and phase-appropriate by using an in-memory dedup window keyed to the stable incident payload dedup key, avoiding schema changes or persistence expansion before the later approval and executor tasks are in place.
 - 2026-03-31: P2A-08 keeps Telegram handling explicit and approval-driven by using the Bot API directly for inline buttons, while still treating missing Telegram credentials as a clean no-op so the rest of the notification pipeline remains usable.
+- 2026-03-31: Added `uvicorn` as a production dependency because the approved one-container runtime for P2A-09 needs a real packaged long-running Core API/UI process while the new root supervisor separately launches the internal Unix-socket executor process.
+- 2026-03-31: P2A-09 keeps the Core↔Executor trust boundary inside one container by using separate UNIX users, a shared SGID runtime directory at `/run/kaval`, executor-only Docker socket access based on the mounted socket's real GID, and HMAC-validated restart-only requests over the internal Unix socket.
 
 ## Open blockers
-- 2026-03-31: `P2A-09 Executor sidecar` is blocked by a frozen transport/runtime contradiction.
-- Attempted: reviewed `docs/prd.md` Section 3.1 / 7.4, ADR-008, current `docker-compose.yml`, `Dockerfile.executor`, and the placeholder `src/executor` package to confirm the intended Core↔Executor trust boundary before implementing the sidecar.
-- Conflict: the PRD/frozen architecture requires Core to call Executor via a localhost-only internal API, but the current runtime isolates Executor with `network_mode: "none"` in a separate container, which prevents any localhost path from Core; changing to a shared network namespace would give Executor Core's broader network reach, violating the current security posture, while switching to a Unix socket or other non-localhost transport would change the frozen contract.
-- Smallest unblocking decision needed: approve one transport/runtime model for Phase 2A that preserves the no-internet executor boundary, specifically either:
-- 1. amend the frozen Core↔Executor transport contract away from localhost-only to a shared Unix domain socket or equivalent local IPC, or
-- 2. approve a container runtime pattern that preserves Executor's no-internet property while still giving Core a true localhost path.
+- None currently.
+
+## Resolved blockers
+- 2026-03-31 → 2026-04-01: The old `P2A-09 Executor sidecar` blocker was resolved by approved CR-0002 and accepted ADR-014.
+- Previous conflict: the frozen sidecar-era runtime expected localhost-only Core↔Executor transport while the separate-container runtime prevented a true localhost path without violating the intended isolation model.
+- Resolution: Kaval now uses one Docker container with two internal processes and Unix domain socket transport for Core↔Executor communication.
 
 ## Next 3 tasks
-1. P2A-09 Executor sidecar
-2. P2A-10 Executor client in Core
-3. P2A-11 Scenario: DelugeVPN tunnel drop
+1. P2A-14 UI: Basic investigation detail
+2. Phase 2A exit verification
+3. Phase 2B planning gate
+
 
 ## Validation snapshots
 - lint: `ruff check .` passed via `.pkg/local/bin/ruff`
 - typecheck: `mypy src` passed via `.pkg/local/bin/mypy`
 - tests: `pytest tests/unit tests/integration` passed via repo-local Python path and prefix install (`93 passed`)
 - contract tests: `pytest tests/contract` passed (`5 passed`)
-- scenario tests: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario` passed (`13 passed`)
-- security tests: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security` passed (`4 passed`)
+- scenario tests: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/unit/test_investigation tests/scenario` passed (`16 passed`)
+- security tests: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/pytest tests/security` passed (`7 passed`)
 - frontend: `npm run build` passed in `src/web`
 - docs review: `README.md`, `CHANGELOG.md`, and all 13 ADRs reviewed against `docs/prd.md` and `plans/phase-0.md`
 - docker:
-- `docker --version` passed
-- `docker compose version` passed
-- `docker compose config` passed
-- `docker info` passed in the refreshed WSL shell
-- `docker compose up --build -d` passed
-- `docker compose ps` confirmed `kaval-core` and `kaval-executor` stayed up
-- `docker compose logs --no-color --tail 100 core executor` showed the proof-of-life finding -> incident pipeline completing in Core
-- `docker compose logs --no-color --tail 20 core executor` still showed both services up and the proof-of-life output after P0-09 validation
-- `docker compose exec -T core sh -lc 'ls -l /data && test -f /data/kaval.db && echo kaval-db-present'` passed
-- `docker inspect kaval-core --format '{{range .Mounts}}{{println .Destination}}{{end}}'` showed `/data` only
-- `docker inspect kaval-executor --format '{{range .Mounts}}{{println .Destination}}{{end}}'` showed `/var/run/docker.sock` only
+  - historical two-container validation passed under the old sidecar-era runtime during Phase 0 / early Phase 2A checkpoints
+  - P2A-09 runtime validation passes under the approved one-container model: `docker compose up --build -d`, `docker compose up -d --remove-orphans`, `docker compose ps`, host `/healthz`, and in-container expired-token executor socket validation all passed
+  - P2A-10 runtime validation passes using the new Core client path: inside the packaged container, `ExecutorClient.issue_approval_token()` persisted a signed restart token and `ExecutorClient.execute_approved_action()` received the expected expired-token rejection over `/run/kaval/executor.sock`
+  - validation stack was cleaned up with `docker compose down --remove-orphans`
 
 ## Notes for the coding agent
 - Prefer WSL workspace on Windows for Codex.
