@@ -1,0 +1,11 @@
+{
+  "namespace": "jc21",
+  "name": "nginx-proxy-manager",
+  "description": "Nginx Proxy Manager image repository",
+  "full_description": "Container image repository for Nginx Proxy Manager releases.",
+  "is_private": false,
+  "star_count": 4321,
+  "pull_count": 987654,
+  "last_updated": "2026-03-31T18:20:00Z",
+  "status": 1
+}

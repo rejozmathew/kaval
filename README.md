@@ -6,11 +6,11 @@ Kaval is not another monitoring dashboard. Tools like Uptime Kuma tell you that 
 
 ## Product Shape
 
-Kaval is built around three operating profiles within one Docker container:
+Kaval is built around three operating profiles within one approved Docker container runtime:
 
-- `Monitor`: `kaval-core` handles discovery, deterministic checks, findings, and incidents.
-- `Assist`: Monitor plus a local OpenAI-compatible model endpoint for investigation and root-cause analysis.
-- `Operate`: Assist plus the internal `kaval-executor` process for bounded, approval-gated remediation actions.
+- `Monitor`: `kaval-core` handles discovery, deterministic checks, findings, incidents, notifications, and the API/UI surface.
+- `Assist`: Monitor plus Tier 1 and Tier 2 investigation, local OpenAI-compatible synthesis, optional cloud escalation policy, and deterministic risk assessment.
+- `Operate`: Assist plus the internal `kaval-executor` process for bounded, approval-gated restart actions over `/run/kaval/executor.sock`.
 
 The security boundary is foundational:
 
@@ -21,15 +21,15 @@ The security boundary is foundational:
 
 ## Current Status
 
-The repository is no longer Phase 0-only.
+The repository is at a Phase 2B-complete checkpoint and is paused before any Phase 3 work.
 
 The current local checkpoint includes:
 
-- completed Phase 0 foundations: typed Pydantic models, SQLite persistence, checked-in schemas, ADRs, and Docker/dev scaffolding
-- completed Phase 1 monitoring surfaces: Unraid + Docker discovery, shipped service descriptors, dependency graph construction, deterministic checks, incident management, system profile generation, FastAPI endpoints, CLI commands, and the React/WebSocket service map UI
-- completed Phase 2A: Tier 1 evidence collection, investigation prompt templates, LangGraph investigation workflow, optional local OpenAI-compatible synthesis, Apprise delivery, incident-centered notification formatting, incident-grouped dispatch, Telegram interactive delivery, the internal Executor over `/run/kaval/executor.sock`, the Core Unix-socket action client, DelugeVPN/cert-expiry/crash-loop scenarios, and the basic investigation detail UI
+- completed Phase 0 and Phase 1 foundations: typed Pydantic models, SQLite persistence, checked-in schemas, ADRs, Unraid + Docker discovery, shipped service descriptors, dependency graph construction, deterministic checks, incident management, system profile generation, FastAPI endpoints, CLI commands, and the React/WebSocket service map UI
+- completed investigation and notification surfaces through Phase 2B: Tier 1 evidence collection, Tier 2 public research, optional local and cloud-safe model synthesis paths, incident-centered notifications, Telegram interactive delivery, approval-gated restart execution, deterministic risk assessment, and representative DelugeVPN, cert-expiry, crash-loop, NPM TLS breakage, and Authentik SSO scenarios
+- completed credentials, memory, and UI surfaces through Phase 2B: credential request flow, encrypted vault support, Operational Memory journal and trust model, redaction hardening, recurrence detection, investigation detail, change timeline, approval queue, and memory browser views
 
-Phase 2A is complete under the approved CR-0002 / ADR-014 runtime: one Docker container with two internal processes, where `kaval-core` serves the API/UI on port `9800` and `kaval-executor` listens on `/run/kaval/executor.sock`. Treat [`STATUS.md`](STATUS.md) as the authoritative current-state source while the repo waits at the phase boundary for review.
+Phase 2B is complete under the approved CR-0002 / ADR-014 runtime: one Docker container with two internal processes, where `kaval-core` serves the API/UI on port `9800` and `kaval-executor` listens on `/run/kaval/executor.sock`. Treat [`STATUS.md`](STATUS.md) as the authoritative current-state source while the repo remains paused at the Phase 2B boundary.
 
 ## Quick Start
 
@@ -49,8 +49,9 @@ Common validation commands:
 ```bash
 python -m pytest tests/unit tests/integration
 python -m pytest tests/contract
-python -m pytest tests/unit/test_investigation tests/scenario
-python -m pytest tests/security
+python -m pytest tests/scenario tests/security
+python -m pytest tests/unit/test_memory tests/unit/test_research
+cd src/web && npm run build
 ruff check .
 mypy src
 ```
@@ -65,12 +66,14 @@ Expected behavior:
 
 - `kaval` starts one container with two internal processes: `kaval-core` serves the FastAPI/API + UI on port `9800`, and `kaval-executor` listens on `/run/kaval/executor.sock`.
 - `/var/run/docker.sock` is mounted once and is intended for the executor process only; Core still communicates over the internal Unix socket.
-- The repository includes the completed Phase 1 monitoring stack and the completed Phase 2A investigation, approval-gated restart, scenario, and investigation-detail UI surfaces.
+- The repository includes the completed Phase 1 monitoring stack and the completed Phase 2B investigation, research, credentials, memory, approval-gated restart, and current UI surfaces.
 
 ## Documentation
 
 - Product and architecture contract: [`docs/prd.md`](docs/prd.md)
-- Active phase execution contract: [`plans/phase-2a.md`](plans/phase-2a.md)
+- Completed Phase 2B execution contract: [`plans/phase-2b.md`](plans/phase-2b.md)
 - Completed monitoring phase plan: [`plans/phase-1.md`](plans/phase-1.md)
 - Running project state: [`STATUS.md`](STATUS.md)
+- Approved runtime change: [`docs/change_requests/CR-0002-single-container-process-isolation.md`](docs/change_requests/CR-0002-single-container-process-isolation.md)
+- Accepted runtime ADR: [`docs/adr/014-single-container-with-internal-process.md`](docs/adr/014-single-container-with-internal-process.md)
 - Architecture decisions: [`docs/adr/`](docs/adr/)

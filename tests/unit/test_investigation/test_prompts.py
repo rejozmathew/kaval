@@ -9,6 +9,12 @@ from kaval.investigation.prompts import (
     INVESTIGATION_RESPONSE_SCHEMA,
     build_investigation_prompt_bundle,
 )
+from kaval.investigation.research import (
+    ServiceResearchResult,
+    Tier2ResearchBundle,
+    Tier2ResearchStatus,
+    Tier2ResearchTarget,
+)
 from kaval.models import (
     EvidenceStep,
     Incident,
@@ -17,6 +23,7 @@ from kaval.models import (
     JournalEntry,
     OperationalMemoryResult,
     RedactionLevel,
+    ResearchStep,
     Severity,
     UserNote,
 )
@@ -28,7 +35,7 @@ def ts(hour: int, minute: int = 0) -> datetime:
 
 
 def test_prompt_bundle_renders_structured_incident_evidence_and_contract() -> None:
-    """Prompt rendering should preserve the Phase 2A evidence contract explicitly."""
+    """Prompt rendering should preserve the evidence/inference/recommendation contract."""
     bundle = build_investigation_prompt_bundle(
         incident=build_incident(),
         evidence=build_evidence_result(),
@@ -39,6 +46,7 @@ def test_prompt_bundle_renders_structured_incident_evidence_and_contract() -> No
     assert bundle.response_schema == INVESTIGATION_RESPONSE_SCHEMA
     assert "evidence_summary" in bundle.user_prompt
     assert "restart_container" in bundle.system_prompt
+    assert "Use provided Tier 2 research only when it is present." in bundle.system_prompt
     assert "Do not recommend rollback, VM actions, config mutation" in bundle.system_prompt
     assert "Evidence Steps:" in bundle.user_prompt
     assert "1. [inspect_service_state] svc-delugevpn" in bundle.user_prompt
@@ -63,6 +71,22 @@ def test_prompt_bundle_includes_degraded_mode_notes() -> None:
     assert "Degraded mode details:" in bundle.user_prompt
     assert "Research steps skipped (no internet access)." in bundle.user_prompt
     assert "Phase Constraints:" in bundle.user_prompt
+
+
+def test_prompt_bundle_renders_tier2_research_context_when_present() -> None:
+    """Prompt rendering should expose ordered Tier 2 research and structured results."""
+    bundle = build_investigation_prompt_bundle(
+        incident=build_incident(),
+        evidence=build_evidence_result(),
+        research=build_research_bundle(),
+        now=ts(14, 30),
+    )
+
+    assert "Research Steps:" in bundle.user_prompt
+    assert "1. [fetch_github_release]" in bundle.user_prompt
+    assert "Research Results:" in bundle.user_prompt
+    assert "\"github_status\": \"success\"" in bundle.user_prompt
+    assert "\"dockerhub_status\": \"partial\"" in bundle.user_prompt
 
 
 def build_incident() -> Incident:
@@ -173,4 +197,40 @@ def build_evidence_result() -> InvestigationEvidenceResult:
             applied_redaction_level=RedactionLevel.REDACT_FOR_LOCAL,
             warnings=[],
         ),
+    )
+
+
+def build_research_bundle() -> Tier2ResearchBundle:
+    """Build one deterministic Tier 2 research bundle for prompt tests."""
+    return Tier2ResearchBundle(
+        research_steps=[
+            ResearchStep(
+                order=1,
+                action="fetch_github_release",
+                source="https://github.com/binhex/arch-delugevpn/releases",
+                result_summary="Found GitHub release v5.0.1 for binhex/arch-delugevpn.",
+                timestamp=ts(14, 26),
+            )
+        ],
+        service_results=[
+            ServiceResearchResult(
+                target=Tier2ResearchTarget(
+                    service_id="svc-delugevpn",
+                    service_name="DelugeVPN",
+                    change_id="chg-delugevpn-image",
+                    current_image="binhex/arch-delugevpn:5.0.1",
+                    previous_image="binhex/arch-delugevpn:5.0.0",
+                    current_tag="5.0.1",
+                    previous_tag="5.0.0",
+                    github_repository=None,
+                    dockerhub_reference=None,
+                ),
+                github_status=Tier2ResearchStatus.SUCCESS,
+                dockerhub_status=Tier2ResearchStatus.PARTIAL,
+                warnings=["Previous Docker Hub tag metadata was not found."],
+            )
+        ],
+        skipped_offline=False,
+        degraded_reasons=[],
+        warnings=["Previous Docker Hub tag metadata was not found."],
     )

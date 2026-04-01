@@ -64,12 +64,24 @@ export interface Incident {
   severity: string;
   status: string;
   affected_services: string[];
+  changes_correlated: string[];
   triggering_symptom: string | null;
   suspected_cause: string | null;
   investigation_id: string | null;
   approved_actions: string[];
   confidence: number;
   updated_at: string;
+}
+
+export interface Change {
+  id: string;
+  type: string;
+  service_id: string | null;
+  description: string;
+  old_value: string | null;
+  new_value: string | null;
+  timestamp: string;
+  correlated_incidents: string[];
 }
 
 export interface EvidenceStep {
@@ -112,6 +124,78 @@ export interface Investigation {
   remediation: RemediationProposal | null;
   started_at: string;
   completed_at: string | null;
+}
+
+export interface CredentialRequest {
+  id: string;
+  incident_id: string;
+  investigation_id: string | null;
+  service_id: string;
+  service_name: string;
+  credential_key: string;
+  credential_description: string;
+  credential_location: string;
+  reason: string;
+  status: string;
+  selected_mode: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  requested_at: string;
+  expires_at: string;
+  satisfied_at: string | null;
+  credential_reference: string | null;
+}
+
+export interface JournalEntry {
+  id: string;
+  incident_id: string;
+  date: string;
+  services: string[];
+  summary: string;
+  root_cause: string;
+  resolution: string;
+  time_to_resolution_minutes: number;
+  model_used: string;
+  tags: string[];
+  lesson: string;
+  recurrence_count: number;
+  confidence: string;
+  user_confirmed: boolean;
+  last_verified_at: string | null;
+  applies_to_version: string | null;
+  superseded_by: string | null;
+  stale_after_days: number | null;
+}
+
+export interface UserNote {
+  id: string;
+  service_id: string | null;
+  note: string;
+  safe_for_model: boolean;
+  last_verified_at: string | null;
+  stale: boolean;
+  added_at: string;
+  updated_at: string;
+}
+
+export interface SystemProfile {
+  hostname: string;
+  unraid_version: string;
+  networking: {
+    domain: string | null;
+    dns_provider: string | null;
+    reverse_proxy: string | null;
+    tunnel: string | null;
+    vpn: string | null;
+    dns_resolver: string | null;
+    ssl_strategy: string | null;
+  };
+  services_summary: {
+    total_containers: number;
+    total_vms: number;
+    matched_descriptors: number;
+  };
+  last_updated: string;
 }
 
 export interface WidgetSummary {

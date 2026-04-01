@@ -1,12 +1,17 @@
 import { startTransition, useEffect, useState } from "react";
 
 import type {
+  Change,
+  CredentialRequest,
   GraphEdge,
   GraphResponse,
   Incident,
   Investigation,
+  JournalEntry,
   RealtimeSnapshot,
   Service,
+  SystemProfile,
+  UserNote,
   WidgetSummary,
 } from "./types";
 
@@ -18,18 +23,36 @@ const ROW_GAP = 128;
 
 interface LoadState {
   graph: GraphResponse | null;
+  changes: Change[];
+  credentialRequests: CredentialRequest[];
   incidents: Incident[];
   investigations: Investigation[];
+  journalEntries: JournalEntry[];
+  systemProfile: SystemProfile | null;
+  userNotes: UserNote[];
   widget: WidgetSummary | null;
   error: string | null;
   loading: boolean;
 }
+
+const EMPTY_SUPPLEMENTAL_STATE: SupplementalPanelsState = {
+  changes: [],
+  credentialRequests: [],
+  journalEntries: [],
+  systemProfile: null,
+  userNotes: [],
+};
 
 interface NodeLayout {
   service: Service;
   x: number;
   y: number;
 }
+
+type SupplementalPanelsState = Pick<
+  LoadState,
+  "changes" | "credentialRequests" | "journalEntries" | "systemProfile" | "userNotes"
+>;
 
 const statusLabel = {
   healthy: "Healthy",
@@ -42,6 +65,7 @@ const statusLabel = {
 export default function App() {
   const [state, setState] = useState<LoadState>({
     graph: null,
+    ...EMPTY_SUPPLEMENTAL_STATE,
     incidents: [],
     investigations: [],
     widget: null,
@@ -57,13 +81,19 @@ export default function App() {
 
     async function load() {
       try {
-        const [graphResponse, incidentResponse, investigationResponse, widgetResponse] =
-          await Promise.all([
+        const [
+          graphResponse,
+          incidentResponse,
+          investigationResponse,
+          widgetResponse,
+          supplemental,
+        ] = await Promise.all([
           fetch("/api/v1/graph"),
           fetch("/api/v1/incidents"),
           fetch("/api/v1/investigations"),
           fetch("/api/v1/widget"),
-          ]);
+          loadSupplementalPanels(),
+        ]);
         if (
           !graphResponse.ok ||
           !incidentResponse.ok ||
@@ -87,6 +117,7 @@ export default function App() {
         startTransition(() => {
           setState({
             graph,
+            ...supplemental,
             incidents,
             investigations,
             widget,
@@ -102,6 +133,7 @@ export default function App() {
         startTransition(() => {
           setState({
             graph: null,
+            ...EMPTY_SUPPLEMENTAL_STATE,
             incidents: [],
             investigations: [],
             widget: null,
@@ -144,15 +176,36 @@ export default function App() {
         if (snapshot.kind !== "snapshot") {
           return;
         }
+        void loadSupplementalPanels()
+          .then((supplemental) => {
+            if (cancelled) {
+              return;
+            }
+            startTransition(() => {
+              setState((current) => ({
+                ...current,
+                ...supplemental,
+              }));
+            });
+          })
+          .catch(() => {
+            if (cancelled) {
+              return;
+            }
+            startTransition(() => {
+              setState((current) => current);
+            });
+          });
         startTransition(() => {
-          setState({
+          setState((current) => ({
+            ...current,
             graph: snapshot.graph,
             incidents: snapshot.incidents,
             investigations: snapshot.investigations,
             widget: snapshot.widget,
             error: null,
             loading: false,
-          });
+          }));
           setSelectedServiceId((currentSelection) => {
             if (
               currentSelection !== null &&
@@ -230,6 +283,28 @@ export default function App() {
           }
           return investigation.incident_id === selectedIncident.id;
         }) ?? null;
+  const investigationByIncidentId = new Map(
+    state.investigations.map((investigation) => [investigation.incident_id, investigation]),
+  );
+  const sortedChanges = [...state.changes].sort((left, right) =>
+    right.timestamp.localeCompare(left.timestamp),
+  );
+  const highlightedChangeIds = new Set(selectedIncident?.changes_correlated ?? []);
+  const sortedCredentialRequests = [...state.credentialRequests].sort((left, right) =>
+    right.requested_at.localeCompare(left.requested_at),
+  );
+  const pendingCredentialRequests = sortedCredentialRequests.filter((request) =>
+    ["pending", "awaiting_input"].includes(request.status),
+  );
+  const approvalIncidents = sortedIncidents.filter(
+    (incident) => incident.status === "awaiting_approval",
+  );
+  const sortedJournalEntries = [...state.journalEntries].sort((left, right) =>
+    right.date.localeCompare(left.date),
+  );
+  const sortedUserNotes = [...state.userNotes].sort((left, right) =>
+    right.updated_at.localeCompare(left.updated_at),
+  );
   const surfaceWidth = Math.max(categories.length * COLUMN_WIDTH + 120, 720);
   const surfaceHeight =
     Math.max(...layouts.map((layout) => layout.y), 0) + CARD_HEIGHT + HEADER_HEIGHT + 96;
@@ -240,12 +315,12 @@ export default function App() {
       <div className="ambient ambient-b" />
       <header className="hero">
         <div>
-          <p className="eyebrow">Kaval Phase 2A</p>
-          <h1>Incidents with evidence, inference, and a bounded next step.</h1>
+          <p className="eyebrow">Kaval Phase 2B</p>
+          <h1>Investigations, queued decisions, and memory in one surface.</h1>
           <p className="hero-copy">
-            Deterministic monitoring plus structured investigation detail. The current
-            view stays incident-centered: evidence trail, root-cause inference, and the
-            current restart-only action state when Phase 2A remediation is in play.
+            Deterministic monitoring now sits beside Tier 2 research, approval-state context,
+            and Operational Memory. The Phase 2B view keeps the earlier incident detail while
+            exposing the current change timeline, waiting approvals, and learned history.
           </p>
         </div>
         <div className="summary-grid">
@@ -273,6 +348,7 @@ export default function App() {
       {state.error ? <section className="message-card error">{state.error}</section> : null}
 
       {!state.loading && !state.error && state.graph && state.widget ? (
+        <>
         <main className="content">
           <section className="map-panel panel">
             <div className="panel-header">
@@ -549,9 +625,219 @@ export default function App() {
             </section>
           </aside>
         </main>
+
+        <section className="phase-two-grid">
+          <section className="panel phase-two-panel">
+            <div className="panel-header">
+              <div>
+                <p className="section-label">Change Timeline</p>
+                <h2>Correlated changes</h2>
+              </div>
+              <p className="panel-meta">{sortedChanges.length} tracked</p>
+            </div>
+
+            <div className="timeline-list">
+              {sortedChanges.length > 0 ? (
+                sortedChanges.slice(0, 8).map((change) => (
+                  <article
+                    key={change.id}
+                    className={`timeline-item ${
+                      highlightedChangeIds.has(change.id) ? "highlighted" : ""
+                    }`}
+                  >
+                    <div className="timeline-topline">
+                      <span className="chip ghost">{formatLabel(change.type)}</span>
+                      <span className="step-meta">{formatTimestamp(change.timestamp)}</span>
+                    </div>
+                    <p className="timeline-service">
+                      {change.service_id ? serviceNames.get(change.service_id) ?? change.service_id : "Global"}
+                    </p>
+                    <p className="muted">{change.description}</p>
+                  </article>
+                ))
+              ) : (
+                <p className="muted">No change events are currently persisted.</p>
+              )}
+            </div>
+          </section>
+
+          <section className="panel phase-two-panel">
+            <div className="panel-header">
+              <div>
+                <p className="section-label">Approval Queue</p>
+                <h2>Pending decisions</h2>
+              </div>
+              <p className="panel-meta">
+                {approvalIncidents.length + pendingCredentialRequests.length} waiting
+              </p>
+            </div>
+
+            <div className="queue-section">
+              <p className="detail-label">Remediation approvals</p>
+              {approvalIncidents.length > 0 ? (
+                <div className="queue-list">
+                  {approvalIncidents.map((incident) => {
+                    const investigation = investigationByIncidentId.get(incident.id) ?? null;
+                    return (
+                      <article key={incident.id} className="queue-item">
+                        <div className="timeline-topline">
+                          <span className={`severity severity-${incident.severity}`}>
+                            {incident.severity}
+                          </span>
+                          <span className="incident-status">{formatLabel(incident.status)}</span>
+                        </div>
+                        <p className="timeline-service">{incident.title}</p>
+                        <p className="muted">
+                          {investigation?.remediation
+                            ? `${formatLabel(investigation.remediation.action_type)} ${
+                                investigation.remediation.target
+                              }`
+                            : "No remediation detail persisted."}
+                        </p>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="muted">No remediation approvals are currently waiting.</p>
+              )}
+            </div>
+
+            <div className="queue-section">
+              <p className="detail-label">Credential requests</p>
+              {pendingCredentialRequests.length > 0 ? (
+                <div className="queue-list">
+                  {pendingCredentialRequests.map((request) => (
+                    <article key={request.id} className="queue-item">
+                      <div className="timeline-topline">
+                        <span className="chip ghost">{formatLabel(request.status)}</span>
+                        <span className="step-meta">{formatTimestamp(request.requested_at)}</span>
+                      </div>
+                      <p className="timeline-service">{request.service_name}</p>
+                      <p className="muted">{request.credential_description}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">No credential requests are currently waiting.</p>
+              )}
+            </div>
+          </section>
+
+          <section className="panel phase-two-panel">
+            <div className="panel-header">
+              <div>
+                <p className="section-label">Memory Browser</p>
+                <h2>Profile, journal, and notes</h2>
+              </div>
+              <p className="panel-meta">
+                {sortedJournalEntries.length} journal · {sortedUserNotes.length} notes
+              </p>
+            </div>
+
+            {state.systemProfile ? (
+              <div className="memory-section">
+                <p className="detail-label">System profile</p>
+                <ul className="chip-list">
+                  <li><span className="chip ghost">{state.systemProfile.hostname}</span></li>
+                  <li><span className="chip ghost">Unraid {state.systemProfile.unraid_version}</span></li>
+                  {state.systemProfile.networking.ssl_strategy ? (
+                    <li>
+                      <span className="chip">{state.systemProfile.networking.ssl_strategy}</span>
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
+            ) : null}
+
+            <div className="memory-section">
+              <p className="detail-label">Journal</p>
+              {sortedJournalEntries.length > 0 ? (
+                <div className="memory-list">
+                  {sortedJournalEntries.slice(0, 4).map((entry) => (
+                    <article key={entry.id} className="memory-item">
+                      <div className="timeline-topline">
+                        <span className="chip ghost">{entry.confidence}</span>
+                        <span className="step-meta">{entry.date}</span>
+                      </div>
+                      <p className="timeline-service">{entry.summary}</p>
+                      <p className="muted">
+                        recurrence {entry.recurrence_count} · model {formatLabel(entry.model_used)}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">No journal entries are currently persisted.</p>
+              )}
+            </div>
+
+            <div className="memory-section">
+              <p className="detail-label">User notes</p>
+              {sortedUserNotes.length > 0 ? (
+                <div className="memory-list">
+                  {sortedUserNotes.slice(0, 4).map((note) => (
+                    <article key={note.id} className="memory-item">
+                      <div className="timeline-topline">
+                        <span className="chip ghost">
+                          {note.safe_for_model ? "model-safe" : "excluded"}
+                        </span>
+                        <span className="step-meta">{formatTimestamp(note.updated_at)}</span>
+                      </div>
+                      <p className="timeline-service">
+                        {note.service_id ? serviceNames.get(note.service_id) ?? note.service_id : "General"}
+                      </p>
+                      <p className="muted">{note.note}</p>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">No user notes are currently persisted.</p>
+              )}
+            </div>
+          </section>
+        </section>
+        </>
       ) : null}
     </div>
   );
+}
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Kaval UI could not load ${url}.`);
+  }
+  return (await response.json()) as T;
+}
+
+async function fetchOptionalJson<T>(url: string): Promise<T | null> {
+  const response = await fetch(url);
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Kaval UI could not load ${url}.`);
+  }
+  return (await response.json()) as T;
+}
+
+async function loadSupplementalPanels(): Promise<SupplementalPanelsState> {
+  const [changes, credentialRequests, journalEntries, systemProfile, userNotes] =
+    await Promise.all([
+      fetchJson<Change[]>("/api/v1/changes"),
+      fetchJson<CredentialRequest[]>("/api/v1/credential-requests"),
+      fetchJson<JournalEntry[]>("/api/v1/journal-entries"),
+      fetchOptionalJson<SystemProfile>("/api/v1/system-profile"),
+      fetchJson<UserNote[]>("/api/v1/user-notes"),
+    ]);
+  return {
+    changes,
+    credentialRequests,
+    journalEntries,
+    systemProfile,
+    userNotes,
+  };
 }
 
 function formatLabel(value: string): string {

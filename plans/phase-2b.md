@@ -37,11 +37,14 @@ Enrich investigations with Tier 2 research, credential-gated API access, and Ope
 - P2B-03 depends on P2B-01 and P2B-02
 - P2B-04 depends on P2A-03 and P2B-03
 - P2B-05 depends on P2A-04
+- P2B-05 must establish a minimum compliant cloud-safe redaction path before any cloud-bound prompt is sent
+- P2B-05 may pull forward only the minimum subset of `src/kaval/memory/redaction.py` required to enforce PRD Section 6.5 for cloud-bound prompt handling
 - P2B-06 depends on P2B-03
 - P2B-07 depends on P2A-08
 - P2B-08 depends on P2B-07
 - P2B-09 depends on P1-18 and P2A-03
 - P2B-10 depends on P2B-09
+- P2B-10 remains responsible for broader redaction-module expansion, memory-flow integration, and hardening beyond the minimum cloud-safe path required by P2B-05
 - P2B-11 depends on P2B-09
 - P2B-12 depends on P2B-04
 - P2B-13 depends on P2A-03
@@ -65,6 +68,7 @@ Enrich investigations with Tier 2 research, credential-gated API access, and Ope
 ## Review gates
 - Security review for credentials, redaction, prompts, cloud escalation, and memory handling
 - Ensure local-safe vs cloud-safe redaction levels are enforced
+- No cloud-bound prompt may be sent unless the minimum compliant cloud-safe redaction path required by PRD Section 6.5 is active
 
 ## Validation commands
 - `python -m pytest tests/scenario tests/security`

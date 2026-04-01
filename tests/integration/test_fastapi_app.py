@@ -8,6 +8,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from kaval.api import create_app
+from kaval.credentials import build_credential_request_callback_id
+from kaval.credentials.models import CredentialRequestMode
 from kaval.database import KavalDatabase
 from kaval.models import (
     ArrayProfile,
@@ -27,6 +29,8 @@ from kaval.models import (
     Investigation,
     InvestigationStatus,
     InvestigationTrigger,
+    JournalConfidence,
+    JournalEntry,
     ModelUsed,
     NetworkingProfile,
     Service,
@@ -36,6 +40,7 @@ from kaval.models import (
     Severity,
     StorageProfile,
     SystemProfile,
+    UserNote,
     VMProfile,
 )
 
@@ -58,9 +63,11 @@ def test_fastapi_core_endpoints_expose_phase1_state(tmp_path: Path) -> None:
         incidents_response = client.get("/api/v1/incidents")
         investigations_response = client.get("/api/v1/investigations")
         changes_response = client.get("/api/v1/changes")
+        journal_entries_response = client.get("/api/v1/journal-entries")
         graph_response = client.get("/api/v1/graph")
         widget_response = client.get("/api/v1/widget")
         system_profile_response = client.get("/api/v1/system-profile")
+        user_notes_response = client.get("/api/v1/user-notes")
 
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok", "database_ready": True}
@@ -87,6 +94,10 @@ def test_fastapi_core_endpoints_expose_phase1_state(tmp_path: Path) -> None:
     changes_payload = changes_response.json()
     assert changes_response.status_code == 200
     assert [change["id"] for change in changes_payload] == ["chg-1"]
+
+    journal_payload = journal_entries_response.json()
+    assert journal_entries_response.status_code == 200
+    assert [entry["id"] for entry in journal_payload] == ["jrnl-1"]
 
     graph_payload = graph_response.json()
     assert graph_response.status_code == 200
@@ -122,6 +133,122 @@ def test_fastapi_core_endpoints_expose_phase1_state(tmp_path: Path) -> None:
     assert system_profile_response.status_code == 200
     assert profile_payload["hostname"] == "zactower"
     assert profile_payload["services_summary"]["matched_descriptors"] == 1
+
+    notes_payload = user_notes_response.json()
+    assert user_notes_response.status_code == 200
+    assert [note["id"] for note in notes_payload] == ["note-1"]
+
+
+def test_fastapi_credential_request_endpoints_manage_request_lifecycle(tmp_path: Path) -> None:
+    """Credential-request endpoints should create, list, and resolve UAC choices."""
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v1/credential-requests",
+            json={
+                "incident_id": "inc-1",
+                "investigation_id": "inv-1",
+                "service_id": "svc-radarr",
+                "credential_key": "api_key",
+                "reason": "Need the diagnostics API to narrow the fault.",
+            },
+        )
+        request_id = create_response.json()["id"]
+        list_response = client.get("/api/v1/credential-requests")
+        choice_response = client.post(
+            "/api/v1/credential-requests/telegram-callback",
+            json={
+                "callback_id": build_credential_request_callback_id(
+                    request_id=request_id,
+                    mode=CredentialRequestMode.VOLATILE,
+                ),
+                "decided_by": "user_via_telegram",
+            },
+        )
+
+    assert create_response.status_code == 201
+    assert create_response.json()["status"] == "pending"
+    assert create_response.json()["credential_description"] == "Radarr API Key"
+    assert list_response.status_code == 200
+    assert [item["id"] for item in list_response.json()] == [request_id]
+    assert choice_response.status_code == 200
+    assert choice_response.json()["status"] == "awaiting_input"
+    assert choice_response.json()["selected_mode"] == "volatile"
+
+
+def test_fastapi_vault_endpoints_support_vault_mode_submission(tmp_path: Path) -> None:
+    """Vault endpoints should unlock, store encrypted material, and relock cleanly."""
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v1/credential-requests",
+            json={
+                "incident_id": "inc-1",
+                "investigation_id": "inv-1",
+                "service_id": "svc-radarr",
+                "credential_key": "api_key",
+                "reason": "Need the diagnostics API to narrow the fault.",
+            },
+        )
+        request_id = create_response.json()["id"]
+        client.post(
+            f"/api/v1/credential-requests/{request_id}/choice",
+            json={
+                "mode": "vault",
+                "decided_by": "user_via_telegram",
+            },
+        )
+        initial_status_response = client.get("/api/v1/vault/status")
+        locked_submit_response = client.post(
+            f"/api/v1/credential-requests/{request_id}/submit",
+            json={
+                "secret_value": "radarr-secret-value",
+                "submitted_by": "user_via_telegram",
+            },
+        )
+        unlock_response = client.post(
+            "/api/v1/vault/unlock",
+            json={"master_passphrase": "correct horse battery staple"},
+        )
+        submit_response = client.post(
+            f"/api/v1/credential-requests/{request_id}/submit",
+            json={
+                "secret_value": "radarr-secret-value",
+                "submitted_by": "user_via_telegram",
+            },
+        )
+        unlocked_status_response = client.get("/api/v1/vault/status")
+        relock_response = client.post("/api/v1/vault/lock")
+
+    assert create_response.status_code == 201
+    assert initial_status_response.status_code == 200
+    assert initial_status_response.json() == {
+        "initialized": False,
+        "unlocked": False,
+        "unlock_expires_at": None,
+        "stored_credentials": 0,
+    }
+    assert locked_submit_response.status_code == 423
+    assert unlock_response.status_code == 200
+    assert unlock_response.json()["initialized"] is True
+    assert unlock_response.json()["unlocked"] is True
+    assert submit_response.status_code == 200
+    assert submit_response.json()["status"] == "satisfied"
+    assert submit_response.json()["credential_reference"].startswith("vault:")
+    assert unlocked_status_response.status_code == 200
+    assert unlocked_status_response.json()["stored_credentials"] == 1
+    assert unlocked_status_response.json()["unlocked"] is True
+    assert relock_response.status_code == 200
+    assert relock_response.json()["initialized"] is True
+    assert relock_response.json()["unlocked"] is False
 
 
 def test_system_profile_endpoint_returns_not_found_when_missing(tmp_path: Path) -> None:
@@ -205,6 +332,8 @@ def seed_api_database(database_path: Path) -> None:
         database.upsert_investigation(build_investigation())
         database.upsert_change(build_change())
         database.upsert_system_profile(build_system_profile())
+        database.upsert_journal_entry(build_journal_entry())
+        database.upsert_user_note(build_user_note())
     finally:
         database.close()
 
@@ -240,6 +369,36 @@ def update_database_with_second_incident(database_path: Path) -> None:
                 resolved_at=None,
                 mttr_seconds=None,
                 journal_entry_id=None,
+            )
+        )
+    finally:
+        database.close()
+
+
+def add_radarr_service(database_path: Path) -> None:
+    """Add a descriptor-backed Radarr service for credential-request API tests."""
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+    try:
+        database.upsert_service(
+            Service(
+                id="svc-radarr",
+                name="Radarr",
+                type=ServiceType.CONTAINER,
+                category="arr",
+                status=ServiceStatus.DEGRADED,
+                descriptor_id="arr/radarr",
+                descriptor_source=DescriptorSource.SHIPPED,
+                container_id="container-radarr",
+                vm_id=None,
+                image="lscr.io/linuxserver/radarr:latest",
+                endpoints=[],
+                dns_targets=[],
+                dependencies=[],
+                dependents=[],
+                last_check=ts(12, 1),
+                active_findings=1,
+                active_incidents=1,
             )
         )
     finally:
@@ -439,4 +598,42 @@ def build_system_profile() -> SystemProfile:
             )
         ],
         last_updated=ts(12, 3),
+    )
+
+
+def build_journal_entry() -> JournalEntry:
+    """Build one persisted journal entry for API tests."""
+    return JournalEntry(
+        id="jrnl-1",
+        incident_id="inc-0",
+        date=ts(11, 45).date(),
+        services=["svc-delugevpn"],
+        summary="DelugeVPN degraded after a dependency restart.",
+        root_cause="Downloads share dependency became unavailable.",
+        resolution="Restarted DelugeVPN after the share recovered.",
+        time_to_resolution_minutes=7.0,
+        model_used="local",
+        tags=["delugevpn", "storage"],
+        lesson="Watch the downloads share before restarting clients.",
+        recurrence_count=1,
+        confidence=JournalConfidence.CONFIRMED,
+        user_confirmed=True,
+        last_verified_at=ts(11, 50),
+        applies_to_version=None,
+        superseded_by=None,
+        stale_after_days=180,
+    )
+
+
+def build_user_note() -> UserNote:
+    """Build one persisted user note for API tests."""
+    return UserNote(
+        id="note-1",
+        service_id="svc-delugevpn",
+        note="Provider endpoint rotates often during maintenance windows.",
+        safe_for_model=True,
+        last_verified_at=ts(12, 0),
+        stale=False,
+        added_at=ts(12, 0),
+        updated_at=ts(12, 5),
     )

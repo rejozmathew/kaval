@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from itertools import zip_longest
 from typing import Callable, Iterable, Sequence, cast
 
 from kaval.discovery.descriptors import LoadedServiceDescriptor
@@ -13,11 +14,18 @@ from kaval.discovery.docker import (
     DockerDiscoverySnapshot,
     DockerTransportError,
 )
+from kaval.memory.recurrence import detect_recurrences
+from kaval.memory.redaction import (
+    CloudRedactionReplacement,
+    build_cloud_redaction_replacements,
+    redact_text,
+)
 from kaval.models import (
     Change,
     EvidenceStep,
     Finding,
     Incident,
+    JournalConfidence,
     JournalEntry,
     JsonValue,
     OperationalMemoryResult,
@@ -29,17 +37,6 @@ from kaval.models import (
 
 type LogReader = Callable[[str, int], str]
 
-_KEY_VALUE_SECRET_RE = re.compile(
-    r"(?i)\b(password|passwd|api[_-]?key|token|secret)\b(\s*[:=]\s*)(\S+)"
-)
-_AUTH_HEADER_RE = re.compile(r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+")
-_URL_CREDENTIAL_RE = re.compile(r"(?P<scheme>[a-z][a-z0-9+.-]*://)(?P<creds>[^/\s:@]+:[^/\s@]+)@")
-_PRIVATE_IP_RE = re.compile(
-    r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
-    r"192\.168\.\d{1,3}\.\d{1,3}|"
-    r"172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b"
-)
-_SHARE_PATH_RE = re.compile(r"/mnt/(?:user|cache)/[^\s'\"`]+")
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
@@ -85,10 +82,12 @@ def collect_incident_evidence(
     container_map = _container_map(docker_snapshot)
     operational_memory = query_operational_memory(
         incident=incident,
+        services=relevant_services,
         journal_entries=journal_entries,
         user_notes=user_notes,
         system_profile=system_profile,
         redaction_level=redaction_level,
+        now=effective_now,
     )
 
     steps: list[EvidenceStep] = []
@@ -187,30 +186,89 @@ def collect_incident_evidence(
 def query_operational_memory(
     *,
     incident: Incident,
+    services: Sequence[Service] = (),
     journal_entries: Sequence[JournalEntry],
     user_notes: Sequence[UserNote],
     system_profile: SystemProfile | None,
     redaction_level: RedactionLevel = RedactionLevel.REDACT_FOR_LOCAL,
+    now: datetime | None = None,
 ) -> OperationalMemoryResult:
     """Filter and redact Operational Memory context relevant to an incident."""
     affected_service_ids = set(incident.affected_services)
+    effective_now = now or datetime.now(tz=UTC)
     warnings: list[str] = []
+    service_versions = _service_versions(services)
+    cloud_replacements = (
+        build_cloud_redaction_replacements(incident=incident, services=services)
+        if redaction_level is RedactionLevel.REDACT_FOR_CLOUD
+        else ()
+    )
 
     relevant_journal_entries: list[JournalEntry] = []
+    recurrence_candidates: list[JournalEntry] = []
     skipped_superseded = 0
-    for entry in sorted(journal_entries, key=lambda item: (item.date, item.id), reverse=True):
+    skipped_version_scoped = 0
+    skipped_unknown_version = 0
+    stale_entries = 0
+    speculative_entries = 0
+    ordered_entries = sorted(
+        journal_entries,
+        key=lambda item: _journal_sort_key(item, effective_now=effective_now),
+        reverse=True,
+    )
+    for entry in ordered_entries:
         if entry.superseded_by is not None:
             skipped_superseded += 1
             continue
-        if not affected_service_ids.isdisjoint(entry.services) or entry.incident_id == incident.id:
-            relevant_journal_entries.append(
-                _redacted_journal_entry(entry, redaction_level=redaction_level)
+        if affected_service_ids.isdisjoint(entry.services) and entry.incident_id != incident.id:
+            continue
+        version_scope = _version_scope_status(entry, service_versions=service_versions)
+        if version_scope == "excluded":
+            skipped_version_scoped += 1
+            continue
+        if version_scope == "unknown":
+            skipped_unknown_version += 1
+            continue
+        stale = _journal_entry_is_stale(entry, now=effective_now)
+        if stale:
+            stale_entries += 1
+        if entry.confidence is JournalConfidence.SPECULATIVE:
+            speculative_entries += 1
+        recurrence_candidates.append(entry)
+        relevant_journal_entries.append(
+            _redacted_journal_entry(
+                _annotated_journal_entry(entry, stale=stale),
+                redaction_level=redaction_level,
+                cloud_replacements=cloud_replacements,
             )
+        )
 
     if skipped_superseded:
         warnings.append(
             f"Excluded {skipped_superseded} superseded journal entr"
             f"{'y' if skipped_superseded == 1 else 'ies'} from model context."
+        )
+    if skipped_version_scoped:
+        warnings.append(
+            f"Excluded {skipped_version_scoped} version-scoped journal entr"
+            f"{'y' if skipped_version_scoped == 1 else 'ies'} that did not match the "
+            "current service version."
+        )
+    if skipped_unknown_version:
+        warnings.append(
+            f"Excluded {skipped_unknown_version} version-scoped journal entr"
+            f"{'y' if skipped_unknown_version == 1 else 'ies'} because the current "
+            "service version could not be verified."
+        )
+    if stale_entries:
+        warnings.append(
+            f"Flagged {stale_entries} stale journal entr"
+            f"{'y' if stale_entries == 1 else 'ies'} as potentially outdated."
+        )
+    if speculative_entries:
+        warnings.append(
+            f"Included {speculative_entries} speculative journal entr"
+            f"{'y' if speculative_entries == 1 else 'ies'} with explicit disclaimers."
         )
 
     relevant_user_notes: list[UserNote] = []
@@ -221,19 +279,36 @@ def query_operational_memory(
         if not note.safe_for_model:
             skipped_unsafe_notes += 1
             continue
-        relevant_user_notes.append(_redacted_user_note(note, redaction_level=redaction_level))
+        relevant_user_notes.append(
+            _redacted_user_note(
+                note,
+                redaction_level=redaction_level,
+                cloud_replacements=cloud_replacements,
+            )
+        )
 
     if skipped_unsafe_notes:
         warnings.append(
             f"Excluded {skipped_unsafe_notes} unsafe user note"
             f"{'' if skipped_unsafe_notes == 1 else 's'} from model context."
         )
+    recurrence_analysis = detect_recurrences(
+        incident=incident,
+        journal_entries=recurrence_candidates,
+    )
+    if recurrence_analysis.excluded_speculative_matches:
+        warnings.append(
+            f"Excluded {recurrence_analysis.excluded_speculative_matches} speculative "
+            "journal entr"
+            f"{'y' if recurrence_analysis.excluded_speculative_matches == 1 else 'ies'} "
+            "from recurrence count."
+        )
 
     return OperationalMemoryResult(
         system_profile=system_profile,
         journal_entries=relevant_journal_entries,
         user_notes=relevant_user_notes,
-        recurrence_count=_recurrence_count(incident, relevant_journal_entries),
+        recurrence_count=recurrence_analysis.recurrence_count,
         applied_redaction_level=redaction_level,
         warnings=warnings,
     )
@@ -241,15 +316,7 @@ def query_operational_memory(
 
 def redact_sensitive_text(text: str, *, redaction_level: RedactionLevel) -> str:
     """Redact common secret-like patterns before prompt or notification use."""
-    redacted = _KEY_VALUE_SECRET_RE.sub(r"\1\2[REDACTED]", text)
-    redacted = _AUTH_HEADER_RE.sub(lambda match: f"{match.group(1)} [REDACTED]", redacted)
-    redacted = _URL_CREDENTIAL_RE.sub(r"\g<scheme>[REDACTED]@", redacted)
-
-    if redaction_level == RedactionLevel.REDACT_FOR_CLOUD:
-        redacted = _PRIVATE_IP_RE.sub("[REDACTED_IP]", redacted)
-        redacted = _SHARE_PATH_RE.sub("[REDACTED_PATH]", redacted)
-
-    return redacted
+    return redact_text(text, redaction_level=redaction_level)
 
 
 def _incident_findings(incident: Incident, findings: Sequence[Finding]) -> list[Finding]:
@@ -669,14 +736,31 @@ def _redacted_journal_entry(
     entry: JournalEntry,
     *,
     redaction_level: RedactionLevel,
+    cloud_replacements: Sequence[CloudRedactionReplacement] = (),
 ) -> JournalEntry:
     """Return a redacted journal entry safe for prompt context."""
     return entry.model_copy(
         update={
-            "summary": redact_sensitive_text(entry.summary, redaction_level=redaction_level),
-            "root_cause": redact_sensitive_text(entry.root_cause, redaction_level=redaction_level),
-            "resolution": redact_sensitive_text(entry.resolution, redaction_level=redaction_level),
-            "lesson": redact_sensitive_text(entry.lesson, redaction_level=redaction_level),
+            "summary": redact_text(
+                entry.summary,
+                redaction_level=redaction_level,
+                cloud_replacements=cloud_replacements,
+            ),
+            "root_cause": redact_text(
+                entry.root_cause,
+                redaction_level=redaction_level,
+                cloud_replacements=cloud_replacements,
+            ),
+            "resolution": redact_text(
+                entry.resolution,
+                redaction_level=redaction_level,
+                cloud_replacements=cloud_replacements,
+            ),
+            "lesson": redact_text(
+                entry.lesson,
+                redaction_level=redaction_level,
+                cloud_replacements=cloud_replacements,
+            ),
         }
     )
 
@@ -685,11 +769,37 @@ def _redacted_user_note(
     note: UserNote,
     *,
     redaction_level: RedactionLevel,
+    cloud_replacements: Sequence[CloudRedactionReplacement] = (),
 ) -> UserNote:
     """Return a redacted user note safe for prompt context."""
     return note.model_copy(
-        update={"note": redact_sensitive_text(note.note, redaction_level=redaction_level)}
+        update={
+            "note": redact_text(
+                note.note,
+                redaction_level=redaction_level,
+                cloud_replacements=cloud_replacements,
+            )
+        }
     )
+
+
+def _annotated_journal_entry(
+    entry: JournalEntry,
+    *,
+    stale: bool,
+) -> JournalEntry:
+    """Add trust disclaimers to journal entry text without widening the schema."""
+    prefixes: list[str] = []
+    if stale:
+        prefixes.append("STALE")
+    if entry.confidence is JournalConfidence.SPECULATIVE:
+        prefixes.append("SPECULATIVE")
+    elif entry.confidence is JournalConfidence.LIKELY and not entry.user_confirmed:
+        prefixes.append("LIKELY")
+    if not prefixes:
+        return entry
+    prefix = f"[{'/'.join(prefixes)}] "
+    return entry.model_copy(update={"summary": prefix + entry.summary})
 
 
 def _recurrence_count(
@@ -697,20 +807,190 @@ def _recurrence_count(
     journal_entries: Sequence[JournalEntry],
 ) -> int:
     """Estimate recurrence count from prior journal entries touching the same services."""
-    if not journal_entries:
-        return 0
-    if incident.root_cause_service is not None:
-        root_cause_matches = sum(
-            1 for entry in journal_entries if incident.root_cause_service in entry.services
-        )
-        if root_cause_matches:
-            return root_cause_matches
-    affected_service_ids = set(incident.affected_services)
-    return sum(
-        1
-        for entry in journal_entries
-        if not affected_service_ids.isdisjoint(entry.services)
+    return detect_recurrences(
+        incident=incident,
+        journal_entries=journal_entries,
+    ).recurrence_count
+
+
+def _journal_sort_key(
+    entry: JournalEntry,
+    *,
+    effective_now: datetime,
+) -> tuple[int, int, datetime, datetime, str]:
+    """Order journal entries by trust level, freshness, and recency."""
+    return (
+        _journal_confidence_rank(entry.confidence),
+        0 if _journal_entry_is_stale(entry, now=effective_now) else 1,
+        entry.last_verified_at or datetime.combine(entry.date, datetime.min.time(), tzinfo=UTC),
+        datetime.combine(entry.date, datetime.min.time(), tzinfo=UTC),
+        entry.id,
     )
+
+
+def _journal_confidence_rank(confidence: JournalConfidence) -> int:
+    """Return an integer ranking for journal confidence ordering."""
+    if confidence is JournalConfidence.CONFIRMED:
+        return 3
+    if confidence is JournalConfidence.LIKELY:
+        return 2
+    return 1
+
+
+def _journal_entry_is_stale(entry: JournalEntry, *, now: datetime) -> bool:
+    """Return whether a journal entry should be flagged as potentially stale."""
+    stale_after_days = entry.stale_after_days
+    if stale_after_days is None:
+        return False
+    reference_time = entry.last_verified_at or datetime.combine(
+        entry.date,
+        datetime.min.time(),
+        tzinfo=UTC,
+    )
+    return reference_time + timedelta(days=stale_after_days) < now
+
+
+def _service_versions(services: Sequence[Service]) -> dict[str, str]:
+    """Extract simple image-tag versions for service-scope matching."""
+    versions: dict[str, str] = {}
+    for service in services:
+        version = _service_version(service)
+        if version is None:
+            continue
+        for alias in _service_aliases(service):
+            versions[alias] = version
+    return versions
+
+
+def _service_version(service: Service) -> str | None:
+    """Extract the tagged image version for one service, if available."""
+    if service.image is None:
+        return None
+    image = service.image.split("@", maxsplit=1)[0]
+    last_slash = image.rfind("/")
+    last_colon = image.rfind(":")
+    if last_colon <= last_slash:
+        return None
+    version = image[last_colon + 1 :].strip()
+    if not version:
+        return None
+    return version
+
+
+def _service_aliases(service: Service) -> set[str]:
+    """Return stable identifiers that may appear in version-scope expressions."""
+    aliases = {
+        service.id.casefold(),
+        service.name.casefold(),
+        service.name.casefold().replace(" ", "-"),
+        service.name.casefold().replace(" ", ""),
+    }
+    if service.descriptor_id is not None:
+        aliases.add(service.descriptor_id.casefold())
+        aliases.add(service.descriptor_id.rsplit("/", maxsplit=1)[-1].casefold())
+    if service.image is not None:
+        image_name = service.image.split("@", maxsplit=1)[0].split(":")[0]
+        aliases.add(image_name.casefold())
+        aliases.add(image_name.rsplit("/", maxsplit=1)[-1].casefold())
+    return aliases
+
+
+def _version_scope_status(
+    entry: JournalEntry,
+    *,
+    service_versions: dict[str, str],
+) -> str:
+    """Return whether a version-scoped journal entry applies to the current incident."""
+    scope = entry.applies_to_version
+    if scope is None:
+        return "matched"
+    expression = scope.strip()
+    if not expression:
+        return "matched"
+
+    candidate_aliases: set[str] = {service_id.casefold() for service_id in entry.services}
+    parsed = _parse_version_scope(expression)
+    if parsed is None:
+        return "unknown"
+    service_alias, operator, expected_version = parsed
+    if service_alias is not None:
+        candidate_aliases = {service_alias}
+
+    candidate_versions = [
+        service_versions[alias]
+        for alias in candidate_aliases
+        if alias in service_versions
+    ]
+    if not candidate_versions:
+        return "unknown"
+    return (
+        "matched"
+        if any(
+            _compare_versions(current_version, expected_version, operator)
+            for current_version in candidate_versions
+        )
+        else "excluded"
+    )
+
+
+def _parse_version_scope(scope: str) -> tuple[str | None, str, str] | None:
+    """Parse a narrow applies_to_version expression used by the trust model."""
+    stripped = scope.strip()
+    for operator in ("<=", ">=", "==", "!=", "<", ">", "="):
+        if operator not in stripped:
+            continue
+        left, right = stripped.split(operator, maxsplit=1)
+        service_alias = left.strip() or None
+        expected_version = right.strip()
+        if not expected_version:
+            return None
+        normalized_alias = service_alias.casefold() if service_alias is not None else None
+        normalized_operator = "==" if operator == "=" else operator
+        return (normalized_alias, normalized_operator, expected_version)
+    return (None, "==", stripped) if stripped else None
+
+
+def _compare_versions(current: str, expected: str, operator: str) -> bool:
+    """Compare two simple version strings using the requested operator."""
+    ordering = _version_order(current, expected)
+    if operator == "==":
+        return ordering == 0
+    if operator == "!=":
+        return ordering != 0
+    if operator == "<":
+        return ordering < 0
+    if operator == "<=":
+        return ordering <= 0
+    if operator == ">":
+        return ordering > 0
+    if operator == ">=":
+        return ordering >= 0
+    return False
+
+
+def _version_order(left: str, right: str) -> int:
+    """Return -1, 0, or 1 for two dotted version strings."""
+    left_tokens = _version_tokens(left)
+    right_tokens = _version_tokens(right)
+    for left_part, right_part in zip_longest(left_tokens, right_tokens, fillvalue=(0, 0)):
+        if left_part == right_part:
+            continue
+        return -1 if left_part < right_part else 1
+    return 0
+
+
+def _version_tokens(value: str) -> tuple[tuple[int, int | str], ...]:
+    """Tokenize a simple version string into comparable numeric and string parts."""
+    tokens = re.findall(r"[0-9]+|[A-Za-z]+", value.lstrip("vV"))
+    if not tokens:
+        return ((1, value.casefold()),)
+    normalized: list[tuple[int, int | str]] = []
+    for token in tokens:
+        if token.isdigit():
+            normalized.append((0, int(token)))
+            continue
+        normalized.append((1, token.casefold()))
+    return tuple(normalized)
 
 
 def _matched_log_patterns(

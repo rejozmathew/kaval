@@ -15,6 +15,11 @@ from kaval.investigation.evidence import collect_incident_evidence, query_operat
 from kaval.models import (
     Change,
     ChangeType,
+    DescriptorSource,
+    DnsRecordType,
+    DnsTarget,
+    Endpoint,
+    EndpointProtocol,
     Evidence,
     EvidenceKind,
     Finding,
@@ -24,6 +29,9 @@ from kaval.models import (
     JournalConfidence,
     JournalEntry,
     RedactionLevel,
+    Service,
+    ServiceStatus,
+    ServiceType,
     Severity,
     UserNote,
 )
@@ -132,6 +140,158 @@ def test_query_operational_memory_excludes_unsafe_notes_and_redacts_safe_context
     assert result.user_notes[0].note == "VPN token=[REDACTED]"
     assert result.recurrence_count == 2
     assert result.warnings == ["Excluded 1 unsafe user note from model context."]
+
+
+def test_query_operational_memory_applies_trust_staleness_and_version_scope() -> None:
+    """Trust filtering should exclude mismatched scope and flag stale/speculative entries."""
+    incident = Incident(
+        id="inc-npm",
+        title="NPM TLS failures",
+        severity=Severity.HIGH,
+        status=IncidentStatus.INVESTIGATING,
+        trigger_findings=["find-npm"],
+        all_findings=["find-npm"],
+        affected_services=["svc-npm"],
+        triggering_symptom="TLS handshake failures",
+        suspected_cause="OpenSSL change in the new image",
+        confirmed_cause=None,
+        root_cause_service="svc-npm",
+        resolution_mechanism=None,
+        cause_confirmation_source=None,
+        confidence=0.88,
+        investigation_id=None,
+        approved_actions=[],
+        changes_correlated=[],
+        grouping_window_start=ts(14, 0),
+        grouping_window_end=ts(14, 5),
+        created_at=ts(14, 0),
+        updated_at=ts(14, 5),
+        resolved_at=None,
+        mttr_seconds=None,
+        journal_entry_id=None,
+    )
+    service = Service(
+        id="svc-npm",
+        name="Nginx Proxy Manager",
+        type=ServiceType.CONTAINER,
+        category="networking",
+        status=ServiceStatus.DEGRADED,
+        descriptor_id="networking/nginx_proxy_manager",
+        descriptor_source=DescriptorSource.SHIPPED,
+        container_id="container-npm",
+        vm_id=None,
+        image="jc21/nginx-proxy-manager:2.12.1",
+        endpoints=[
+            Endpoint(
+                name="web",
+                protocol=EndpointProtocol.HTTP,
+                host="npm",
+                port=81,
+                path="/",
+                url=None,
+                auth_required=False,
+                expected_status=200,
+            )
+        ],
+        dns_targets=[
+            DnsTarget(
+                host="proxy.example.test",
+                record_type=DnsRecordType.A,
+                expected_values=["192.0.2.10"],
+            )
+        ],
+        dependencies=[],
+        dependents=[],
+        last_check=ts(14, 1),
+        active_findings=1,
+        active_incidents=1,
+    )
+    journal_entries = [
+        JournalEntry(
+            id="jrnl-stale",
+            incident_id="inc-old-stale",
+            date=date(2025, 9, 1),
+            services=["svc-npm"],
+            summary="Old TLS breakage pattern.",
+            root_cause="Legacy TLS cipher mismatch.",
+            resolution="Rolled back to an older image.",
+            time_to_resolution_minutes=12.0,
+            model_used="cloud",
+            tags=["npm", "tls"],
+            lesson="Older OpenSSL builds were more tolerant.",
+            recurrence_count=1,
+            confidence=JournalConfidence.CONFIRMED,
+            user_confirmed=True,
+            last_verified_at=ts(8, 0).replace(year=2025, month=9, day=1),
+            applies_to_version=None,
+            superseded_by=None,
+            stale_after_days=30,
+        ),
+        JournalEntry(
+            id="jrnl-speculative",
+            incident_id="inc-old-speculative",
+            date=date(2026, 3, 1),
+            services=["svc-npm"],
+            summary="Possibly related TLS regression.",
+            root_cause="Maybe a proxy config mismatch.",
+            resolution="Restarted NPM.",
+            time_to_resolution_minutes=5.0,
+            model_used="local",
+            tags=["npm"],
+            lesson="Unclear evidence, keep investigating.",
+            recurrence_count=2,
+            confidence=JournalConfidence.SPECULATIVE,
+            user_confirmed=False,
+            last_verified_at=None,
+            applies_to_version=None,
+            superseded_by=None,
+            stale_after_days=180,
+        ),
+        JournalEntry(
+            id="jrnl-version-mismatch",
+            incident_id="inc-old-version",
+            date=date(2026, 3, 2),
+            services=["svc-npm"],
+            summary="Applies only to older NPM builds.",
+            root_cause="OpenSSL regression in an older image.",
+            resolution="Pinned NPM below 2.12.0.",
+            time_to_resolution_minutes=4.0,
+            model_used="cloud",
+            tags=["npm", "version"],
+            lesson="Avoid affected builds.",
+            recurrence_count=1,
+            confidence=JournalConfidence.CONFIRMED,
+            user_confirmed=True,
+            last_verified_at=ts(9, 0),
+            applies_to_version="svc-npm < 2.12.0",
+            superseded_by=None,
+            stale_after_days=180,
+        ),
+    ]
+
+    result = query_operational_memory(
+        incident=incident,
+        services=[service],
+        journal_entries=journal_entries,
+        user_notes=[],
+        system_profile=None,
+        redaction_level=RedactionLevel.REDACT_FOR_LOCAL,
+        now=ts(14, 30),
+    )
+
+    assert [entry.id for entry in result.journal_entries] == [
+        "jrnl-stale",
+        "jrnl-speculative",
+    ]
+    assert result.journal_entries[0].summary.startswith("[STALE] ")
+    assert result.journal_entries[1].summary.startswith("[SPECULATIVE] ")
+    assert result.recurrence_count == 1
+    assert result.warnings == [
+        "Excluded 1 version-scoped journal entry that did not match the current service version.",
+        "Flagged 1 stale journal entry as potentially outdated.",
+        "Included 1 speculative journal entry with explicit disclaimers.",
+        "Excluded 1 speculative journal entry from recurrence count.",
+    ]
 
 
 class DelugeVpnState:

@@ -2,12 +2,28 @@
 
 from __future__ import annotations
 
+import copy
+import json
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from kaval.database import KavalDatabase
+from kaval.integrations.external_apis.dockerhub import (
+    DockerHubImageReference,
+    DockerHubNotFoundError,
+    DockerHubRepository,
+    DockerHubTag,
+    parse_dockerhub_reference,
+)
+from kaval.integrations.external_apis.github_releases import (
+    GitHubRelease,
+    GitHubReleasesNotFoundError,
+    parse_repository_reference,
+)
+from kaval.investigation.cloud_model import CloudPromptRedactionError
 from kaval.investigation.prompts import InvestigationSynthesis
 from kaval.investigation.workflow import InvestigationWorkflow
 from kaval.models import (
@@ -23,10 +39,13 @@ from kaval.models import (
     FindingStatus,
     Incident,
     IncidentStatus,
+    Investigation,
+    InvestigationStatus,
     InvestigationTrigger,
     JournalConfidence,
     JournalEntry,
     ModelUsed,
+    ResearchStep,
     RiskAssessment,
     RiskCheck,
     RiskCheckResult,
@@ -132,6 +151,177 @@ def test_workflow_persists_investigation_and_updates_incident_for_restart(
         database.close()
 
 
+def test_workflow_collects_and_persists_tier2_research_steps(
+    tmp_path: Path,
+) -> None:
+    """Correlated image updates should flow through Tier 2 research and persistence."""
+    database = seed_database(tmp_path / "tier2-research.db", include_image_update=True)
+    try:
+        workflow = InvestigationWorkflow(
+            database=database,
+            synthesizer=StaticSynthesizer(
+                root_cause="DelugeVPN image update likely changed VPN behavior.",
+                confidence=0.83,
+                action_type="restart_container",
+                target="delugevpn",
+            ),
+            log_reader=fixture_log_reader,
+            github_research_client=StaticGitHubResearchClient(
+                releases_by_repo_and_tag={
+                    ("binhex/arch-delugevpn", "v5.0.1"): GitHubRelease(
+                        id=501,
+                        tag_name="v5.0.1",
+                        name="v5.0.1",
+                        body="Updated OpenVPN packaging.",
+                        html_url="https://github.com/binhex/arch-delugevpn/releases/tag/v5.0.1",
+                        draft=False,
+                        prerelease=False,
+                        created_at=ts(14, 10),
+                        published_at=ts(14, 12),
+                    ),
+                    ("binhex/arch-delugevpn", "v5.0.0"): GitHubRelease(
+                        id=500,
+                        tag_name="v5.0.0",
+                        name="v5.0.0",
+                        body="Previous stable package set.",
+                        html_url="https://github.com/binhex/arch-delugevpn/releases/tag/v5.0.0",
+                        draft=False,
+                        prerelease=False,
+                        created_at=ts(12, 0),
+                        published_at=ts(12, 5),
+                    ),
+                }
+            ),
+            dockerhub_research_client=StaticDockerHubResearchClient(
+                repository_by_path={
+                    "binhex/arch-delugevpn": DockerHubRepository(
+                        namespace="binhex",
+                        repository="arch-delugevpn",
+                        description="DelugeVPN image",
+                        full_description=None,
+                        is_private=False,
+                        star_count=100,
+                        pull_count=5000,
+                        last_updated=ts(14, 11),
+                        status=1,
+                        source_url="https://hub.docker.com/r/binhex/arch-delugevpn",
+                    )
+                },
+                tags_by_path_and_name={
+                    ("binhex/arch-delugevpn", "5.0.1"): DockerHubTag(
+                        name="5.0.1",
+                        full_size=123456789,
+                        last_updated=ts(14, 11),
+                        tag_last_pushed=ts(14, 11),
+                        tag_last_pulled=ts(14, 40),
+                        images=[],
+                    ),
+                    ("binhex/arch-delugevpn", "5.0.0"): DockerHubTag(
+                        name="5.0.0",
+                        full_size=123000000,
+                        last_updated=ts(12, 1),
+                        tag_last_pushed=ts(12, 1),
+                        tag_last_pulled=ts(13, 50),
+                        images=[],
+                    ),
+                },
+            ),
+        )
+
+        result = workflow.run(
+            incident_id="inc-delugevpn",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(14, 30),
+        )
+
+        assert [step.action for step in result.investigation.research_steps] == [
+            "fetch_github_release",
+            "fetch_github_release",
+            "fetch_dockerhub_repository",
+            "fetch_dockerhub_tag",
+            "fetch_dockerhub_tag",
+        ]
+        assert "Research Steps:" in result.prompt_bundle.user_prompt
+        assert "fetch_github_release" in result.prompt_bundle.user_prompt
+        persisted_investigation = database.get_investigation(result.investigation.id)
+        assert persisted_investigation is not None
+        assert len(persisted_investigation.research_steps) == 5
+    finally:
+        database.close()
+
+
+def test_workflow_applies_deterministic_risk_assessment_to_restart_recommendations(
+    tmp_path: Path,
+) -> None:
+    """Persisted restart recommendations should use deterministic Phase 2B risk checks."""
+    database = seed_database(tmp_path / "risk-engine.db", include_image_update=True)
+    try:
+        workflow = InvestigationWorkflow(
+            database=database,
+            synthesizer=StaticSynthesizer(
+                root_cause="Nginx Proxy Manager image update likely changed TLS behavior.",
+                confidence=0.79,
+                action_type="restart_container",
+                target="delugevpn",
+            ),
+            log_reader=fixture_log_reader,
+            github_research_client=StaticGitHubResearchClient(
+                releases_by_repo_and_tag={
+                    ("binhex/arch-delugevpn", "v5.0.1"): GitHubRelease(
+                        id=501,
+                        tag_name="v5.0.1",
+                        name="v5.0.1",
+                        body="- Updated OpenSSL packaging\n- Breaking TLS edge case handling",
+                        html_url="https://github.com/binhex/arch-delugevpn/releases/tag/v5.0.1",
+                        draft=False,
+                        prerelease=False,
+                        created_at=ts(14, 10),
+                        published_at=ts(14, 12),
+                    ),
+                    ("binhex/arch-delugevpn", "v5.0.0"): GitHubRelease(
+                        id=500,
+                        tag_name="v5.0.0",
+                        name="v5.0.0",
+                        body="Previous stable package set.",
+                        html_url="https://github.com/binhex/arch-delugevpn/releases/tag/v5.0.0",
+                        draft=False,
+                        prerelease=False,
+                        created_at=ts(12, 0),
+                        published_at=ts(12, 5),
+                    ),
+                }
+            ),
+            dockerhub_research_client=StaticDockerHubResearchClient(
+                repository_by_path={},
+                tags_by_path_and_name={},
+            ),
+        )
+
+        result = workflow.run(
+            incident_id="inc-delugevpn",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(14, 30),
+        )
+
+        assert result.investigation.remediation is not None
+        risk_assessment = result.investigation.remediation.risk_assessment
+        assert risk_assessment.overall_risk == RiskLevel.MEDIUM
+        assert [check.check for check in risk_assessment.checks] == [
+            "bounded_action_scope",
+            "target_service_state",
+            "reversible_restart",
+            "recent_image_update_context",
+            "changelog_migration_review",
+        ]
+        assert risk_assessment.checks[-1].result == RiskCheckResult.FAIL
+        assert any(
+            "Release notes mention behavioral/runtime changes" in warning
+            for warning in risk_assessment.warnings
+        )
+    finally:
+        database.close()
+
+
 def test_workflow_keeps_incident_investigating_when_no_restart_is_justified(
     tmp_path: Path,
 ) -> None:
@@ -204,6 +394,297 @@ def test_workflow_falls_back_cleanly_when_local_model_is_not_configured(
         assert result.investigation.remediation.target == "delugevpn"
     finally:
         database.close()
+
+
+def test_workflow_escalates_to_cloud_with_cloud_safe_prompt_redaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Low-confidence local synthesis should escalate through a cloud-safe prompt bundle."""
+    for key, value in {
+        "KAVAL_LOCAL_MODEL_NAME": "qwen3:8b",
+        "KAVAL_LOCAL_MODEL_BASE_URL": "http://local-model.test",
+        "KAVAL_CLOUD_MODEL_NAME": "gpt-4o-mini",
+        "KAVAL_CLOUD_MODEL_PROVIDER": "openai",
+        "OPENAI_API_KEY": "cloud-secret",
+        "KAVAL_CLOUD_ESCALATION_LOCAL_CONFIDENCE_LT": "0.6",
+        "KAVAL_CLOUD_MODEL_MAX_CALLS_PER_INCIDENT": "3",
+        "KAVAL_CLOUD_MODEL_MAX_CALLS_PER_DAY": "20",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    database = seed_database(tmp_path / "cloud-escalation.db")
+    captured_cloud_payload: dict[str, object] = {}
+    try:
+        database.upsert_user_note(
+            UserNote(
+                id="note-cloud-safe",
+                service_id="svc-delugevpn",
+                note="Probe http://delugevpn:8112/api/status with token=super-secret",
+                safe_for_model=True,
+                last_verified_at=ts(12, 10),
+                stale=False,
+                added_at=ts(12, 10),
+                updated_at=ts(12, 12),
+            )
+        )
+        workflow = InvestigationWorkflow(
+            database=database,
+            log_reader=fixture_log_reader,
+            local_model_transport=build_local_transport(confidence=0.51),
+            cloud_model_transport=build_cloud_transport(captured_cloud_payload),
+        )
+
+        result = workflow.run(
+            incident_id="inc-delugevpn",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(14, 30),
+        )
+
+        assert result.investigation.model_used == ModelUsed.BOTH
+        assert result.investigation.cloud_model_calls == 1
+        assert result.synthesis.inference.confidence == 0.93
+        body = captured_cloud_payload["body"]
+        assert isinstance(body, dict)
+        messages = body["messages"]
+        assert isinstance(messages, list)
+        system_prompt = messages[0]["content"]
+        user_prompt = messages[1]["content"]
+        assert "Privacy note:" in system_prompt
+        assert "svc-delugevpn" not in user_prompt
+        assert "DelugeVPN" not in user_prompt
+        assert "container-delugevpn" not in user_prompt
+        assert "inc-delugevpn" not in user_prompt
+        assert "http://delugevpn:8112/api/status" not in user_prompt
+        assert "super-secret" not in user_prompt
+        assert "[SERVICE_ID_1]" in user_prompt
+        assert "[SERVICE_1]" in user_prompt
+        assert "http://[REDACTED_URL]" in user_prompt
+        assert "token=[REDACTED]" in user_prompt
+    finally:
+        database.close()
+
+
+def test_workflow_keeps_local_result_when_cloud_redaction_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cloud escalation must safely fall back when the redaction step cannot complete."""
+    for key, value in {
+        "KAVAL_LOCAL_MODEL_NAME": "qwen3:8b",
+        "KAVAL_LOCAL_MODEL_BASE_URL": "http://local-model.test",
+        "KAVAL_CLOUD_MODEL_NAME": "gpt-4o-mini",
+        "KAVAL_CLOUD_MODEL_PROVIDER": "openai",
+        "OPENAI_API_KEY": "cloud-secret",
+        "KAVAL_CLOUD_ESCALATION_LOCAL_CONFIDENCE_LT": "0.6",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    database = seed_database(tmp_path / "cloud-redaction-fallback.db")
+    cloud_called = {"value": False}
+    try:
+        monkeypatch.setattr(
+            "kaval.investigation.workflow.build_cloud_safe_prompt_bundle",
+            lambda **_: (_ for _ in ()).throw(CloudPromptRedactionError("redaction failed")),
+        )
+        workflow = InvestigationWorkflow(
+            database=database,
+            log_reader=fixture_log_reader,
+            local_model_transport=build_local_transport(confidence=0.5),
+            cloud_model_transport=lambda *_args, **_kwargs: _mark_cloud_called(cloud_called),
+        )
+
+        result = workflow.run(
+            incident_id="inc-delugevpn",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(14, 30),
+        )
+
+        assert result.investigation.model_used == ModelUsed.LOCAL
+        assert result.investigation.cloud_model_calls == 0
+        assert cloud_called["value"] is False
+        assert result.synthesis.degraded_mode_note is not None
+        assert "Cloud escalation criteria matched" in result.synthesis.degraded_mode_note
+        assert "Cloud-safe redaction failed" in result.synthesis.degraded_mode_note
+    finally:
+        database.close()
+
+
+def test_workflow_keeps_local_result_when_incident_cloud_cap_is_reached(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Per-incident cloud call caps should block further escalation attempts."""
+    for key, value in {
+        "KAVAL_LOCAL_MODEL_NAME": "qwen3:8b",
+        "KAVAL_LOCAL_MODEL_BASE_URL": "http://local-model.test",
+        "KAVAL_CLOUD_MODEL_NAME": "gpt-4o-mini",
+        "KAVAL_CLOUD_MODEL_PROVIDER": "openai",
+        "OPENAI_API_KEY": "cloud-secret",
+        "KAVAL_CLOUD_ESCALATION_LOCAL_CONFIDENCE_LT": "0.6",
+        "KAVAL_CLOUD_MODEL_MAX_CALLS_PER_INCIDENT": "1",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    database = seed_database(tmp_path / "cloud-cap.db")
+    cloud_called = {"value": False}
+    try:
+        database.upsert_investigation(
+            Investigation(
+                id="inv-prior-cloud",
+                incident_id="inc-delugevpn",
+                trigger=InvestigationTrigger.AUTO,
+                status=InvestigationStatus.COMPLETED,
+                evidence_steps=[],
+                research_steps=[_research_step()],
+                root_cause="Prior cloud-assisted run",
+                confidence=0.7,
+                model_used=ModelUsed.CLOUD,
+                cloud_model_calls=1,
+                journal_entries_referenced=[],
+                user_notes_referenced=[],
+                recurrence_count=0,
+                remediation=None,
+                started_at=ts(9, 0),
+                completed_at=ts(9, 5),
+            )
+        )
+        workflow = InvestigationWorkflow(
+            database=database,
+            log_reader=fixture_log_reader,
+            local_model_transport=build_local_transport(confidence=0.5),
+            cloud_model_transport=lambda *_args, **_kwargs: _mark_cloud_called(cloud_called),
+        )
+
+        result = workflow.run(
+            incident_id="inc-delugevpn",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(14, 30),
+        )
+
+        assert result.investigation.model_used == ModelUsed.LOCAL
+        assert result.investigation.cloud_model_calls == 0
+        assert cloud_called["value"] is False
+        assert result.synthesis.degraded_mode_note is not None
+        assert "per-incident cloud call cap" in result.synthesis.degraded_mode_note
+    finally:
+        database.close()
+
+
+def build_local_transport(*, confidence: float):
+    """Build a deterministic local-model transport for workflow tests."""
+
+    def transport(http_request, _timeout_seconds: float) -> bytes:
+        body = json.loads(cast(bytes, http_request.data).decode("utf-8"))
+        assert body["messages"][0]["role"] == "system"
+        assert body["messages"][1]["role"] == "user"
+        return json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                _synthesis_payload(
+                                    confidence=confidence,
+                                    model_used="local",
+                                    cloud_model_calls=0,
+                                )
+                            )
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    return transport
+
+
+def build_cloud_transport(captured_payload: dict[str, object]):
+    """Build a deterministic cloud-model transport for workflow tests."""
+
+    def transport(http_request, _timeout_seconds: float) -> bytes:
+        captured_payload["url"] = http_request.full_url
+        captured_payload["headers"] = {
+            key.lower(): value for key, value in http_request.header_items()
+        }
+        captured_payload["body"] = json.loads(cast(bytes, http_request.data).decode("utf-8"))
+        return json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                _synthesis_payload(
+                                    confidence=0.93,
+                                    model_used="cloud",
+                                    cloud_model_calls=1,
+                                )
+                            )
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    return transport
+
+
+def _mark_cloud_called(cloud_called: dict[str, bool]) -> bytes:
+    """Mark that cloud transport was invoked and fail the test."""
+    cloud_called["value"] = True
+    raise AssertionError("cloud transport should not have been called")
+
+
+def _research_step() -> ResearchStep:
+    """Build a minimal research step for persisted investigation fixtures."""
+    return ResearchStep(
+        order=1,
+        action="fetch_github_release",
+        source="github://binhex/arch-delugevpn/releases/v5.0.1",
+        result_summary="Fetched one release.",
+        timestamp=ts(9, 0),
+    )
+
+
+def _synthesis_payload(
+    *,
+    confidence: float,
+    model_used: str,
+    cloud_model_calls: int,
+) -> dict[str, object]:
+    """Build one structured synthesis payload."""
+    return {
+        "evidence_summary": [
+            "DelugeVPN logs report tunnel inactivity.",
+            "Radarr reports its download client is unavailable.",
+        ],
+        "inference": {
+            "root_cause": "DelugeVPN VPN tunnel dropped",
+            "confidence": confidence,
+            "reasoning": "Structured synthesis payload for workflow validation.",
+        },
+        "recommendation": {
+            "summary": "Restart the affected container.",
+            "action_type": "restart_container",
+            "target": "delugevpn",
+            "rationale": "Restart is bounded and restart-only.",
+            "risk": {
+                "overall_risk": "low",
+                "checks": [
+                    {
+                        "check": "bounded_action_scope",
+                        "result": "pass",
+                        "detail": "Phase 2A keeps remediation scope narrow.",
+                    }
+                ],
+                "reversible": True,
+                "warnings": [],
+            },
+        },
+        "degraded_mode_note": None,
+        "model_used": model_used,
+        "cloud_model_calls": cloud_model_calls,
+    }
 
 
 class StaticSynthesizer:
@@ -284,7 +765,12 @@ def fixture_log_reader(container_id: str, _tail_lines: int) -> str:
     return "2026-03-31T14:23:55Z error: VPN tunnel inactive\n"
 
 
-def seed_database(database_path: Path, *, include_downstream: bool = True) -> KavalDatabase:
+def seed_database(
+    database_path: Path,
+    *,
+    include_downstream: bool = True,
+    include_image_update: bool = False,
+) -> KavalDatabase:
     """Seed a temporary database with one DelugeVPN incident path."""
     database = KavalDatabase(path=database_path)
     database.bootstrap()
@@ -350,6 +836,23 @@ def seed_database(database_path: Path, *, include_downstream: bool = True) -> Ka
         correlated_incidents=["inc-delugevpn"],
     )
     database.upsert_change(change)
+    correlated_change_ids = ["chg-delugevpn-restart"]
+    if include_image_update:
+        image_change = Change(
+            id="chg-delugevpn-image",
+            type=ChangeType.IMAGE_UPDATE,
+            service_id="svc-delugevpn",
+            description=(
+                "delugevpn image changed from binhex/arch-delugevpn:5.0.0 [sha256:old] "
+                "to binhex/arch-delugevpn:5.0.1 [sha256:new]."
+            ),
+            old_value="binhex/arch-delugevpn:5.0.0 [sha256:old]",
+            new_value="binhex/arch-delugevpn:5.0.1 [sha256:new]",
+            timestamp=ts(14, 21),
+            correlated_incidents=["inc-delugevpn"],
+        )
+        database.upsert_change(image_change)
+        correlated_change_ids.append(image_change.id)
 
     database.upsert_finding(
         Finding(
@@ -435,7 +938,7 @@ def seed_database(database_path: Path, *, include_downstream: bool = True) -> Ka
             confidence=0.95,
             investigation_id=None,
             approved_actions=[],
-            changes_correlated=["chg-delugevpn-restart"],
+            changes_correlated=correlated_change_ids,
             grouping_window_start=ts(14, 23),
             grouping_window_end=ts(14, 28),
             created_at=ts(14, 23),
@@ -503,3 +1006,55 @@ def seed_database(database_path: Path, *, include_downstream: bool = True) -> Ka
         )
     )
     return database
+
+
+class StaticGitHubResearchClient:
+    """Deterministic GitHub research stub for workflow tests."""
+
+    def __init__(self, *, releases_by_repo_and_tag: dict[tuple[str, str], GitHubRelease]) -> None:
+        """Store the configured release lookups."""
+        self._releases_by_repo_and_tag = copy.deepcopy(releases_by_repo_and_tag)
+
+    def fetch_release_by_tag(self, repository: str, *, tag_name: str) -> GitHubRelease:
+        """Return one configured GitHub release."""
+        key = (parse_repository_reference(repository).full_name, tag_name)
+        if key not in self._releases_by_repo_and_tag:
+            raise GitHubReleasesNotFoundError("missing release")
+        return self._releases_by_repo_and_tag[key]
+
+
+class StaticDockerHubResearchClient:
+    """Deterministic Docker Hub research stub for workflow tests."""
+
+    def __init__(
+        self,
+        *,
+        repository_by_path: dict[str, DockerHubRepository],
+        tags_by_path_and_name: dict[tuple[str, str], DockerHubTag],
+    ) -> None:
+        """Store the configured repository and tag lookups."""
+        self._repository_by_path = copy.deepcopy(repository_by_path)
+        self._tags_by_path_and_name = copy.deepcopy(tags_by_path_and_name)
+
+    def fetch_repository(self, reference: str | DockerHubImageReference) -> DockerHubRepository:
+        """Return one configured Docker Hub repository."""
+        key = parse_dockerhub_reference(reference).repository_path
+        if key not in self._repository_by_path:
+            raise DockerHubNotFoundError("missing repository")
+        return self._repository_by_path[key]
+
+    def fetch_tag(
+        self,
+        reference: str | DockerHubImageReference,
+        *,
+        tag_name: str | None = None,
+    ) -> DockerHubTag:
+        """Return one configured Docker Hub tag."""
+        parsed_reference = parse_dockerhub_reference(reference)
+        resolved_tag = tag_name or parsed_reference.tag
+        if resolved_tag is None:
+            raise ValueError("tag_name is required")
+        key = (parsed_reference.repository_path, resolved_tag)
+        if key not in self._tags_by_path_and_name:
+            raise DockerHubNotFoundError("missing tag")
+        return self._tags_by_path_and_name[key]

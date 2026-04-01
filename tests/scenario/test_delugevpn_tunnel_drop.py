@@ -17,7 +17,9 @@ from kaval.discovery.unraid import build_discovery_snapshot as build_unraid_disc
 from kaval.discovery.unraid import decode_graphql_data
 from kaval.executor.server import ExecutorServerConfig, create_executor_server
 from kaval.investigation.workflow import InvestigationWorkflow
+from kaval.memory.journal import OperationalJournalService
 from kaval.models import (
+    CauseConfirmationSource,
     Change,
     ChangeType,
     Evidence,
@@ -213,6 +215,24 @@ def test_delugevpn_tunnel_drop_scenario_covers_approval_gated_restart_path(
         assert verification["radarr_status"] == ServiceStatus.HEALTHY.value
         assert "inactive" not in str(verification["delugevpn_log"]).lower()
         assert "restored" in str(verification["radarr_log"]).lower()
+
+        resolution_result = OperationalJournalService(database=database).resolve_incident(
+            incident_id="inc-delugevpn",
+            resolution="Restarted delugevpn container.",
+            lesson="Recurring issue; restart restored the tunnel quickly.",
+            cause_confirmation_source=CauseConfirmationSource.RESOLUTION_INFERRED,
+            now=ts(14, 38),
+        )
+
+        assert resolution_result.incident.status is IncidentStatus.RESOLVED
+        assert resolution_result.journal_entry.recurrence_count == 3
+        assert resolution_result.journal_entry.confidence is JournalConfidence.LIKELY
+        persisted_resolved_incident = database.get_incident("inc-delugevpn")
+        assert persisted_resolved_incident is not None
+        assert persisted_resolved_incident.journal_entry_id == resolution_result.journal_entry.id
+        persisted_journal_entry = database.get_journal_entry(resolution_result.journal_entry.id)
+        assert persisted_journal_entry is not None
+        assert persisted_journal_entry.resolution == "Restarted delugevpn container."
     finally:
         server.shutdown()
         server.server_close()

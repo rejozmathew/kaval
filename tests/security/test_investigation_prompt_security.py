@@ -27,7 +27,7 @@ def ts(hour: int, minute: int = 0) -> datetime:
 
 
 def test_prompt_contract_is_restart_only() -> None:
-    """The Phase 2A prompt contract must not permit broader remediation actions."""
+    """The investigation prompt contract must not permit broader remediation actions."""
     schema_text = json.dumps(INVESTIGATION_RESPONSE_SCHEMA, sort_keys=True)
 
     assert '"enum": ["restart_container", "none"]' in schema_text
@@ -37,7 +37,7 @@ def test_prompt_contract_is_restart_only() -> None:
 
 
 def test_system_prompt_forbids_unapproved_actions_and_external_research() -> None:
-    """The system prompt should lock the model to Phase 2A boundaries."""
+    """The system prompt should keep research explicit and remediation bounded."""
     bundle = build_investigation_prompt_bundle(
         incident=build_incident(),
         evidence=build_evidence_result(),
@@ -45,7 +45,8 @@ def test_system_prompt_forbids_unapproved_actions_and_external_research() -> Non
     )
 
     assert "Do not invent missing evidence, external research" in INVESTIGATION_SYSTEM_PROMPT
-    assert "Do not request Tier 2 research" in INVESTIGATION_SYSTEM_PROMPT
+    assert "Use provided Tier 2 research only when it is present." in INVESTIGATION_SYSTEM_PROMPT
+    assert "If research was skipped, missing, or offline" in INVESTIGATION_SYSTEM_PROMPT
     assert "Do not recommend rollback, VM actions, config mutation" in bundle.system_prompt
     assert "Recommendation may be `restart_container` only, or `none`" in bundle.user_prompt
 

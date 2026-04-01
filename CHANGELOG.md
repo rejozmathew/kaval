@@ -34,9 +34,20 @@ The format follows Keep a Changelog, and this file is append-only.
 - Completed `P2A-12`: the cert-expiry scenario covering a bounded no-action investigation path with explicit evidence, inference, recommendation, and recurrence context.
 - Completed `P2A-13`: the crash-loop scenario covering restart-storm evidence, approval-gated execution, persisted results, and deterministic recovery verification.
 - Completed `P2A-14`: the basic investigation detail UI with incident-centered evidence, inference, recommendation, risk, and action-state visibility.
+- Completed the Phase 2B checkpoint through `P2B-14`: Tier 2 public research, workflow enrichment, and optional cloud-safe escalation now sit on top of the Phase 2A investigation path without widening the approved restart-only action boundary.
+- Completed `P2B-06`: deterministic remediation risk assessment derived from action scope, target state, reversibility, image-update context, and changelog review status.
+- Completed `P2B-07`: credential request flow with typed pending, awaiting-input, skipped, and expired states plus deterministic Telegram and API choice handling.
+- Completed `P2B-08`: encrypted-at-rest vault support with explicit lock and unlock state, auto-locking, and separate volatile in-memory credential handling.
+- Completed `P2B-09`: Operational Memory journal writing and trust-aware history handling for resolved incidents.
+- Completed `P2B-10`: redaction hardening for query strings, cookie/session headers, and cloud-safe memory and prompt handling.
+- Completed `P2B-11`: trusted recurrence detection based on matching journal history rather than raw same-service overlap.
+- Completed `P2B-12`: the NPM TLS breakage scenario covering Tier 2 changelog and image-context enrichment with bounded no-action synthesis.
+- Completed `P2B-13`: the Authentik SSO failure scenario covering dependency-chain context, trusted notes, unsafe-note exclusion, and bounded no-action synthesis.
+- Completed `P2B-14`: read-only UI panels for the change timeline, approval queue, and memory browser over the existing realtime incident surface.
 
 ### Changed
 
 - Top-level project docs and package metadata now describe the current Phase 1 + Phase 2A-through-`P2A-08` checkpoint instead of only the original Phase 0 scaffold.
 - The approved runtime packaging now uses one Docker container with two internal processes: `kaval-core` serves the API/UI on port `9800`, and `kaval-executor` listens on `/run/kaval/executor.sock`; the older sidecar packaging path is no longer the active runtime.
 - Top-level docs now reflect Phase 2A as complete under CR-0002 / ADR-014 instead of stopping at the earlier `P2A-08` / "Operate mode in progress" checkpoint.
+- Top-level docs now reflect the Phase 2B-complete checkpoint, including the approved one-container/two-process runtime, the implemented Assist and Operate surfaces, and the repo's paused-before-Phase-3 state.

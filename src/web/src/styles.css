@@ -159,6 +159,7 @@ select {
   display: grid;
   gap: 1.35rem;
   grid-template-columns: minmax(0, 1.45fr) minmax(20rem, 0.85fr);
+  margin-bottom: 1.35rem;
 }
 
 .panel {
@@ -337,6 +338,18 @@ select {
   gap: 1.35rem;
 }
 
+.phase-two-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 1.35rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.phase-two-panel {
+  min-height: 20rem;
+}
+
 .status-pill,
 .live-pill,
 .severity,
@@ -466,6 +479,52 @@ select {
 .incident-list {
   display: grid;
   gap: 0.85rem;
+}
+
+.timeline-list,
+.queue-list,
+.memory-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.timeline-item,
+.queue-item,
+.memory-item {
+  border-radius: 1.15rem;
+  padding: 0.9rem 0.95rem;
+  background: rgba(8, 13, 19, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.timeline-item.highlighted {
+  border-color: rgba(255, 179, 96, 0.45);
+  box-shadow: 0 0 0 1px rgba(255, 179, 96, 0.14);
+}
+
+.timeline-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.timeline-service {
+  margin: 0;
+  color: #f4efe7;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.queue-section,
+.memory-section {
+  margin-top: 1rem;
+}
+
+.queue-section:first-of-type,
+.memory-section:first-of-type {
+  margin-top: 0;
 }
 
 .incident-card {
@@ -618,7 +677,8 @@ select {
 @media (max-width: 960px) {
   .hero,
   .content,
-  .detail-grid {
+  .detail-grid,
+  .phase-two-grid {
     grid-template-columns: 1fr;
   }
 

@@ -8,6 +8,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar
 
+from kaval.credentials.models import (
+    CredentialRequest,
+    VaultConfigRecord,
+    VaultCredentialRecord,
+)
 from kaval.models import (
     ApprovalToken,
     Change,
@@ -255,6 +260,102 @@ class KavalDatabase:
         """Delete an approval token by identifier."""
         self._delete_record("approval_tokens", "token_id", token_id)
 
+    def upsert_credential_request(self, credential_request: CredentialRequest) -> None:
+        """Insert or update a credential request."""
+        self._upsert_record(
+            table="credential_requests",
+            key_column="id",
+            key_value=credential_request.id,
+            payload=credential_request,
+            columns={
+                "incident_id": credential_request.incident_id,
+                "service_id": credential_request.service_id,
+                "status": credential_request.status.value,
+                "requested_at": credential_request.requested_at.isoformat(),
+                "expires_at": credential_request.expires_at.isoformat(),
+            },
+        )
+
+    def get_credential_request(self, request_id: str) -> CredentialRequest | None:
+        """Fetch a credential request by identifier."""
+        return self._get_record("credential_requests", "id", request_id, CredentialRequest)
+
+    def list_credential_requests(self) -> list[CredentialRequest]:
+        """List credential requests ordered by request time and identifier."""
+        return self._list_records(
+            "credential_requests",
+            "requested_at, id",
+            CredentialRequest,
+        )
+
+    def delete_credential_request(self, request_id: str) -> None:
+        """Delete a credential request by identifier."""
+        self._delete_record("credential_requests", "id", request_id)
+
+    def upsert_vault_config(self, vault_config: VaultConfigRecord) -> None:
+        """Insert or update the singleton vault config record."""
+        payload = vault_config.model_dump_json()
+        with self.connection():
+            self.connection().execute(
+                """
+                INSERT INTO vault_config (singleton_key, updated_at, payload)
+                VALUES (?, ?, ?)
+                ON CONFLICT(singleton_key) DO UPDATE SET
+                    updated_at = excluded.updated_at,
+                    payload = excluded.payload
+                """,
+                (1, vault_config.updated_at.isoformat(), payload),
+            )
+
+    def get_vault_config(self) -> VaultConfigRecord | None:
+        """Fetch the singleton vault config record."""
+        row = self.connection().execute(
+            "SELECT payload FROM vault_config WHERE singleton_key = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return VaultConfigRecord.model_validate_json(str(row["payload"]))
+
+    def clear_vault_config(self) -> None:
+        """Delete the singleton vault config record."""
+        with self.connection():
+            self.connection().execute("DELETE FROM vault_config WHERE singleton_key = 1")
+
+    def upsert_vault_credential(self, record: VaultCredentialRecord) -> None:
+        """Insert or update one encrypted vault credential."""
+        self._upsert_record(
+            table="vault_credentials",
+            key_column="reference_id",
+            key_value=record.reference_id,
+            payload=record,
+            columns={
+                "request_id": record.request_id,
+                "service_id": record.service_id,
+                "updated_at": record.updated_at.isoformat(),
+            },
+        )
+
+    def get_vault_credential(self, reference_id: str) -> VaultCredentialRecord | None:
+        """Fetch one encrypted vault credential by opaque reference."""
+        return self._get_record(
+            "vault_credentials",
+            "reference_id",
+            reference_id,
+            VaultCredentialRecord,
+        )
+
+    def list_vault_credentials(self) -> list[VaultCredentialRecord]:
+        """List encrypted vault credentials ordered by update time and reference."""
+        return self._list_records(
+            "vault_credentials",
+            "updated_at, reference_id",
+            VaultCredentialRecord,
+        )
+
+    def delete_vault_credential(self, reference_id: str) -> None:
+        """Delete one encrypted vault credential by opaque reference."""
+        self._delete_record("vault_credentials", "reference_id", reference_id)
+
     def upsert_system_profile(self, system_profile: SystemProfile) -> None:
         """Insert or update the singleton system profile record."""
         payload = system_profile.model_dump_json()
@@ -301,6 +402,10 @@ class KavalDatabase:
         """Fetch a journal entry by identifier."""
         return self._get_record("journal_entries", "id", journal_entry_id, JournalEntry)
 
+    def list_journal_entries(self) -> list[JournalEntry]:
+        """List journal entries ordered by entry date and identifier."""
+        return self._list_records("journal_entries", "entry_date, id", JournalEntry)
+
     def delete_journal_entry(self, journal_entry_id: str) -> None:
         """Delete a journal entry by identifier."""
         self._delete_record("journal_entries", "id", journal_entry_id)
@@ -321,6 +426,10 @@ class KavalDatabase:
     def get_user_note(self, user_note_id: str) -> UserNote | None:
         """Fetch a user note by identifier."""
         return self._get_record("user_notes", "id", user_note_id, UserNote)
+
+    def list_user_notes(self) -> list[UserNote]:
+        """List user notes ordered by update time and identifier."""
+        return self._list_records("user_notes", "updated_at, id", UserNote)
 
     def delete_user_note(self, user_note_id: str) -> None:
         """Delete a user note by identifier."""

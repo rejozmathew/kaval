@@ -6,6 +6,11 @@ from datetime import UTC, date, datetime
 
 from kaval.investigation.evidence import collect_incident_evidence, query_operational_memory
 from kaval.models import (
+    DescriptorSource,
+    DnsRecordType,
+    DnsTarget,
+    Endpoint,
+    EndpointProtocol,
     Evidence,
     EvidenceKind,
     Finding,
@@ -15,6 +20,9 @@ from kaval.models import (
     JournalConfidence,
     JournalEntry,
     RedactionLevel,
+    Service,
+    ServiceStatus,
+    ServiceType,
     Severity,
     UserNote,
 )
@@ -130,6 +138,151 @@ def test_collect_incident_evidence_redacts_container_log_excerpts() -> None:
         "Authorization: Bearer [REDACTED]",
         "url=https://[REDACTED]@example.internal/path",
     ]
+
+
+def test_query_operational_memory_excludes_unknown_version_scope_from_prompt_context() -> None:
+    """Version-scoped entries should be withheld if the current service version is unknown."""
+    incident = build_incident()
+    result = query_operational_memory(
+        incident=incident,
+        services=[
+            Service(
+                id="svc-delugevpn",
+                name="DelugeVPN",
+                type=ServiceType.CONTAINER,
+                category="downloads",
+                status=ServiceStatus.HEALTHY,
+                descriptor_id="downloads/delugevpn",
+                descriptor_source=DescriptorSource.SHIPPED,
+                container_id="def456",
+                vm_id=None,
+                image="binhex/arch-delugevpn",
+                endpoints=[
+                    Endpoint(
+                        name="web",
+                        protocol=EndpointProtocol.HTTP,
+                        host="delugevpn",
+                        port=8112,
+                        path="/",
+                        url=None,
+                        auth_required=False,
+                        expected_status=200,
+                    )
+                ],
+                dns_targets=[
+                    DnsTarget(
+                        host="downloads.example.test",
+                        record_type=DnsRecordType.A,
+                        expected_values=["192.0.2.10"],
+                    )
+                ],
+                dependencies=[],
+                dependents=[],
+                last_check=None,
+                active_findings=1,
+                active_incidents=1,
+            )
+        ],
+        journal_entries=[
+            JournalEntry(
+                id="jrnl-versioned",
+                incident_id="inc-old-1",
+                date=date(2026, 3, 20),
+                services=["svc-delugevpn"],
+                summary="Version-specific tunnel issue.",
+                root_cause="VPN library regression.",
+                resolution="Restarted DelugeVPN.",
+                time_to_resolution_minutes=4.0,
+                model_used="local",
+                tags=["vpn"],
+                lesson="Applies only to newer builds.",
+                recurrence_count=1,
+                confidence=JournalConfidence.CONFIRMED,
+                user_confirmed=True,
+                last_verified_at=ts(9, 0),
+                applies_to_version="svc-delugevpn >= 2.0.0",
+                superseded_by=None,
+                stale_after_days=180,
+            )
+        ],
+        user_notes=[],
+        system_profile=None,
+        redaction_level=RedactionLevel.REDACT_FOR_LOCAL,
+        now=ts(14, 5),
+    )
+
+    assert result.journal_entries == []
+    assert result.warnings == [
+        (
+            "Excluded 1 version-scoped journal entry because the current service version "
+            "could not be verified."
+        )
+    ]
+
+
+def test_query_operational_memory_cloud_redaction_applies_service_placeholders() -> None:
+    """Cloud-level memory queries should redact service identifiers before prompt assembly."""
+    incident = build_incident()
+    service = build_service(
+        service_id="svc-delugevpn",
+        name="DelugeVPN",
+        container_id="def456",
+    )
+    result = query_operational_memory(
+        incident=incident,
+        services=[service],
+        journal_entries=[
+            JournalEntry(
+                id="jrnl-cloud",
+                incident_id="inc-old-cloud",
+                date=date(2026, 3, 20),
+                services=["svc-delugevpn"],
+                summary="svc-delugevpn DelugeVPN check http://delugevpn:8112/?token=abc123",
+                root_cause="Service DelugeVPN reported a secret=shhh",
+                resolution="Cookie: sessionid=abcdef",
+                time_to_resolution_minutes=4.0,
+                model_used="local",
+                tags=["vpn"],
+                lesson="Inspect /mnt/user/appdata/delugevpn for this service.",
+                recurrence_count=1,
+                confidence=JournalConfidence.CONFIRMED,
+                user_confirmed=True,
+                last_verified_at=ts(9, 0),
+                applies_to_version=None,
+                superseded_by=None,
+                stale_after_days=180,
+            )
+        ],
+        user_notes=[
+            UserNote(
+                id="note-cloud",
+                service_id="svc-delugevpn",
+                note="DelugeVPN svc-delugevpn URL=http://delugevpn:8112/?api_key=xyz789",
+                safe_for_model=True,
+                last_verified_at=ts(9, 0),
+                stale=False,
+                added_at=ts(9, 0),
+                updated_at=ts(9, 5),
+            )
+        ],
+        system_profile=None,
+        redaction_level=RedactionLevel.REDACT_FOR_CLOUD,
+        now=ts(14, 5),
+    )
+
+    entry = result.journal_entries[0]
+    note = result.user_notes[0]
+    assert "svc-delugevpn" not in entry.summary
+    assert "DelugeVPN" not in entry.summary
+    assert "abc123" not in entry.summary
+    assert "shhh" not in entry.root_cause
+    assert "abcdef" not in entry.resolution
+    assert "/mnt/user/appdata/delugevpn" not in entry.lesson
+    assert "xyz789" not in note.note
+    assert "[SERVICE_ID_1]" in entry.summary
+    assert "[SERVICE_1]" in entry.summary
+    assert "http://[REDACTED_URL]" in entry.summary
+    assert "Cookie: [REDACTED]" in entry.resolution
 
 
 def build_incident() -> Incident:

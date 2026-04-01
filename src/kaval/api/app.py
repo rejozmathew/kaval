@@ -1,4 +1,4 @@
-"""FastAPI application for the Phase 1 read-only monitoring surface."""
+"""FastAPI application for the Kaval monitoring and operations surface."""
 
 from __future__ import annotations
 
@@ -15,11 +15,33 @@ from fastapi.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect
 
 from kaval.api.schemas import (
+    CreateCredentialRequestRequest,
+    CredentialRequestChoiceRequest,
+    CredentialSecretSubmissionRequest,
     HealthResponse,
     RealtimeSnapshotResponse,
     ServiceGraphEdge,
     ServiceGraphResponse,
+    TelegramCredentialCallbackRequest,
+    VaultUnlockRequest,
     WidgetSummaryResponse,
+)
+from kaval.credentials.models import CredentialRequest, VaultStatus
+from kaval.credentials.request_flow import (
+    CredentialRequestConflictError,
+    CredentialRequestHintError,
+    CredentialRequestManager,
+    CredentialRequestNotFoundError,
+)
+from kaval.credentials.telegram import (
+    parse_credential_request_callback_id,
+)
+from kaval.credentials.vault import (
+    CredentialMaterialService,
+    CredentialVault,
+    CredentialVaultLockedError,
+    CredentialVaultPassphraseError,
+    VolatileCredentialStore,
 )
 from kaval.database import KavalDatabase
 from kaval.models import (
@@ -29,9 +51,11 @@ from kaval.models import (
     Incident,
     IncidentStatus,
     Investigation,
+    JournalEntry,
     Service,
     ServiceStatus,
     SystemProfile,
+    UserNote,
 )
 
 _ACTIVE_FINDING_STATUSES = {
@@ -55,6 +79,8 @@ class ApiSettings:
     migrations_dir: Path | None
     web_dist_dir: Path
     websocket_poll_interval_seconds: float
+    vault_auto_lock_minutes: int
+    volatile_credential_ttl_seconds: int
 
 
 def create_app(
@@ -70,11 +96,27 @@ def create_app(
         migrations_dir=_resolve_migrations_dir(migrations_dir),
         web_dist_dir=_resolve_web_dist_dir(web_dist_dir),
         websocket_poll_interval_seconds=websocket_poll_interval,
+        vault_auto_lock_minutes=_load_positive_int_from_env(
+            "KAVAL_VAULT_AUTO_LOCK_MINUTES",
+            5,
+        ),
+        volatile_credential_ttl_seconds=_load_positive_int_from_env(
+            "KAVAL_VOLATILE_CREDENTIAL_TTL_SECONDS",
+            1800,
+        ),
     )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.api_settings = settings
+        app.state.credential_volatile_store = VolatileCredentialStore(
+            default_ttl_seconds=settings.volatile_credential_ttl_seconds,
+        )
+        app.state.credential_vault = CredentialVault(
+            database_path=settings.database_path,
+            migrations_dir=settings.migrations_dir,
+            auto_lock_minutes=settings.vault_auto_lock_minutes,
+        )
         database = KavalDatabase(
             path=settings.database_path,
             migrations_dir=settings.migrations_dir,
@@ -86,7 +128,7 @@ def create_app(
     app = FastAPI(
         title="Kaval API",
         version="0.1.0",
-        summary="Phase 1 read-only monitoring API.",
+        summary="Phase 2 monitoring, investigation, and UAC API.",
         lifespan=lifespan,
     )
     app.include_router(_health_router)
@@ -111,6 +153,37 @@ def get_database(request: Request) -> Iterator[KavalDatabase]:
 
 
 ApiDatabase = Annotated[KavalDatabase, Depends(get_database)]
+
+
+def get_credential_request_manager(database: ApiDatabase) -> CredentialRequestManager:
+    """Build a credential-request manager bound to the current database handle."""
+    return CredentialRequestManager(database=database)
+
+
+ApiCredentialRequestManager = Annotated[
+    CredentialRequestManager,
+    Depends(get_credential_request_manager),
+]
+
+
+def get_credential_material_service(
+    request: Request,
+    database: ApiDatabase,
+) -> CredentialMaterialService:
+    """Build the credential material service using app-scoped storage backends."""
+    settings: ApiSettings = request.app.state.api_settings
+    return CredentialMaterialService(
+        request_manager=CredentialRequestManager(database=database),
+        volatile_store=request.app.state.credential_volatile_store,
+        vault=request.app.state.credential_vault,
+        default_volatile_ttl_seconds=settings.volatile_credential_ttl_seconds,
+    )
+
+
+ApiCredentialMaterialService = Annotated[
+    CredentialMaterialService,
+    Depends(get_credential_material_service),
+]
 
 _health_router = APIRouter()
 _api_router = APIRouter(prefix="/api/v1")
@@ -151,6 +224,145 @@ def list_investigations(database: ApiDatabase) -> list[Investigation]:
 def list_changes(database: ApiDatabase) -> list[Change]:
     """List persisted change events."""
     return database.list_changes()
+
+
+@_api_router.get("/journal-entries", response_model=list[JournalEntry])
+def list_journal_entries(database: ApiDatabase) -> list[JournalEntry]:
+    """List persisted Operational Memory journal entries."""
+    return database.list_journal_entries()
+
+
+@_api_router.get("/user-notes", response_model=list[UserNote])
+def list_user_notes(database: ApiDatabase) -> list[UserNote]:
+    """List persisted Operational Memory user notes."""
+    return database.list_user_notes()
+
+
+@_api_router.get("/credential-requests", response_model=list[CredentialRequest])
+def list_credential_requests(
+    manager: ApiCredentialRequestManager,
+) -> list[CredentialRequest]:
+    """List persisted credential requests with explicit expiry handling."""
+    return manager.list_requests()
+
+
+@_api_router.post("/credential-requests", response_model=CredentialRequest, status_code=201)
+def create_credential_request(
+    payload: CreateCredentialRequestRequest,
+    manager: ApiCredentialRequestManager,
+) -> CredentialRequest:
+    """Create one pending credential request from descriptor-backed hints."""
+    try:
+        return manager.create_request(
+            incident_id=payload.incident_id,
+            investigation_id=payload.investigation_id,
+            service_id=payload.service_id,
+            credential_key=payload.credential_key,
+            reason=payload.reason,
+        )
+    except CredentialRequestNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CredentialRequestHintError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@_api_router.post(
+    "/credential-requests/{request_id}/choice",
+    response_model=CredentialRequest,
+)
+def record_credential_request_choice(
+    request_id: str,
+    payload: CredentialRequestChoiceRequest,
+    manager: ApiCredentialRequestManager,
+) -> CredentialRequest:
+    """Record one user choice for a credential request."""
+    try:
+        return manager.resolve_choice(
+            request_id=request_id,
+            mode=payload.mode,
+            decided_by=payload.decided_by,
+        )
+    except CredentialRequestNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CredentialRequestConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@_api_router.post(
+    "/credential-requests/telegram-callback",
+    response_model=CredentialRequest,
+)
+def record_telegram_credential_callback(
+    payload: TelegramCredentialCallbackRequest,
+    manager: ApiCredentialRequestManager,
+) -> CredentialRequest:
+    """Resolve one credential request choice from a Telegram callback identifier."""
+    try:
+        callback = parse_credential_request_callback_id(payload.callback_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        return manager.resolve_choice(
+            request_id=callback.request_id,
+            mode=callback.mode,
+            decided_by=payload.decided_by,
+        )
+    except CredentialRequestNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CredentialRequestConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@_api_router.post(
+    "/credential-requests/{request_id}/submit",
+    response_model=CredentialRequest,
+)
+def submit_credential_secret(
+    request_id: str,
+    payload: CredentialSecretSubmissionRequest,
+    service: ApiCredentialMaterialService,
+) -> CredentialRequest:
+    """Store secret material for one previously approved credential request."""
+    try:
+        return service.submit_secret(
+            request_id=request_id,
+            secret_value=payload.secret_value,
+            submitted_by=payload.submitted_by,
+        )
+    except CredentialRequestNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CredentialRequestConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except CredentialVaultLockedError as exc:
+        raise HTTPException(status_code=423, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@_api_router.get("/vault/status", response_model=VaultStatus)
+def vault_status(service: ApiCredentialMaterialService) -> VaultStatus:
+    """Return the current initialized/locked state for the credential vault."""
+    return service.vault_status()
+
+
+@_api_router.post("/vault/unlock", response_model=VaultStatus)
+def unlock_vault(
+    payload: VaultUnlockRequest,
+    service: ApiCredentialMaterialService,
+) -> VaultStatus:
+    """Initialize or unlock the credential vault with a master passphrase."""
+    try:
+        return service.unlock_vault(payload.master_passphrase)
+    except CredentialVaultPassphraseError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@_api_router.post("/vault/lock", response_model=VaultStatus)
+def lock_vault(service: ApiCredentialMaterialService) -> VaultStatus:
+    """Explicitly lock the credential vault."""
+    return service.lock_vault()
 
 
 @_api_router.get("/graph", response_model=ServiceGraphResponse)
@@ -301,6 +513,18 @@ def _resolve_web_dist_dir(web_dist_dir: Path | str | None) -> Path:
     if environment_value:
         return Path(environment_value)
     return Path(__file__).resolve().parents[2] / "web" / "dist"
+
+
+def _load_positive_int_from_env(name: str, default: int) -> int:
+    """Load one optional positive integer setting from the environment."""
+    raw_value = os.environ.get(name, str(default)).strip()
+    try:
+        parsed = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if parsed <= 0:
+        raise ValueError(f"{name} must be positive")
+    return parsed
 
 
 app = create_app()

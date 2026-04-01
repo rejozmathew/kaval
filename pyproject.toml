@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "apprise>=1.9,<2",
+    "cryptography>=44,<47",
     "fastapi>=0.115,<1",
     "pydantic>=2.11,<3",
     "PyYAML>=6.0,<7",

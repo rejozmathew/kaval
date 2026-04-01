@@ -9,6 +9,7 @@ from textwrap import dedent
 from typing import Literal, Sequence, cast
 
 from kaval.investigation.evidence import InvestigationEvidenceResult
+from kaval.investigation.research import Tier2ResearchBundle
 from kaval.models import (
     Incident,
     JsonValue,
@@ -20,14 +21,14 @@ from kaval.models import (
 
 type JsonObject = dict[str, JsonValue]
 
-_PHASE_2A_DEGRADED_NOTE = (
-    "Tier 2 research is unavailable in Phase 2A. "
-    "Base the analysis on local evidence only."
+_RESEARCH_ONLY_DEGRADED_NOTE = (
+    "Use Tier 2 research when it is provided. "
+    "If research was skipped or incomplete, reflect the lower confidence explicitly."
 )
 
 INVESTIGATION_SYSTEM_PROMPT = dedent(
     """
-    You are Kaval's Phase 2A investigation analyst for Unraid and homelab incidents.
+    You are Kaval's Phase 2B investigation analyst for Unraid and homelab incidents.
 
     Work from the provided incident context only. Treat evidence as facts, inference as
     conclusions drawn from those facts, and recommendation as a bounded proposal with
@@ -35,7 +36,9 @@ INVESTIGATION_SYSTEM_PROMPT = dedent(
 
     Hard rules:
     - Do not invent missing evidence, external research, or credential-derived facts.
-    - Do not request Tier 2 research, changelog lookup, or external API enrichment.
+    - Use provided Tier 2 research only when it is present.
+    - If research was skipped, missing, or offline, say so explicitly instead of pretending
+      the investigation was complete.
     - Do not recommend rollback, VM actions, config mutation, credential requests, or
       any system-changing action other than `restart_container`.
     - If the evidence does not justify a restart, return `action_type="none"`.
@@ -176,6 +179,7 @@ def build_investigation_prompt_bundle(
     *,
     incident: Incident,
     evidence: InvestigationEvidenceResult,
+    research: Tier2ResearchBundle | None = None,
     degraded_reasons: Sequence[str] = (),
     now: datetime | None = None,
 ) -> InvestigationPromptBundle:
@@ -186,6 +190,7 @@ def build_investigation_prompt_bundle(
         user_prompt=_render_user_prompt(
             incident=incident,
             evidence=evidence,
+            research=research,
             degraded_reasons=degraded_reasons,
             now=effective_now,
         ),
@@ -198,6 +203,7 @@ def _render_user_prompt(
     *,
     incident: Incident,
     evidence: InvestigationEvidenceResult,
+    research: Tier2ResearchBundle | None,
     degraded_reasons: Sequence[str],
     now: datetime,
 ) -> str:
@@ -205,6 +211,7 @@ def _render_user_prompt(
     sections = [
         _render_incident_section(incident=incident, now=now),
         _render_evidence_section(evidence),
+        _render_research_section(research),
         _render_memory_section(evidence),
         _render_constraints_section(degraded_reasons),
         _render_response_contract(),
@@ -274,14 +281,52 @@ def _render_memory_section(evidence: InvestigationEvidenceResult) -> str:
     return "Operational Memory:\n" + _render_json(memory_payload)
 
 
+def _render_research_section(research: Tier2ResearchBundle | None) -> str:
+    """Render ordered Tier 2 research context when it is available."""
+    if research is None:
+        return ""
+    if not research.research_steps and not research.service_results and not research.warnings:
+        return ""
+
+    rendered_steps = []
+    for step in research.research_steps:
+        rendered_steps.append(
+            "\n".join(
+                [
+                    f"{step.order}. [{step.action}] {step.source}",
+                    f"Summary: {step.result_summary}",
+                ]
+            )
+        )
+
+    research_payload: JsonObject = {
+        "skipped_offline": research.skipped_offline,
+        "degraded_reasons": cast(JsonValue, list(research.degraded_reasons)),
+        "warnings": cast(JsonValue, list(research.warnings)),
+        "service_results": cast(
+            JsonValue,
+            [result.model_dump(mode="json") for result in research.service_results],
+        ),
+    }
+    sections = [
+        (
+            "Research Steps:\n" + "\n\n".join(rendered_steps)
+            if rendered_steps
+            else "Research Steps:\nNone"
+        ),
+        "Research Results:\n" + _render_json(research_payload),
+    ]
+    return "\n\n".join(sections)
+
+
 def _render_constraints_section(degraded_reasons: Sequence[str]) -> str:
-    """Render the explicit Phase 2A and degraded-mode constraints."""
+    """Render the explicit bounded-remediation and degraded-mode constraints."""
     lines = [
         "Phase Constraints:",
         "- Keep the answer aligned to evidence -> inference -> recommendation.",
         "- Recommendation may be `restart_container` only, or `none` if restart is not justified.",
-        "- Do not mention rollback, VM actions, config mutation, or Phase 2B research.",
-        f"- {_PHASE_2A_DEGRADED_NOTE}",
+        "- Do not mention rollback, VM actions, config mutation, or credential-gated API data.",
+        f"- {_RESEARCH_ONLY_DEGRADED_NOTE}",
     ]
     if degraded_reasons:
         lines.append("- Degraded mode details:")

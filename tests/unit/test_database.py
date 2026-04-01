@@ -5,6 +5,13 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from kaval.credentials.models import (
+    CredentialRequest,
+    CredentialRequestMode,
+    CredentialRequestStatus,
+    VaultConfigRecord,
+    VaultCredentialRecord,
+)
 from kaval.database import KavalDatabase
 from kaval.models import (
     ActionType,
@@ -248,6 +255,29 @@ def build_approval_token() -> ApprovalToken:
     )
 
 
+def build_credential_request() -> CredentialRequest:
+    """Create a reusable credential-request payload."""
+    return CredentialRequest(
+        id="credreq-1",
+        incident_id="inc-1",
+        investigation_id="inv-1",
+        service_id="svc-radarr",
+        service_name="Radarr",
+        credential_key="api_key",
+        credential_description="Radarr API Key",
+        credential_location="Radarr Web UI -> Settings -> General -> API Key",
+        reason="Need diagnostics API access.",
+        status=CredentialRequestStatus.AWAITING_INPUT,
+        selected_mode=CredentialRequestMode.VOLATILE,
+        decided_by="user_via_telegram",
+        requested_at=ts(14, 10),
+        expires_at=ts(14, 40),
+        decided_at=ts(14, 12),
+        satisfied_at=None,
+        credential_reference=None,
+    )
+
+
 def build_journal_entry() -> JournalEntry:
     """Create a reusable journal entry payload."""
     return JournalEntry(
@@ -269,6 +299,31 @@ def build_journal_entry() -> JournalEntry:
         applies_to_version=None,
         superseded_by=None,
         stale_after_days=90,
+    )
+
+
+def build_vault_config() -> VaultConfigRecord:
+    """Create a reusable vault-config payload."""
+    return VaultConfigRecord(
+        salt_b64="c2FsdC1ieXRlcy0xMjM0NQ==",
+        verifier_token="gAAAAABvaultverifier",
+        created_at=ts(14, 5),
+        updated_at=ts(14, 5),
+    )
+
+
+def build_vault_credential() -> VaultCredentialRecord:
+    """Create a reusable encrypted vault-credential payload."""
+    return VaultCredentialRecord(
+        reference_id="vault:cred-1",
+        request_id="credreq-1",
+        incident_id="inc-1",
+        service_id="svc-radarr",
+        credential_key="api_key",
+        ciphertext="gAAAAABvaultciphertext",
+        submitted_by="user_via_telegram",
+        created_at=ts(14, 15),
+        updated_at=ts(14, 15),
     )
 
 
@@ -300,7 +355,12 @@ def test_bootstrap_applies_baseline_migration(tmp_path: Path) -> None:
         assert "findings" in tables
         assert "incidents" in tables
         assert "system_profiles" in tables
-        assert database.applied_migrations() == ["0001_phase0_baseline"]
+        assert "credential_requests" in tables
+        assert database.applied_migrations() == [
+            "0001_phase0_baseline",
+            "0002_phase2b_credential_requests",
+            "0003_phase2b_vault",
+        ]
     finally:
         database.close()
 
@@ -340,6 +400,9 @@ def test_database_persists_supporting_phase0_records(tmp_path: Path) -> None:
     service = build_service()
     system_profile = build_system_profile()
     approval_token = build_approval_token()
+    credential_request = build_credential_request()
+    vault_config = build_vault_config()
+    vault_credential = build_vault_credential()
     journal_entry = build_journal_entry()
     user_note = build_user_note()
     try:
@@ -347,6 +410,9 @@ def test_database_persists_supporting_phase0_records(tmp_path: Path) -> None:
         database.upsert_service(service)
         database.upsert_system_profile(system_profile)
         database.upsert_approval_token(approval_token)
+        database.upsert_credential_request(credential_request)
+        database.upsert_vault_config(vault_config)
+        database.upsert_vault_credential(vault_credential)
         database.upsert_journal_entry(journal_entry)
         database.upsert_user_note(user_note)
 
@@ -354,15 +420,27 @@ def test_database_persists_supporting_phase0_records(tmp_path: Path) -> None:
         assert database.get_service(service.id) == service
         assert database.get_system_profile() == system_profile
         assert database.get_approval_token(approval_token.token_id) == approval_token
+        assert database.get_credential_request(credential_request.id) == credential_request
+        assert database.get_vault_config() == vault_config
+        assert database.get_vault_credential(vault_credential.reference_id) == vault_credential
         assert database.get_journal_entry(journal_entry.id) == journal_entry
         assert database.get_user_note(user_note.id) == user_note
         assert [stored.id for stored in database.list_investigations()] == [investigation.id]
+        assert [stored.id for stored in database.list_credential_requests()] == [
+            credential_request.id
+        ]
+        assert [stored.reference_id for stored in database.list_vault_credentials()] == [
+            vault_credential.reference_id
+        ]
         assert [stored.id for stored in database.list_services()] == [service.id]
 
         database.delete_investigation(investigation.id)
         database.delete_service(service.id)
         database.clear_system_profile()
         database.delete_approval_token(approval_token.token_id)
+        database.delete_credential_request(credential_request.id)
+        database.clear_vault_config()
+        database.delete_vault_credential(vault_credential.reference_id)
         database.delete_journal_entry(journal_entry.id)
         database.delete_user_note(user_note.id)
 
@@ -370,6 +448,9 @@ def test_database_persists_supporting_phase0_records(tmp_path: Path) -> None:
         assert database.get_service(service.id) is None
         assert database.get_system_profile() is None
         assert database.get_approval_token(approval_token.token_id) is None
+        assert database.get_credential_request(credential_request.id) is None
+        assert database.get_vault_config() is None
+        assert database.get_vault_credential(vault_credential.reference_id) is None
         assert database.get_journal_entry(journal_entry.id) is None
         assert database.get_user_note(user_note.id) is None
     finally:

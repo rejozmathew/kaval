@@ -1,0 +1,21 @@
+{
+  "name": "2.12.1",
+  "full_size": 187654321,
+  "last_updated": "2026-03-31T18:20:00Z",
+  "tag_last_pushed": "2026-03-31T18:20:00Z",
+  "tag_last_pulled": "2026-03-31T19:00:00Z",
+  "images": [
+    {
+      "digest": "sha256:npm-2121-amd64",
+      "architecture": "amd64",
+      "os": "linux",
+      "size": 98765432
+    },
+    {
+      "digest": "sha256:npm-2121-arm64",
+      "architecture": "arm64",
+      "os": "linux",
+      "size": 88888888
+    }
+  ]
+}

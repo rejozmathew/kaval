@@ -1,10 +1,11 @@
-"""Typed response contracts for the Phase 1 read-only API."""
+"""Typed request and response contracts for the Kaval API."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal
 
+from kaval.credentials.models import CredentialRequestMode
 from kaval.models import (
     DependencyConfidence,
     DependencySource,
@@ -61,3 +62,40 @@ class RealtimeSnapshotResponse(KavalModel):
     incidents: list[Incident]
     investigations: list[Investigation]
     widget: WidgetSummaryResponse
+
+
+class CreateCredentialRequestRequest(KavalModel):
+    """API payload for creating one credential request."""
+
+    incident_id: str
+    investigation_id: str | None = None
+    service_id: str
+    credential_key: str
+    reason: str
+
+
+class CredentialRequestChoiceRequest(KavalModel):
+    """API payload for recording one user choice on a credential request."""
+
+    mode: CredentialRequestMode
+    decided_by: str
+
+
+class TelegramCredentialCallbackRequest(KavalModel):
+    """API payload for replaying one Telegram callback identifier."""
+
+    callback_id: str
+    decided_by: str
+
+
+class CredentialSecretSubmissionRequest(KavalModel):
+    """API payload for submitting one secret value after mode selection."""
+
+    secret_value: str
+    submitted_by: str
+
+
+class VaultUnlockRequest(KavalModel):
+    """API payload for initializing or unlocking the credential vault."""
+
+    master_passphrase: str

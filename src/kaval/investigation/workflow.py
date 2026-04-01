@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Protocol, TypedDict
+from typing import Any, Callable, Mapping, Protocol, TypedDict
 from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
@@ -14,6 +14,16 @@ from kaval.database import KavalDatabase
 from kaval.discovery.descriptors import LoadedServiceDescriptor, load_service_descriptors
 from kaval.discovery.docker import DockerDiscoverySnapshot
 from kaval.grouping import can_transition_incident_status, transition_incident
+from kaval.investigation.cloud_model import (
+    CloudInvestigationSynthesizer,
+    CloudModelError,
+    CloudPromptRedactionError,
+    CloudTransport,
+    build_cloud_safe_prompt_bundle,
+    evaluate_cloud_escalation_policy,
+    load_cloud_escalation_policy_from_env,
+    load_cloud_model_config_from_env,
+)
 from kaval.investigation.evidence import (
     InvestigationEvidenceResult,
     LogReader,
@@ -24,6 +34,9 @@ from kaval.investigation.local_model import (
     OpenAICompatibleInvestigationSynthesizer,
     load_local_model_config_from_env,
 )
+from kaval.investigation.local_model import (
+    RequestTransport as LocalModelTransport,
+)
 from kaval.investigation.prompts import (
     InvestigationInference,
     InvestigationPromptBundle,
@@ -31,6 +44,15 @@ from kaval.investigation.prompts import (
     InvestigationSynthesis,
     build_investigation_prompt_bundle,
 )
+from kaval.investigation.research import (
+    DockerHubResearchClient,
+    GitHubResearchClient,
+    PublicResearchHints,
+    Tier2ResearchBundle,
+    build_tier2_research_targets,
+    run_tier2_research,
+)
+from kaval.investigation.risk_assessment import apply_deterministic_risk_assessment
 from kaval.models import (
     ActionType,
     Change,
@@ -79,6 +101,7 @@ class InvestigationWorkflowState(TypedDict, total=False):
     user_notes: list[UserNote]
     docker_snapshot: DockerDiscoverySnapshot | None
     evidence: InvestigationEvidenceResult
+    research: Tier2ResearchBundle
     prompt_bundle: InvestigationPromptBundle
     synthesis: InvestigationSynthesis
     investigation: Investigation
@@ -119,6 +142,11 @@ class InvestigationWorkflow:
     descriptors: tuple[LoadedServiceDescriptor, ...] = ()
     log_reader: LogReader | None = None
     docker_snapshot_provider: DockerSnapshotProvider | None = None
+    research_hints_by_service: Mapping[str, PublicResearchHints] = field(default_factory=dict)
+    github_research_client: GitHubResearchClient | None = None
+    dockerhub_research_client: DockerHubResearchClient | None = None
+    local_model_transport: LocalModelTransport | None = None
+    cloud_model_transport: CloudTransport | None = None
     _graph: Any = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -199,6 +227,25 @@ class InvestigationWorkflow:
             "prompt_bundle": build_investigation_prompt_bundle(
                 incident=state["incident"],
                 evidence=state["evidence"],
+                research=state["research"],
+                degraded_reasons=state["research"].degraded_reasons,
+                now=state["started_at"],
+            )
+        }
+
+    def _collect_research(self, state: InvestigationWorkflowState) -> InvestigationWorkflowState:
+        """Collect Tier 2 public research for correlated image-version changes."""
+        targets = build_tier2_research_targets(
+            incident=state["incident"],
+            services=state["services"],
+            changes=state["changes"],
+            hints_by_service=self._public_research_hints(state["services"]),
+        )
+        return {
+            "research": run_tier2_research(
+                targets=targets,
+                github_client=self.github_research_client,
+                dockerhub_client=self.dockerhub_research_client,
                 now=state["started_at"],
             )
         }
@@ -206,13 +253,25 @@ class InvestigationWorkflow:
     def _synthesize(self, state: InvestigationWorkflowState) -> InvestigationWorkflowState:
         """Produce structured inference and recommendation from the prompt bundle."""
         synthesis = self._run_synthesis(state)
+        degraded_note = synthesis.degraded_mode_note
+        for reason in state["research"].degraded_reasons:
+            degraded_note = _combine_degraded_notes(degraded_note, reason)
+        bounded_recommendation = _bounded_recommendation(
+            recommendation=synthesis.recommendation,
+            incident=state["incident"],
+            services=state["services"],
+        )
+        deterministic_recommendation = apply_deterministic_risk_assessment(
+            recommendation=bounded_recommendation,
+            incident=state["incident"],
+            services=state["services"],
+            changes=state["changes"],
+            research=state["research"],
+        )
         bounded_synthesis = synthesis.model_copy(
             update={
-                "recommendation": _bounded_recommendation(
-                    recommendation=synthesis.recommendation,
-                    incident=state["incident"],
-                    services=state["services"],
-                )
+                "degraded_mode_note": degraded_note,
+                "recommendation": deterministic_recommendation,
             }
         )
         return {
@@ -241,8 +300,9 @@ class InvestigationWorkflow:
             return _fallback_synthesis(state=state)
 
         try:
-            return OpenAICompatibleInvestigationSynthesizer(
-                config=local_model_config
+            local_synthesis = OpenAICompatibleInvestigationSynthesizer(
+                config=local_model_config,
+                transport=self.local_model_transport,
             ).synthesize(
                 incident=state["incident"],
                 evidence=state["evidence"],
@@ -253,6 +313,104 @@ class InvestigationWorkflow:
                 state=state,
                 degraded_reason="Local model request failed; deterministic fallback was used.",
             )
+        return self._maybe_escalate_cloud(state=state, local_synthesis=local_synthesis)
+
+    def _maybe_escalate_cloud(
+        self,
+        *,
+        state: InvestigationWorkflowState,
+        local_synthesis: InvestigationSynthesis,
+    ) -> InvestigationSynthesis:
+        """Optionally escalate a successful local synthesis to the configured cloud model."""
+        try:
+            policy = load_cloud_escalation_policy_from_env()
+        except ValueError:
+            return _with_degraded_reason(
+                local_synthesis,
+                "Cloud escalation policy config was invalid; local synthesis retained.",
+            )
+
+        decision = evaluate_cloud_escalation_policy(
+            incident=state["incident"],
+            findings=state["findings"],
+            investigations=self.database.list_investigations(),
+            local_synthesis=local_synthesis,
+            changelog_research_available=bool(state["research"].research_steps),
+            trigger=state["trigger"],
+            now=state["started_at"],
+            policy=policy,
+            offline=state["research"].skipped_offline,
+        )
+        if decision.blocked_reason is not None:
+            return _with_degraded_reason(local_synthesis, decision.blocked_reason)
+        if not decision.should_use_cloud:
+            return local_synthesis
+
+        try:
+            cloud_model_config = load_cloud_model_config_from_env()
+        except ValueError:
+            return _with_degraded_reason(
+                local_synthesis,
+                _cloud_retained_reason(
+                    decision.trigger_reasons,
+                    "Cloud model config was invalid; local synthesis retained.",
+                ),
+            )
+        if cloud_model_config is None:
+            return _with_degraded_reason(
+                local_synthesis,
+                _cloud_retained_reason(
+                    decision.trigger_reasons,
+                    "Cloud model was not configured; local synthesis retained.",
+                ),
+            )
+
+        try:
+            cloud_prompt_bundle = build_cloud_safe_prompt_bundle(
+                prompt_bundle=state["prompt_bundle"],
+                incident=state["incident"],
+                services=state["services"],
+            )
+        except CloudPromptRedactionError:
+            return _with_degraded_reason(
+                local_synthesis,
+                _cloud_retained_reason(
+                    decision.trigger_reasons,
+                    "Cloud-safe redaction failed; local synthesis retained.",
+                ),
+            )
+
+        try:
+            cloud_synthesis = CloudInvestigationSynthesizer(
+                config=cloud_model_config,
+                transport=self.cloud_model_transport,
+            ).synthesize(prompt_bundle=cloud_prompt_bundle)
+        except CloudModelError:
+            return _with_degraded_reason(
+                local_synthesis,
+                _cloud_retained_reason(
+                    decision.trigger_reasons,
+                    "Cloud model request failed; local synthesis retained.",
+                ),
+            )
+
+        return cloud_synthesis.model_copy(
+            update={
+                "model_used": ModelUsed.BOTH,
+                "cloud_model_calls": (
+                    local_synthesis.cloud_model_calls
+                    + cloud_synthesis.cloud_model_calls
+                ),
+                "degraded_mode_note": (
+                    _combine_degraded_notes(
+                        local_synthesis.degraded_mode_note,
+                        cloud_synthesis.degraded_mode_note,
+                    )
+                    if cloud_synthesis.degraded_mode_note is not None
+                    else local_synthesis.degraded_mode_note
+                ),
+            }
+        )
 
     def _persist(self, state: InvestigationWorkflowState) -> InvestigationWorkflowState:
         """Persist the investigation plus aligned incident and finding updates."""
@@ -264,7 +422,7 @@ class InvestigationWorkflow:
             trigger=state["trigger"],
             status=InvestigationStatus.COMPLETED,
             evidence_steps=state["evidence"].evidence_steps,
-            research_steps=[],
+            research_steps=state["research"].research_steps,
             root_cause=state["synthesis"].inference.root_cause,
             confidence=state["synthesis"].inference.confidence,
             model_used=state["synthesis"].model_used,
@@ -302,6 +460,46 @@ class InvestigationWorkflow:
             "updated_incident": updated_incident,
             "updated_findings": updated_findings,
         }
+
+    def _public_research_hints(
+        self,
+        services: list[Service],
+    ) -> dict[str, PublicResearchHints]:
+        """Build per-service public research hints from descriptors and overrides."""
+        hints: dict[str, PublicResearchHints] = {
+            service_id: hint.model_copy(deep=True)
+            for service_id, hint in self.research_hints_by_service.items()
+        }
+        descriptors_by_service_id = {
+            f"{descriptor.path.parent.name}/{descriptor.path.stem}": descriptor
+            for descriptor in self.descriptors
+        }
+
+        for service in services:
+            descriptor = (
+                descriptors_by_service_id.get(service.descriptor_id)
+                if service.descriptor_id is not None
+                else None
+            )
+            existing_hint = hints.get(service.id, PublicResearchHints())
+            github_repository = existing_hint.github_repository
+            dockerhub_reference = existing_hint.dockerhub_reference
+            if (
+                github_repository is None
+                and descriptor is not None
+                and descriptor.descriptor.project_url is not None
+                and descriptor.descriptor.project_url.startswith("https://github.com/")
+            ):
+                github_repository = descriptor.descriptor.project_url
+            if dockerhub_reference is None and service.image is not None:
+                dockerhub_reference = service.image
+            if github_repository is None and dockerhub_reference is None:
+                continue
+            hints[service.id] = PublicResearchHints(
+                github_repository=github_repository,
+                dockerhub_reference=dockerhub_reference,
+            )
+        return hints
 
 
 class HeuristicInvestigationSynthesizer:
@@ -423,12 +621,14 @@ def _build_graph(workflow: InvestigationWorkflow) -> Any:
     graph = StateGraph(InvestigationWorkflowState)
     graph.add_node("load_context", workflow._load_context)
     graph.add_node("collect_evidence", workflow._collect_evidence)
+    graph.add_node("collect_research", workflow._collect_research)
     graph.add_node("build_prompt", workflow._build_prompt)
     graph.add_node("synthesize", workflow._synthesize)
     graph.add_node("persist", workflow._persist)
     graph.add_edge(START, "load_context")
     graph.add_edge("load_context", "collect_evidence")
-    graph.add_edge("collect_evidence", "build_prompt")
+    graph.add_edge("collect_evidence", "collect_research")
+    graph.add_edge("collect_research", "build_prompt")
     graph.add_edge("build_prompt", "synthesize")
     graph.add_edge("synthesize", "persist")
     graph.add_edge("persist", END)
@@ -513,6 +713,30 @@ def _combine_degraded_notes(existing_note: str | None, extra_note: str) -> str:
     if existing_note is None:
         return extra_note
     return f"{existing_note} {extra_note}"
+
+
+def _with_degraded_reason(
+    synthesis: InvestigationSynthesis,
+    degraded_reason: str,
+) -> InvestigationSynthesis:
+    """Append one degraded-mode reason to an existing synthesis payload."""
+    return synthesis.model_copy(
+        update={
+            "degraded_mode_note": _combine_degraded_notes(
+                synthesis.degraded_mode_note,
+                degraded_reason,
+            )
+        }
+    )
+
+
+def _cloud_retained_reason(trigger_reasons: tuple[str, ...], detail: str) -> str:
+    """Render one explicit note about why cloud escalation fell back to local output."""
+    joined_reasons = ", ".join(trigger_reasons)
+    return (
+        "Cloud escalation criteria matched "
+        f"({joined_reasons}), but {detail}"
+    )
 
 
 def _updated_incident(
