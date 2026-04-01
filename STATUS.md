@@ -24,6 +24,12 @@
 - [x] Operational Memory query/result schema
 
 ## Completed work
+- 2026-04-01: Resolved clean-environment unit-test failure in the scaffold import smoke test.
+- Goal: keep the frozen Phase 2B codebase buildable on a clean CI runner without relying on stray local namespace packages.
+- Goal: align the scaffold smoke test with the actual packaged module boundary after the executor moved under `kaval.executor`.
+- Updated `tests/unit/test_scaffold.py` so the executor import check uses `from kaval import executor` and asserts the current executor package docstring instead of importing an undeclared top-level `executor` module.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/contract`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/scenario tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`, and `npm run build` in `src/web`.
+- Failures/blockers: none. The previous failure depended on a stale test expectation and only surfaced on clean runners where no unrelated top-level `executor` package was present.
 - 2026-04-01: Resolved clean-environment CI mypy failure for the LangGraph workflow import.
 - Goal: keep the Phase 2B codebase frozen while restoring clean-environment `mypy src` success.
 - Goal: fix the root cause in packaging rather than suppressing the `langgraph.graph` import in typed production code.
