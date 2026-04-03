@@ -86,21 +86,27 @@ These are the most likely file areas for P3A work based on the current repo stru
 
 ## Dependency notes
 
-- P3A-01 depends on existing `models.py` and service/discovery code from Phase 1
-- P3A-02 depends on P3A-01 and existing descriptor schema from P1-03
-- P3A-03 depends on P3A-01 and P3A-02
-- P3A-04 depends on existing vault/UAC from Phase 2B
-- P3A-05..09 depend on P3A-03 and P3A-04
-- P3A-10..11 depend on P3A-03
-- P3A-12 is independent (cross-cutting capability health, not adapter-specific)
-- P3A-13..14 depend on existing scheduler and discovery/change foundations from Phase 1/2
-- P3A-15 depends on existing change tracker and incident manager
-- P3A-16 depends on P3A-03 and P3A-13
-- P3A-17..20 depend on P3A-01, P3A-12, and existing React UI from P1-21/P2A/P2B
-- P3A-21 depends on the existing redaction module from P2B-10 and on adapter fact serialization surfaces
-- P3A-22 depends on P3A-03..09 and P3A-21 and the existing investigation workflow from P2A/P2B
-- P3A-23 depends on P3A-22 and existing dependency-mapper / graph logic from Phase 1
-- P3A-24..25 depend on the relevant interface, lifecycle, UI, and evidence work above
+- P3A-01 depends on existing `models.py` and service/discovery code from Phase 1.
+- P3A-02 depends on P3A-01 and existing descriptor schema from P1-03.
+- P3A-03 depends on P3A-01 and P3A-02.
+- P3A-04 depends on the existing vault/UAC flow from Phase 2B.
+- P3A-05..09 depend on P3A-03 and P3A-04.
+- P3A-10 depends on P3A-03, P3A-04, and the first real adapter execution paths from P3A-05..09.
+- P3A-11 depends on P3A-10 and adapter execution paths from P3A-05..09.
+- P3A-12 is independent as a cross-cutting capability-health model, but its API/UI exposure should align with existing FastAPI and React patterns from earlier phases.
+- P3A-13 depends on existing scheduler/config foundations from Phase 1/2.
+- P3A-14 depends on P3A-13 and existing discovery/change foundations from Phase 1/2.
+- P3A-15 depends on P3A-14, the existing change tracker, and the incident manager.
+- P3A-16 depends on P3A-03 and P3A-13.
+- P3A-17 depends on P3A-01 and API exposure of insight-level data.
+- P3A-18 depends on P3A-01, P3A-05..11, P3A-16, and service-detail API payload support for adapter status/imported facts/improve affordances.
+- P3A-19 depends on P3A-12 and capability-health API exposure.
+- P3A-20 depends on P3A-01, P3A-02, P3A-05..11, and aggregation/API support for the equal-weighted v1 effectiveness formula.
+- P3A-21 depends on the existing redaction module from P2B-10 and on adapter-fact serialization surfaces.
+- P3A-22 depends on P3A-03..09, P3A-21, and the existing investigation workflow from P2A/P2B.
+- P3A-23 depends on P3A-22 and existing dependency-mapper / graph logic from Phase 1.
+- P3A-24 depends on the relevant interface and schema work above.
+- P3A-25 depends on the relevant lifecycle, adapter, UI, and evidence work above.
 
 ## Exit criteria
 
