@@ -21,15 +21,18 @@ The security boundary is foundational:
 
 ## Current Status
 
-The repository is at a Phase 2B-complete checkpoint and is paused before any Phase 3 work.
+The repository is at a Phase 3A-complete checkpoint. Phase 3 overall is not complete yet, and no Phase 3B work has started from the current repo state.
 
 The current local checkpoint includes:
 
 - completed Phase 0 and Phase 1 foundations: typed Pydantic models, SQLite persistence, checked-in schemas, ADRs, Unraid + Docker discovery, shipped service descriptors, dependency graph construction, deterministic checks, incident management, system profile generation, FastAPI endpoints, CLI commands, and the React/WebSocket service map UI
 - completed investigation and notification surfaces through Phase 2B: Tier 1 evidence collection, Tier 2 public research, optional local and cloud-safe model synthesis paths, incident-centered notifications, Telegram interactive delivery, approval-gated restart execution, deterministic risk assessment, and representative DelugeVPN, cert-expiry, crash-loop, NPM TLS breakage, and Authentik SSO scenarios
 - completed credentials, memory, and UI surfaces through Phase 2B: credential request flow, encrypted vault support, Operational Memory journal and trust model, redaction hardening, recurrence detection, investigation detail, change timeline, approval queue, and memory browser views
+- completed Phase 3A service insight and adapter surfaces: per-service insight levels, the deep-inspection adapter foundation, and shipped read-only priority adapters for Nginx Proxy Manager, Radarr, Authentik, Cloudflare, and Pi-hole
+- completed Phase 3A runtime and UI visibility: capability-health reporting and dashboard visibility, lifecycle-aware service handling, topology refresh/cadence foundations, service-detail insight status, and the equal-weighted effectiveness score stub
+- completed Phase 3A evidence and trust-path work: adapter fact redaction, investigation evidence integration, dependency-confidence upgrades from adapter confirmation, and contract/scenario coverage for the new capability surfaces
 
-Phase 2B is complete under the approved CR-0002 / ADR-014 runtime: one Docker container with two internal processes, where `kaval-core` serves the API/UI on port `9800` and `kaval-executor` listens on `/run/kaval/executor.sock`. Treat [`STATUS.md`](STATUS.md) as the authoritative current-state source while the repo remains paused at the Phase 2B boundary.
+The current checkpoint still runs under the approved CR-0002 / ADR-014 runtime: one Docker container with two internal processes, where `kaval-core` serves the API/UI on port `9800` and `kaval-executor` listens on `/run/kaval/executor.sock`. Treat [`STATUS.md`](STATUS.md) as the authoritative running state and detailed execution history; it currently records Phase 3A as complete and Phase 3B as not yet started.
 
 ## Quick Start
 
@@ -66,11 +69,14 @@ Expected behavior:
 
 - `kaval` starts one container with two internal processes: `kaval-core` serves the FastAPI/API + UI on port `9800`, and `kaval-executor` listens on `/run/kaval/executor.sock`.
 - `/var/run/docker.sock` is mounted once and is intended for the executor process only; Core still communicates over the internal Unix socket.
-- The repository includes the completed Phase 1 monitoring stack and the completed Phase 2B investigation, research, credentials, memory, approval-gated restart, and current UI surfaces.
+- The repository includes the completed Phase 1 and Phase 2B foundations plus the completed Phase 3A insight, adapter, capability-health, lifecycle, and evidence-integration surfaces.
 
 ## Documentation
 
 - Product and architecture contract: [`docs/prd.md`](docs/prd.md)
+- Phase 3/4 requirements source: [`docs/phase3_4_requirements_expansion.md`](docs/phase3_4_requirements_expansion.md)
+- Completed Phase 3A execution contract: [`plans/phase-3a.md`](plans/phase-3a.md)
+- Next planned execution contract: [`plans/phase-3b.md`](plans/phase-3b.md)
 - Completed Phase 2B execution contract: [`plans/phase-2b.md`](plans/phase-2b.md)
 - Completed monitoring phase plan: [`plans/phase-1.md`](plans/phase-1.md)
 - Running project state: [`STATUS.md`](STATUS.md)
