@@ -65,7 +65,7 @@ These are the most likely file areas for P3A work based on the current repo stru
 - P3A-05 Adapter: Nginx Proxy Manager (REST API — proxy hosts, certs, upstreams)
 - P3A-06 Adapter: Radarr (REST API — download clients, indexers, queue health)
 - P3A-07 Adapter: Authentik (REST API — apps, providers, outposts, health)
-- P3A-08 Adapter: Cloudflare (Public API — DNS records, SSL mode, tunnel routes)
+- P3A-08 Adapter: Cloudflare (Public API — DNS records, SSL mode, basic tunnel metadata/status in `cloudflared` context)
 - P3A-09 Adapter: Pi-hole (REST API — upstream DNS, blocklist status, DHCP)
 - P3A-10 Adapter self-diagnostic checks (connection, auth, schema, version)
 - P3A-11 Adapter degradation and fallback behavior
@@ -75,7 +75,7 @@ These are the most likely file areas for P3A work based on the current repo stru
 - P3A-15 Service lifecycle event handling (added, updated, removed, renamed with map/history/notification behavior)
 - P3A-16 Adapter fact refresh cadence (per-adapter schedule, rate-limit awareness, staleness marking)
 - P3A-17 UI: Insight level badges on service map nodes
-- P3A-18 UI: Service detail panel — insight section with adapter status, imported facts, "improve" affordances
+- P3A-18 UI: Service detail panel — insight section with adapter status and "improve" affordances
 - P3A-19 UI: Kaval health panel (capability layer status dashboard)
 - P3A-20 UI: Effectiveness score display (stub — equal-weighted v1 formula)
 - P3A-21 Two-level redaction for adapter facts (redact_for_local vs redact_for_cloud)
@@ -99,7 +99,7 @@ These are the most likely file areas for P3A work based on the current repo stru
 - P3A-15 depends on P3A-14, the existing change tracker, and the incident manager.
 - P3A-16 depends on P3A-03 and P3A-13.
 - P3A-17 depends on P3A-01 and API exposure of insight-level data.
-- P3A-18 depends on P3A-01, P3A-05..11, P3A-16, and service-detail API payload support for adapter status/imported facts/improve affordances.
+- P3A-18 depends on P3A-01, P3A-05..11, P3A-16, and minimum service-detail API payload support for current insight level, adapter status, and improve affordances. Persisted imported-fact summaries are deferred to later 3A tasks.
 - P3A-19 depends on P3A-12 and capability-health API exposure.
 - P3A-20 depends on P3A-01, P3A-02, P3A-05..11, and aggregation/API support for the equal-weighted v1 effectiveness formula.
 - P3A-21 depends on the existing redaction module from P2B-10 and on adapter-fact serialization surfaces.
@@ -328,7 +328,7 @@ Implement a read-only Authentik adapter for apps, providers, outposts, and servi
 ## P3A-08 — Cloudflare adapter
 
 **Goal**
-Implement a read-only Cloudflare adapter for DNS records, SSL mode, and tunnel-route facts useful to ingress investigations.
+Implement a read-only Cloudflare adapter for DNS records, proxy mode, SSL mode, origin certificate facts, and basic tunnel metadata/status useful to ingress investigations while keeping the facts attached to the existing `cloudflared` service context.
 
 **Primary touch surfaces**
 - Cloudflare adapter module
@@ -338,6 +338,8 @@ Implement a read-only Cloudflare adapter for DNS records, SSL mode, and tunnel-r
 **Acceptance criteria**
 - Cloudflare facts are fetched read-only and normalized.
 - External API rate-limit awareness is designed in at least minimally.
+- The adapter uses the approved narrow credential scope: `Zone Read`, `DNS Read`, `Zone Settings Read`, and one account-scoped tunnel-read permission.
+- The adapter does not require private-network/teamnet route inventory.
 - Failures degrade cleanly.
 
 **Validation focus**
@@ -346,6 +348,8 @@ Implement a read-only Cloudflare adapter for DNS records, SSL mode, and tunnel-r
 
 **Stop conditions**
 - No Cloudflare write actions.
+- Do not create a distinct external Cloudflare service/node/contract in Phase 3A.
+- Do not require broader private-network/teamnet route permissions in this task.
 - No assumptions that every user has Cloudflare configured.
 
 ## P3A-09 — Pi-hole adapter
@@ -391,24 +395,27 @@ Implement the health-check routines that test adapter connection, auth, schema c
 ## P3A-11 — Adapter degradation and fallback behavior
 
 **Goal**
-Define and implement what happens when an adapter becomes unhealthy: fallback to base inference, visible degradation, and confidence downgrades/staleness handling.
+Define and implement the foundation-only internal contracts for adapter degradation and fallback behavior: typed degradation/fallback states, staleness markers, downgrade-policy helpers, and the internal decision logic later persistence/API/UI/evidence tasks will consume.
 
 **Primary touch surfaces**
-- adapter execution path
-- dependency/confidence mapping logic
-- maybe database fields for last successful adapter fact sync
+- adapter execution/fallback helper modules
+- dependency/confidence downgrade-policy helpers
 - tests
 
 **Acceptance criteria**
-- Kaval falls back to base inference without breaking investigations.
-- Runtime-observed facts/edges become stale or revert per policy.
-- User-visible degradation state is represented in data/API.
+- Typed internal degradation/fallback state exists for later consumers.
+- Typed helpers exist for staleness marking and runtime-observed downgrade-policy decisions.
+- The internal contract is usable by later persistence/API/UI/evidence tasks without requiring those tasks to be implemented here.
+- This task does not require persisted graph/edge reversion, full API/detail payloads, UI rendering, or evidence-path handling yet.
 
 **Validation focus**
-- scenario-style tests for fallback paths
-- unit tests for confidence downgrade rules
+- unit tests for degradation-state handling
+- unit tests for staleness and downgrade-policy helpers
 
 **Stop conditions**
+- Do not implement persisted graph/edge reversion behavior in this task.
+- Do not add full adapter-state API/detail payload surfaces or UI rendering here.
+- Do not pull forward evidence-path handling of stale/degraded adapter facts.
 - Do not implement broad notification policy here beyond what is necessary for later 3B self-health routing.
 
 ## P3A-12 — Kaval capability health model
@@ -549,7 +556,14 @@ Expose per-service insight levels visually in the existing map UI.
 ## P3A-18 — UI: Service detail insight section
 
 **Goal**
-Add the minimum insight section to the service detail panel, including adapter status, imported facts, and improve affordances.
+Add the minimum insight section to the service detail panel, including current insight level, adapter status, and improve affordances.
+
+This task is foundation-only for the service detail surface:
+- include current insight level
+- include adapter availability/configured state
+- include adapter degraded/unknown state only when derivable from completed diagnostics/capability-health foundations
+- provide a typed service-detail payload contract that later tasks can enrich
+- do not require persisted imported-fact summaries, evidence-path fact rendering, or runtime-observed edge detail rendering yet
 
 **Primary touch surfaces**
 - `src/web/`
@@ -557,14 +571,16 @@ Add the minimum insight section to the service detail panel, including adapter s
 - tests
 
 **Acceptance criteria**
-- User can see current insight level, adapter health/config state, and imported fact summary.
+- User can see current insight level and adapter health/config state in the service detail panel.
 - Improve affordances are visible where a service can be made smarter.
+- A typed service-detail payload contract exists for later enrichment without requiring imported-fact persistence yet.
 
 **Validation focus**
 - UI build
 - integration tests for service detail payload
 
 **Stop conditions**
+- Do not require imported-fact summaries, runtime-observed edge rendering, or later 3A/3C detail-panel surfaces here.
 - Do not turn this into the full service detail panel; that belongs to 3C.
 
 ## P3A-19 — UI: Kaval health panel

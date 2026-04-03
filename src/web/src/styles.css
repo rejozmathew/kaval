@@ -260,6 +260,45 @@ select {
   filter: drop-shadow(0 0 24px rgba(255, 149, 83, 0.26));
 }
 
+.insight-badge {
+  pointer-events: none;
+}
+
+.insight-badge rect {
+  fill: rgba(245, 239, 228, 0.12);
+  stroke: rgba(245, 239, 228, 0.22);
+  stroke-width: 1;
+}
+
+.insight-badge text {
+  fill: #f8f0e6;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.insight-badge.insight-0 rect,
+.insight-badge.insight-1 rect {
+  fill: rgba(159, 170, 184, 0.18);
+  stroke: rgba(159, 170, 184, 0.34);
+}
+
+.insight-badge.insight-2 rect {
+  fill: rgba(121, 219, 255, 0.16);
+  stroke: rgba(121, 219, 255, 0.34);
+}
+
+.insight-badge.insight-3 rect {
+  fill: rgba(255, 196, 82, 0.16);
+  stroke: rgba(255, 196, 82, 0.36);
+}
+
+.insight-badge.insight-4 rect,
+.insight-badge.insight-5 rect {
+  fill: rgba(120, 216, 164, 0.18);
+  stroke: rgba(120, 216, 164, 0.38);
+}
+
 .service-node.healthy rect {
   stroke: rgba(120, 216, 164, 0.78);
 }
@@ -403,6 +442,32 @@ select {
   color: #d0d6de;
 }
 
+.insight-pill {
+  color: #f4efe7;
+}
+
+.insight-pill.insight-0,
+.insight-pill.insight-1 {
+  background: rgba(159, 170, 184, 0.16);
+  color: #d0d6de;
+}
+
+.insight-pill.insight-2 {
+  background: rgba(121, 219, 255, 0.16);
+  color: #78dbff;
+}
+
+.insight-pill.insight-3 {
+  background: rgba(255, 196, 82, 0.16);
+  color: #ffd27a;
+}
+
+.insight-pill.insight-4,
+.insight-pill.insight-5 {
+  background: rgba(120, 216, 164, 0.16);
+  color: #8af2b9;
+}
+
 .detail-grid {
   display: grid;
   gap: 1rem;
@@ -483,18 +548,44 @@ select {
 
 .timeline-list,
 .queue-list,
-.memory-list {
+.memory-list,
+.adapter-list,
+.improve-list {
   display: grid;
   gap: 0.8rem;
 }
 
 .timeline-item,
 .queue-item,
-.memory-item {
+.memory-item,
+.adapter-card,
+.improve-card {
   border-radius: 1.15rem;
   padding: 0.9rem 0.95rem;
   background: rgba(8, 13, 19, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.service-detail-status {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.service-detail-lead,
+.improve-title {
+  margin: 0;
+  color: #f4efe7;
+}
+
+.adapter-state-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: flex-end;
+}
+
+.adapter-capability-list {
+  margin-top: 0.75rem;
 }
 
 .timeline-item.highlighted {

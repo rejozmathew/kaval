@@ -35,3 +35,50 @@ common_failure_modes:
 investigation_context: |
   Authentik often sits in front of multiple protected services. A failure here
   can create broad SSO symptoms even when downstream apps are healthy.
+inspection:
+  surfaces:
+    - id: applications
+      type: api
+      description: Authentik application inventory and launch metadata
+      endpoint: /core/applications/
+      auth: token
+      read_only: true
+      facts_provided:
+        - applications
+    - id: providers
+      type: api
+      description: Authentik provider inventory and application assignments
+      endpoint: /providers/all/
+      auth: token
+      read_only: true
+      facts_provided:
+        - providers
+    - id: outposts
+      type: api
+      description: Authentik outpost inventory
+      endpoint: /outposts/instances/
+      auth: token
+      read_only: true
+      facts_provided:
+        - outposts
+    - id: outpost_health
+      type: api
+      description: Authentik outpost health records
+      endpoint: /outposts/instances/{uuid}/health/
+      auth: token
+      read_only: true
+      facts_provided:
+        - outpost_health
+    - id: system_health
+      type: api
+      description: Authentik version and outpost mismatch status
+      endpoint: /admin/version/
+      auth: token
+      read_only: true
+      facts_provided:
+        - system_health
+credential_hints:
+  api_token:
+    description: Authentik API Token
+    location: Authentik Admin UI -> Directory -> Users -> Tokens
+    prompt: Provide the Authentik API token to enable deep inspection.

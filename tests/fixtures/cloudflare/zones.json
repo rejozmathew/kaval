@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": [
+    {
+      "id": "zone-123",
+      "name": "example.com",
+      "status": "active",
+      "paused": false,
+      "type": "full"
+    }
+  ]
+}

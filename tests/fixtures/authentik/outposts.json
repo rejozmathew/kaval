@@ -1,0 +1,53 @@
+{
+  "pagination": {
+    "next": null,
+    "previous": null,
+    "count": 1,
+    "current": 1,
+    "total_pages": 1,
+    "start_index": 1,
+    "end_index": 1
+  },
+  "results": [
+    {
+      "pk": "05a8f4bc-daea-4b41-b5dd-b38db7359b1f",
+      "name": "Proxy Outpost",
+      "type": "proxy",
+      "providers": [
+        12,
+        13
+      ],
+      "providers_obj": [
+        {
+          "pk": 12,
+          "name": "Nextcloud OIDC",
+          "component": "ak-provider-oauth2-form",
+          "meta_model_name": "authentik_providers_oauth2.oauth2provider",
+          "assigned_application_slug": "nextcloud",
+          "assigned_application_name": "Nextcloud"
+        },
+        {
+          "pk": 13,
+          "name": "Grafana SAML",
+          "component": "ak-provider-saml-form",
+          "meta_model_name": "authentik_providers_saml.samlprovider",
+          "assigned_application_slug": "grafana",
+          "assigned_application_name": "Grafana"
+        }
+      ],
+      "service_connection": "8303cb9f-e141-4f65-9ce6-c4ee53ddf101",
+      "service_connection_obj": {
+        "pk": "8303cb9f-e141-4f65-9ce6-c4ee53ddf101",
+        "name": "Docker Host"
+      },
+      "refresh_interval_s": 5,
+      "token_identifier": "proxy-outpost-token",
+      "config": {
+        "authentik_host": "https://authentik.example.com",
+        "client_secret": "super-secret"
+      },
+      "managed": null
+    }
+  ],
+  "autocomplete": {}
+}

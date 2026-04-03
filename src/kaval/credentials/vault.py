@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
 from secrets import token_bytes
 from uuid import uuid4
@@ -50,6 +52,14 @@ class CredentialMaterialNotFoundError(CredentialVaultError):
     """Raised when a stored credential reference does not exist or has expired."""
 
 
+class AdapterCredentialState(StrEnum):
+    """Availability states for adapter-facing credential resolution."""
+
+    AVAILABLE = "available"
+    UNCONFIGURED = "unconfigured"
+    LOCKED = "locked"
+
+
 @dataclass(slots=True)
 class VolatileCredentialRecord:
     """One volatile in-memory credential lease."""
@@ -62,6 +72,16 @@ class VolatileCredentialRecord:
     submitted_by: str
     created_at: datetime
     expires_at: datetime
+
+
+@dataclass(slots=True)
+class AdapterCredentialResolution:
+    """Resolved adapter credential state without exposing secret material in reprs."""
+
+    state: AdapterCredentialState
+    missing_keys: tuple[str, ...] = ()
+    detail: str | None = None
+    credentials: dict[str, str] = field(default_factory=dict, repr=False)
 
 
 @dataclass(slots=True)
@@ -347,6 +367,55 @@ class CredentialMaterialService:
             return self.vault.get_secret(reference_id, now=now)
         msg = f"unsupported credential reference: {reference_id}"
         raise CredentialMaterialNotFoundError(msg)
+
+    def resolve_adapter_credentials(
+        self,
+        *,
+        service_id: str,
+        credential_keys: Sequence[str],
+        now: datetime | None = None,
+    ) -> AdapterCredentialResolution:
+        """Resolve adapter credential keys into an internal, non-logging bundle."""
+        effective_now = now or datetime.now(tz=UTC)
+        unique_keys = tuple(dict.fromkeys(credential_keys))
+        if not unique_keys:
+            return AdapterCredentialResolution(state=AdapterCredentialState.AVAILABLE)
+
+        missing_keys: list[str] = []
+        resolved_credentials: dict[str, str] = {}
+        for credential_key in unique_keys:
+            request_record = self.request_manager.find_satisfied_request(
+                service_id=service_id,
+                credential_key=credential_key,
+                now=effective_now,
+            )
+            if request_record is None or request_record.credential_reference is None:
+                missing_keys.append(credential_key)
+                continue
+            try:
+                resolved_credentials[credential_key] = self.get_secret(
+                    request_record.credential_reference,
+                    now=effective_now,
+                )
+            except CredentialVaultLockedError:
+                return AdapterCredentialResolution(
+                    state=AdapterCredentialState.LOCKED,
+                    missing_keys=tuple(unique_keys),
+                    detail="vault is locked",
+                )
+            except CredentialMaterialNotFoundError:
+                missing_keys.append(credential_key)
+
+        if missing_keys:
+            return AdapterCredentialResolution(
+                state=AdapterCredentialState.UNCONFIGURED,
+                missing_keys=tuple(missing_keys),
+                detail="adapter credentials are not configured",
+            )
+        return AdapterCredentialResolution(
+            state=AdapterCredentialState.AVAILABLE,
+            credentials=resolved_credentials,
+        )
 
     def vault_status(self, *, now: datetime | None = None) -> VaultStatus:
         """Return current vault initialization and lock state."""

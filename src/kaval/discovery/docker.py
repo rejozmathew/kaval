@@ -117,6 +117,32 @@ class DockerDiscoverySnapshot(DockerDiscoveryModel):
     images: list[DockerImageSummary] = Field(default_factory=list)
 
 
+class DockerEventActor(DockerDiscoveryModel):
+    """Event actor details returned by the Docker events API."""
+
+    id: str | None = Field(default=None, alias="ID")
+    attributes: dict[str, str] = Field(default_factory=dict, alias="Attributes")
+
+
+class DockerContainerEvent(DockerDiscoveryModel):
+    """One container event returned by the Docker events API."""
+
+    status: str | None = None
+    id: str | None = None
+    from_image: str | None = Field(default=None, alias="from")
+    type: str | None = Field(default=None, alias="Type")
+    action: str | None = Field(default=None, alias="Action")
+    actor: DockerEventActor = Field(default_factory=DockerEventActor, alias="Actor")
+    scope: str | None = None
+    time: int | None = None
+    time_nano: int | None = Field(default=None, alias="timeNano")
+
+    @property
+    def container_id(self) -> str | None:
+        """Return the container identifier carried by the event."""
+        return self.actor.id or self.id
+
+
 DockerModelT = TypeVar("DockerModelT", bound=DockerDiscoveryModel)
 
 
@@ -268,6 +294,22 @@ class DockerDiscoveryClient:
             },
         )
 
+    def fetch_container_events(
+        self,
+        *,
+        since: datetime,
+        until: datetime | None = None,
+    ) -> list[DockerContainerEvent]:
+        """Fetch read-only container events through the Docker HTTP API."""
+        query = {
+            "filters": json.dumps({"type": ["container"]}, separators=(",", ":")),
+            "since": _docker_event_timestamp(since),
+        }
+        if until is not None:
+            query["until"] = _docker_event_timestamp(until)
+        payload = self._get_text("/events", query)
+        return parse_docker_event_stream(payload)
+
     def _get_json(
         self,
         path: str,
@@ -387,6 +429,28 @@ def _model_list(value: object, model_type: type[DockerModelT]) -> list[DockerMod
         if isinstance(item, Mapping):
             models.append(model_type.model_validate(item))
     return models
+
+
+def parse_docker_event_stream(payload: str) -> list[DockerContainerEvent]:
+    """Parse the Docker events API newline-delimited JSON format."""
+    events: list[DockerContainerEvent] = []
+    for line in payload.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            item = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            raise DockerTransportError("Docker events response was not valid JSON") from exc
+        if not isinstance(item, Mapping):
+            raise DockerTransportError("Docker events response item was not an object")
+        events.append(DockerContainerEvent.model_validate(item))
+    return events
+
+
+def _docker_event_timestamp(value: datetime) -> str:
+    """Convert one event boundary timestamp to Docker's integer seconds token."""
+    return str(int(value.astimezone(UTC).timestamp()))
 
 
 def _network_attachments(value: Mapping[str, object]) -> list[DockerNetworkAttachment]:

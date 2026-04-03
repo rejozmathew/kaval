@@ -33,6 +33,18 @@
         "location": {
           "title": "Location",
           "type": "string"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
         }
       },
       "required": [
@@ -162,6 +174,143 @@
       ],
       "title": "DescriptorFailureMode",
       "type": "object"
+    },
+    "DescriptorInspection": {
+      "additionalProperties": false,
+      "description": "Inspection capability declarations for a service descriptor.",
+      "properties": {
+        "surfaces": {
+          "items": {
+            "$ref": "#/$defs/DescriptorInspectionSurface"
+          },
+          "title": "Surfaces",
+          "type": "array"
+        }
+      },
+      "title": "DescriptorInspection",
+      "type": "object"
+    },
+    "DescriptorInspectionAuthMode": {
+      "description": "Supported auth modes for inspection surfaces.",
+      "enum": [
+        "api_key",
+        "token",
+        "basic"
+      ],
+      "title": "DescriptorInspectionAuthMode",
+      "type": "string"
+    },
+    "DescriptorInspectionConfidenceEffect": {
+      "description": "Supported dependency-confidence upgrades from inspection surfaces.",
+      "enum": [
+        "upgrade_to_runtime_observed"
+      ],
+      "title": "DescriptorInspectionConfidenceEffect",
+      "type": "string"
+    },
+    "DescriptorInspectionSurface": {
+      "additionalProperties": false,
+      "description": "One declarative deep-inspection surface exposed by a service descriptor.",
+      "properties": {
+        "auth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DescriptorInspectionAuthMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "auth_header": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Header"
+        },
+        "confidence_effect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DescriptorInspectionConfidenceEffect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endpoint"
+        },
+        "facts_provided": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Facts Provided",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "read_only": {
+          "default": true,
+          "title": "Read Only",
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/$defs/DescriptorInspectionSurfaceType"
+        },
+        "version_range": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Range"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "description"
+      ],
+      "title": "DescriptorInspectionSurface",
+      "type": "object"
+    },
+    "DescriptorInspectionSurfaceType": {
+      "description": "Supported deep-inspection surface types.",
+      "enum": [
+        "api",
+        "config",
+        "database"
+      ],
+      "title": "DescriptorInspectionSurfaceType",
+      "type": "string"
     },
     "DescriptorLogSignals": {
       "additionalProperties": false,
@@ -303,6 +452,9 @@
     "id": {
       "title": "Id",
       "type": "string"
+    },
+    "inspection": {
+      "$ref": "#/$defs/DescriptorInspection"
     },
     "investigation_context": {
       "anyOf": [

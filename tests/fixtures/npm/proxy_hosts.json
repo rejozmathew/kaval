@@ -1,0 +1,43 @@
+[
+  {
+    "id": 12,
+    "domain_names": [
+      "app.example.com",
+      "www.app.example.com"
+    ],
+    "forward_host": "radarr",
+    "forward_port": 7878,
+    "forward_scheme": "http",
+    "enabled": true,
+    "certificate_id": 44,
+    "locations": [
+      {
+        "path": "/api",
+        "forward_scheme": "http",
+        "forward_host": "prowlarr",
+        "forward_port": 9696,
+        "forward_path": "/api"
+      }
+    ],
+    "meta": {
+      "nginx_online": true,
+      "nginx_err": null
+    }
+  },
+  {
+    "id": 13,
+    "domain_names": [
+      "loopback.example.com"
+    ],
+    "forward_host": "127.0.0.1",
+    "forward_port": 8080,
+    "forward_scheme": "http",
+    "enabled": false,
+    "certificate_id": null,
+    "locations": [],
+    "meta": {
+      "nginx_online": false,
+      "nginx_err": "upstream unavailable"
+    }
+  }
+]

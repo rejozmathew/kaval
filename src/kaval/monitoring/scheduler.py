@@ -1,4 +1,4 @@
-"""Deterministic scheduler for Phase 1 monitoring checks."""
+"""Deterministic scheduler for Phase 1 and Phase 3A monitoring checks."""
 
 from __future__ import annotations
 
@@ -7,7 +7,12 @@ from datetime import datetime, timedelta
 from typing import Sequence
 
 from kaval.database import KavalDatabase
-from kaval.models import Finding
+from kaval.models import Finding, Incident
+from kaval.monitoring.cadence import (
+    MonitoringCadenceConfig,
+    default_monitoring_cadence_config,
+    resolve_monitoring_cadence_decision,
+)
 from kaval.monitoring.checks.base import CheckContext, MonitoringCheck
 
 
@@ -22,10 +27,16 @@ class SchedulerRunResult:
 class CheckScheduler:
     """Run deterministic checks on their configured interval."""
 
-    def __init__(self, checks: Sequence[MonitoringCheck] | None = None) -> None:
+    def __init__(
+        self,
+        checks: Sequence[MonitoringCheck] | None = None,
+        *,
+        cadence: MonitoringCadenceConfig | None = None,
+    ) -> None:
         """Initialize the scheduler with an optional initial check set."""
         self._checks: dict[str, MonitoringCheck] = {}
         self._last_run_at: dict[str, datetime] = {}
+        self._cadence = cadence or default_monitoring_cadence_config()
         for check in checks or []:
             self.register_check(check)
 
@@ -46,14 +57,31 @@ class CheckScheduler:
         """Return the last execution timestamp for one registered check."""
         return self._last_run_at.get(check_id)
 
-    def run_due_checks(self, context: CheckContext) -> SchedulerRunResult:
+    def run_due_checks(
+        self,
+        context: CheckContext,
+        *,
+        incidents: Sequence[Incident] = (),
+    ) -> SchedulerRunResult:
         """Run all checks that are due at the given time."""
         findings: list[Finding] = []
         executed_checks: list[str] = []
         for check_id in sorted(self._checks):
             check = self._checks[check_id]
             last_run_at = self._last_run_at.get(check_id)
-            if not _is_due(check, context.now, last_run_at):
+            cadence = resolve_monitoring_cadence_decision(
+                config=self._cadence,
+                check_id=check.check_id,
+                services=context.services,
+                now=context.now,
+                incidents=list(incidents),
+                base_interval_seconds=check.interval_seconds,
+            )
+            if not _is_due(
+                now=context.now,
+                last_run_at=last_run_at,
+                interval_seconds=cadence.effective_interval_seconds,
+            ):
                 continue
             findings.extend(check.run(context))
             self._last_run_at[check_id] = context.now
@@ -71,11 +99,12 @@ def persist_findings(database: KavalDatabase, findings: Sequence[Finding]) -> No
 
 
 def _is_due(
-    check: MonitoringCheck,
+    *,
     now: datetime,
     last_run_at: datetime | None,
+    interval_seconds: int,
 ) -> bool:
     """Return whether a check should execute at the current time."""
     if last_run_at is None:
         return True
-    return now - last_run_at >= timedelta(seconds=check.interval_seconds)
+    return now - last_run_at >= timedelta(seconds=interval_seconds)

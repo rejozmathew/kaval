@@ -1,0 +1,11 @@
+{
+  "dhcp": {
+    "active": true,
+    "start": "192.168.1.100",
+    "end": "192.168.1.150",
+    "router": "192.168.1.1",
+    "netmask": "255.255.255.0",
+    "leaseTime": "24h",
+    "ipv6": false
+  }
+}

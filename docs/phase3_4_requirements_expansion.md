@@ -1039,7 +1039,7 @@ All external API integrations follow the same rules:
 
 ### 17.2 Cloudflare Integration
 
-**Credential:** Cloudflare API token (scoped to Zone:Read, DNS:Read)  
+**Credential:** Cloudflare API token (scoped to Zone:Read, DNS:Read, Zone Settings Read, and one account-scoped tunnel-read permission such as Cloudflare Tunnel Read or equivalent connector-read permission)  
 **Surfaces:**
 
 | Surface | What it provides | Investigation use |
@@ -1048,10 +1048,13 @@ All external API integrations follow the same rules:
 | Proxy mode | Per-record proxy status (orange cloud vs gray) | Understand whether traffic goes through Cloudflare proxy |
 | SSL/TLS mode | Full, Flexible, Strict, Origin Server | Critical for TLS investigation — determines what certs are needed |
 | Origin certificates | Cloudflare-issued origin certs | Check validity, expiry, cipher compatibility |
-| Tunnel config | Tunnel routes, ingress rules | Map tunnel → origin service relationships |
-| Firewall rules | Active WAF/firewall rules | Identify blocked traffic patterns |
+| Tunnel metadata/status | Tunnel identity, connection status, and ingress metadata relevant to the local `cloudflared` service context | Correlate Cloudflare-side tunnel state with the local `cloudflared` service during ingress investigation |
 
-**Dependency graph enrichment:** Cloudflare integration can discover: domain → tunnel → origin service mappings, which creates high-confidence `runtime_observed` edges between Cloudflare, cloudflared, and upstream services.
+For Phase 3A, Cloudflare facts stay attached to the existing `cloudflared` service context. Kaval does not create a separate first-class external Cloudflare service/node/contract in this phase.
+
+Private-network / teamnet route inventory is out of scope for P3A-08. That broader Cloudflare route/network inventory remains future scope and would require a later planning/control decision.
+
+**Dependency graph enrichment:** Within the approved Phase 3A scope, Cloudflare integration can confirm domain/proxy/SSL and basic tunnel metadata that strengthens ingress investigations around the existing `cloudflared` service context.
 
 ### 17.3 Authentik Integration
 

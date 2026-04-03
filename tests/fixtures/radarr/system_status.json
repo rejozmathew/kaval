@@ -1,0 +1,23 @@
+{
+  "appName": "Radarr",
+  "instanceName": "Radarr",
+  "version": "5.6.0.9041",
+  "buildTime": "2026-03-01T12:00:00Z",
+  "isDebug": false,
+  "isProduction": true,
+  "isAdmin": false,
+  "isUserInteractive": true,
+  "startupPath": "/app/radarr/bin",
+  "appData": "/config",
+  "osName": "Linux",
+  "osVersion": "6.6.45",
+  "isNetCore": true,
+  "isLinux": true,
+  "isOsx": false,
+  "isWindows": false,
+  "isDocker": true,
+  "mode": "console",
+  "branch": "master",
+  "databaseType": "sqlite",
+  "databaseVersion": "3.45.1"
+}

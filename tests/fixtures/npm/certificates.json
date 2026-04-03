@@ -1,0 +1,15 @@
+[
+  {
+    "id": 44,
+    "provider": "letsencrypt",
+    "nice_name": "Example Wildcard",
+    "domain_names": [
+      "app.example.com",
+      "*.example.com"
+    ],
+    "expires_on": "2026-06-01T00:00:00.000Z",
+    "meta": {
+      "dns_challenge": false
+    }
+  }
+]

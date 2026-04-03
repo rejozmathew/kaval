@@ -1,0 +1,48 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": [
+    {
+      "id": "dns-1",
+      "type": "A",
+      "name": "example.com",
+      "content": "198.51.100.10",
+      "ttl": 1,
+      "proxied": true,
+      "proxiable": true,
+      "comment": "main ingress",
+      "created_on": "2026-01-10T10:00:00Z",
+      "modified_on": "2026-04-03T10:00:00Z"
+    },
+    {
+      "id": "dns-2",
+      "type": "CNAME",
+      "name": "app.example.com",
+      "content": "tunnel-123.cfargotunnel.com",
+      "ttl": 1,
+      "proxied": true,
+      "proxiable": true,
+      "comment": "cloudflared tunnel route",
+      "created_on": "2026-01-10T10:05:00Z",
+      "modified_on": "2026-04-03T10:05:00Z"
+    },
+    {
+      "id": "dns-3",
+      "type": "AAAA",
+      "name": "ipv6.example.com",
+      "content": "2001:db8::1",
+      "ttl": 300,
+      "proxied": false,
+      "proxiable": true,
+      "comment": null,
+      "created_on": "2026-01-10T10:10:00Z",
+      "modified_on": "2026-04-03T10:10:00Z"
+    }
+  ],
+  "result_info": {
+    "page": 1,
+    "per_page": 100,
+    "total_pages": 1
+  }
+}

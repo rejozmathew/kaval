@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Literal
+
+from pydantic import Field
 
 from kaval.credentials.models import CredentialRequestMode
 from kaval.models import (
@@ -62,6 +65,68 @@ class RealtimeSnapshotResponse(KavalModel):
     incidents: list[Incident]
     investigations: list[Investigation]
     widget: WidgetSummaryResponse
+
+
+class ServiceDetailAdapterConfigurationState(StrEnum):
+    """Configuration states shown in the minimum service-detail insight panel."""
+
+    CONFIGURED = "configured"
+    UNCONFIGURED = "unconfigured"
+    LOCKED = "locked"
+
+
+class ServiceDetailAdapterHealthState(StrEnum):
+    """Current health states currently derivable for one adapter."""
+
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNKNOWN = "unknown"
+
+
+class ServiceDetailImproveActionKind(StrEnum):
+    """Actionable improvement affordances for the minimum service detail view."""
+
+    CONFIGURE_LOCAL_MODEL = "configure_local_model"
+    CONFIGURE_ADAPTER = "configure_adapter"
+    UNLOCK_VAULT = "unlock_vault"
+
+
+class ServiceDetailAdapterResponse(KavalModel):
+    """One adapter summary shown in the service detail insight section."""
+
+    adapter_id: str
+    display_name: str
+    configuration_state: ServiceDetailAdapterConfigurationState
+    configuration_summary: str
+    health_state: ServiceDetailAdapterHealthState
+    health_summary: str
+    missing_credentials: list[str] = Field(default_factory=list)
+    supported_fact_names: list[str] = Field(default_factory=list)
+
+
+class ServiceDetailImproveActionResponse(KavalModel):
+    """One improvement action shown in the service detail insight section."""
+
+    kind: ServiceDetailImproveActionKind
+    title: str
+    detail: str
+
+
+class ServiceDetailInsightSectionResponse(KavalModel):
+    """The minimum service-detail insight payload for Phase 3A."""
+
+    current_level: int
+    adapter_available: bool
+    adapters: list[ServiceDetailAdapterResponse] = Field(default_factory=list)
+    improve_actions: list[ServiceDetailImproveActionResponse] = Field(default_factory=list)
+    fact_summary_available: bool = False
+
+
+class ServiceDetailResponse(KavalModel):
+    """A later-enrichable service-detail response contract."""
+
+    service: Service
+    insight_section: ServiceDetailInsightSectionResponse
 
 
 class CreateCredentialRequestRequest(KavalModel):

@@ -1,0 +1,25 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": [
+    {
+      "colo_name": "ORD",
+      "client_id": "connector-1",
+      "client_version": "2026.4.0",
+      "arch": "amd64",
+      "opened_at": "2026-04-03T10:31:00Z",
+      "is_pending_reconnect": false,
+      "origin_ip": "192.168.1.20"
+    },
+    {
+      "colo_name": "DFW",
+      "client_id": "connector-2",
+      "client_version": "2026.4.0",
+      "arch": "amd64",
+      "opened_at": "2026-04-03T10:29:00Z",
+      "is_pending_reconnect": true,
+      "origin_ip": "192.168.1.20"
+    }
+  ]
+}

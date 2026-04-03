@@ -1,0 +1,77 @@
+{
+  "$defs": {
+    "ServiceLifecycleEventType": {
+      "description": "Lifecycle events derived from discovery and trusted context.",
+      "enum": [
+        "service_added",
+        "service_updated",
+        "service_restarted",
+        "service_removed_intentional",
+        "service_removed_unexpectedly",
+        "service_removed_during_maintenance",
+        "service_renamed_or_rematched"
+      ],
+      "title": "ServiceLifecycleEventType",
+      "type": "string"
+    },
+    "ServiceLifecycleState": {
+      "description": "Persistent lifecycle states for a discovered service.",
+      "enum": [
+        "active",
+        "missing",
+        "removed_intentional",
+        "removed_during_maintenance"
+      ],
+      "title": "ServiceLifecycleState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Lifecycle metadata retained for one service across discovery cycles.",
+  "properties": {
+    "changed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Changed At"
+    },
+    "last_event": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ServiceLifecycleEventType"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "previous_descriptor_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Previous Descriptor Ids",
+      "type": "array"
+    },
+    "previous_names": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Previous Names",
+      "type": "array"
+    },
+    "state": {
+      "$ref": "#/$defs/ServiceLifecycleState",
+      "default": "active"
+    }
+  },
+  "title": "ServiceLifecycle",
+  "type": "object"
+}

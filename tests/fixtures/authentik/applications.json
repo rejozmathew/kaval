@@ -1,0 +1,67 @@
+{
+  "pagination": {
+    "next": null,
+    "previous": null,
+    "count": 2,
+    "current": 1,
+    "total_pages": 1,
+    "start_index": 1,
+    "end_index": 2
+  },
+  "results": [
+    {
+      "pk": "c9e8d4c7-b5d3-4d0e-b494-0e7db4cf3201",
+      "name": "Nextcloud",
+      "slug": "nextcloud",
+      "provider": 12,
+      "provider_obj": {
+        "pk": 12,
+        "name": "Nextcloud OIDC",
+        "component": "ak-provider-oauth2-form",
+        "meta_model_name": "authentik_providers_oauth2.oauth2provider",
+        "assigned_application_slug": "nextcloud",
+        "assigned_application_name": "Nextcloud"
+      },
+      "backchannel_providers_obj": [],
+      "launch_url": "https://nextcloud.example.com",
+      "open_in_new_tab": false,
+      "meta_launch_url": "https://nextcloud.example.com",
+      "meta_description": "Primary file sync",
+      "meta_publisher": "Open Source",
+      "policy_engine_mode": "all",
+      "group": "Productivity"
+    },
+    {
+      "pk": "2b4dedc8-0e76-4db8-b7ce-1e57f8761c02",
+      "name": "Grafana",
+      "slug": "grafana",
+      "provider": 13,
+      "provider_obj": {
+        "pk": 13,
+        "name": "Grafana SAML",
+        "component": "ak-provider-saml-form",
+        "meta_model_name": "authentik_providers_saml.samlprovider",
+        "assigned_application_slug": "grafana",
+        "assigned_application_name": "Grafana"
+      },
+      "backchannel_providers_obj": [
+        {
+          "pk": 20,
+          "name": "Grafana SCIM",
+          "component": "ak-provider-scim-form",
+          "meta_model_name": "authentik_providers_scim.scimprovider",
+          "assigned_application_slug": "grafana",
+          "assigned_application_name": "Grafana"
+        }
+      ],
+      "launch_url": "https://grafana.example.com",
+      "open_in_new_tab": true,
+      "meta_launch_url": "https://grafana.example.com",
+      "meta_description": "Observability",
+      "meta_publisher": "Grafana Labs",
+      "policy_engine_mode": "any",
+      "group": "Observability"
+    }
+  ],
+  "autocomplete": {}
+}

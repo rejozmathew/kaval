@@ -1,0 +1,55 @@
+[
+  {
+    "id": 101,
+    "title": "Movie.One.2025.1080p",
+    "status": "downloadClientUnavailable",
+    "trackedDownloadStatus": "error",
+    "trackedDownloadState": "failed",
+    "statusMessages": [
+      {
+        "title": "Download client unavailable",
+        "messages": [
+          "qBittorrent is not responding"
+        ]
+      }
+    ],
+    "errorMessage": "No download client available",
+    "downloadClient": "qBittorrent",
+    "indexer": "Prowlarr",
+    "estimatedCompletionTime": null,
+    "added": "2026-04-03T09:30:00Z"
+  },
+  {
+    "id": 102,
+    "title": "Movie.Two.2025.2160p",
+    "status": "warning",
+    "trackedDownloadStatus": "warning",
+    "trackedDownloadState": "importBlocked",
+    "statusMessages": [
+      {
+        "title": "Import blocked",
+        "messages": [
+          "Path is not accessible"
+        ]
+      }
+    ],
+    "errorMessage": null,
+    "downloadClient": "DelugeVPN",
+    "indexer": "Prowlarr",
+    "estimatedCompletionTime": "2026-04-03T11:00:00Z",
+    "added": "2026-04-03T09:00:00Z"
+  },
+  {
+    "id": 103,
+    "title": "Movie.Three.2025.720p",
+    "status": "downloading",
+    "trackedDownloadStatus": "ok",
+    "trackedDownloadState": "downloading",
+    "statusMessages": [],
+    "errorMessage": null,
+    "downloadClient": "DelugeVPN",
+    "indexer": "Prowlarr",
+    "estimatedCompletionTime": "2026-04-03T10:15:00Z",
+    "added": "2026-04-03T08:55:00Z"
+  }
+]

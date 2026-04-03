@@ -50,8 +50,13 @@ def ts(hour: int, minute: int = 0) -> datetime:
     return datetime(2026, 3, 31, hour, minute, tzinfo=UTC)
 
 
-def test_fastapi_core_endpoints_expose_phase1_state(tmp_path: Path) -> None:
+def test_fastapi_core_endpoints_expose_phase1_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     """The FastAPI app should expose read-only Phase 1 monitoring state."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
     database_path = tmp_path / "kaval.db"
     seed_api_database(database_path)
     app = create_app(database_path=database_path)
@@ -78,6 +83,10 @@ def test_fastapi_core_endpoints_expose_phase1_state(tmp_path: Path) -> None:
         "svc-delugevpn",
         "svc-downloads-share",
     ]
+    assert services_payload[0]["insight"] == {"level": 2}
+    assert services_payload[0]["lifecycle"]["state"] == "active"
+    assert services_payload[1]["insight"] == {"level": 0}
+    assert services_payload[1]["lifecycle"]["state"] == "active"
 
     findings_payload = findings_response.json()
     assert findings_response.status_code == 200
@@ -105,6 +114,10 @@ def test_fastapi_core_endpoints_expose_phase1_state(tmp_path: Path) -> None:
         "svc-delugevpn",
         "svc-downloads-share",
     ]
+    assert graph_payload["services"][0]["insight"] == {"level": 2}
+    assert graph_payload["services"][0]["lifecycle"]["state"] == "active"
+    assert graph_payload["services"][1]["insight"] == {"level": 0}
+    assert graph_payload["services"][1]["lifecycle"]["state"] == "active"
     assert graph_payload["edges"] == [
         {
             "source_service_id": "svc-delugevpn",
@@ -137,6 +150,196 @@ def test_fastapi_core_endpoints_expose_phase1_state(tmp_path: Path) -> None:
     notes_payload = user_notes_response.json()
     assert user_notes_response.status_code == 200
     assert [note["id"] for note in notes_payload] == ["note-1"]
+
+
+def test_fastapi_service_insight_upgrades_when_local_model_is_configured(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Service responses should surface Level 3 once the local model is configured."""
+    monkeypatch.setenv("KAVAL_LOCAL_MODEL_NAME", "llama3.2")
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        services_response = client.get("/api/v1/services")
+
+    assert services_response.status_code == 200
+    assert services_response.json()[0]["insight"] == {"level": 3}
+
+
+def test_service_detail_endpoint_returns_minimum_insight_section_for_service_without_adapter(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Service detail should expose the minimum insight section even without an adapter."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/services/svc-delugevpn/detail")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["service"]["id"] == "svc-delugevpn"
+    assert payload["insight_section"] == {
+        "current_level": 2,
+        "adapter_available": False,
+        "adapters": [],
+        "improve_actions": [
+            {
+                "kind": "configure_local_model",
+                "title": "Configure a local model",
+                "detail": (
+                    "Add a local investigation model endpoint to unlock "
+                    "investigation-ready insight for this service."
+                ),
+            }
+        ],
+        "fact_summary_available": False,
+    }
+
+
+def test_service_detail_endpoint_surfaces_unconfigured_configured_and_locked_adapter_states(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Service detail should expose adapter state transitions without leaking secrets."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        initial_detail = client.get("/api/v1/services/svc-radarr/detail")
+        create_response = client.post(
+            "/api/v1/credential-requests",
+            json={
+                "incident_id": "inc-1",
+                "investigation_id": "inv-1",
+                "service_id": "svc-radarr",
+                "credential_key": "api_key",
+                "reason": "Need the diagnostics API to narrow the fault.",
+            },
+        )
+        request_id = create_response.json()["id"]
+        client.post(
+            f"/api/v1/credential-requests/{request_id}/choice",
+            json={
+                "mode": "vault",
+                "decided_by": "user_via_telegram",
+            },
+        )
+        client.post(
+            "/api/v1/vault/unlock",
+            json={"master_passphrase": "correct horse battery staple"},
+        )
+        client.post(
+            f"/api/v1/credential-requests/{request_id}/submit",
+            json={
+                "secret_value": "radarr-secret-value",
+                "submitted_by": "user_via_telegram",
+            },
+        )
+        configured_detail = client.get("/api/v1/services/svc-radarr/detail")
+        client.post("/api/v1/vault/lock")
+        locked_detail = client.get("/api/v1/services/svc-radarr/detail")
+
+    assert initial_detail.status_code == 200
+    initial_payload = initial_detail.json()
+    assert initial_payload["insight_section"]["current_level"] == 2
+    assert initial_payload["insight_section"]["adapter_available"] is True
+    assert initial_payload["insight_section"]["fact_summary_available"] is False
+    assert initial_payload["insight_section"]["adapters"] == [
+        {
+            "adapter_id": "radarr_api",
+            "display_name": "Radarr API",
+            "configuration_state": "unconfigured",
+            "configuration_summary": "Required adapter inputs have not been configured yet.",
+            "health_state": "unknown",
+            "health_summary": "Health will remain unknown until the adapter is configured.",
+            "missing_credentials": ["api_key"],
+            "supported_fact_names": [
+                "download_client_status",
+                "download_clients",
+                "health_issues",
+                "indexer_status",
+                "indexers",
+                "queue_items",
+                "queue_status",
+                "runtime_info",
+                "startup_path",
+                "version",
+            ],
+        }
+    ]
+    assert initial_payload["insight_section"]["improve_actions"] == [
+        {
+            "kind": "configure_local_model",
+            "title": "Configure a local model",
+            "detail": (
+                "Add a local investigation model endpoint to unlock "
+                "investigation-ready insight for this service."
+            ),
+        },
+        {
+            "kind": "configure_adapter",
+            "title": "Configure Radarr API",
+            "detail": "Provide Radarr API Key to enable deep inspection for this service.",
+        },
+    ]
+
+    assert configured_detail.status_code == 200
+    configured_payload = configured_detail.json()
+    assert (
+        configured_payload["insight_section"]["adapters"][0]["configuration_state"]
+        == "configured"
+    )
+    assert configured_payload["insight_section"]["adapters"][0]["missing_credentials"] == []
+    assert configured_payload["insight_section"]["adapters"][0]["health_state"] == "unknown"
+    assert configured_payload["insight_section"]["improve_actions"] == [
+        {
+            "kind": "configure_local_model",
+            "title": "Configure a local model",
+            "detail": (
+                "Add a local investigation model endpoint to unlock "
+                "investigation-ready insight for this service."
+            ),
+        }
+    ]
+
+    assert locked_detail.status_code == 200
+    locked_payload = locked_detail.json()
+    assert locked_payload["insight_section"]["adapters"][0]["configuration_state"] == "locked"
+    assert locked_payload["insight_section"]["adapters"][0]["health_summary"] == (
+        "Unlock the vault before adapter diagnostics can evaluate health."
+    )
+    assert locked_payload["insight_section"]["improve_actions"] == [
+        {
+            "kind": "configure_local_model",
+            "title": "Configure a local model",
+            "detail": (
+                "Add a local investigation model endpoint to unlock "
+                "investigation-ready insight for this service."
+            ),
+        },
+        {
+            "kind": "unlock_vault",
+            "title": "Unlock the credential vault",
+            "detail": (
+                "Unlock the vault so Radarr API can use stored deep-inspection "
+                "credentials."
+            ),
+        },
+    ]
+    assert "radarr-secret-value" not in locked_detail.text
 
 
 def test_fastapi_credential_request_endpoints_manage_request_lifecycle(tmp_path: Path) -> None:

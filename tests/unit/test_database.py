@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -39,6 +40,7 @@ from kaval.models import (
     ModelUsed,
     NetworkingProfile,
     Service,
+    ServiceInsightLevel,
     ServicesSummary,
     ServiceStatus,
     ServiceType,
@@ -416,8 +418,13 @@ def test_database_persists_supporting_phase0_records(tmp_path: Path) -> None:
         database.upsert_journal_entry(journal_entry)
         database.upsert_user_note(user_note)
 
+        stored_service = database.get_service(service.id)
+
         assert database.get_investigation(investigation.id) == investigation
-        assert database.get_service(service.id) == service
+        assert stored_service == service
+        assert stored_service is not None
+        assert stored_service.insight is not None
+        assert stored_service.insight.level == ServiceInsightLevel.MONITORED
         assert database.get_system_profile() == system_profile
         assert database.get_approval_token(approval_token.token_id) == approval_token
         assert database.get_credential_request(credential_request.id) == credential_request
@@ -453,6 +460,37 @@ def test_database_persists_supporting_phase0_records(tmp_path: Path) -> None:
         assert database.get_vault_credential(vault_credential.reference_id) is None
         assert database.get_journal_entry(journal_entry.id) is None
         assert database.get_user_note(user_note.id) is None
+    finally:
+        database.close()
+
+
+def test_database_backfills_service_insight_for_pre_phase3_payloads(tmp_path: Path) -> None:
+    """Legacy service rows without an insight field should still load with derived insight."""
+    database = build_database(tmp_path)
+    service = build_service()
+    legacy_payload = service.model_dump(mode="json")
+    legacy_payload.pop("insight")
+
+    try:
+        with database.connection():
+            database.connection().execute(
+                """
+                INSERT INTO services (id, type, status, last_check, payload)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    service.id,
+                    service.type.value,
+                    service.status.value,
+                    service.last_check.isoformat() if service.last_check else None,
+                    json.dumps(legacy_payload),
+                ),
+            )
+
+        stored = database.get_service(service.id)
+        assert stored is not None
+        assert stored.insight is not None
+        assert stored.insight.level == ServiceInsightLevel.MONITORED
     finally:
         database.close()
 

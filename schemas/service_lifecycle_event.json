@@ -1,0 +1,65 @@
+{
+  "$defs": {
+    "ServiceLifecycleEventType": {
+      "description": "Lifecycle events derived from discovery and trusted context.",
+      "enum": [
+        "service_added",
+        "service_updated",
+        "service_restarted",
+        "service_removed_intentional",
+        "service_removed_unexpectedly",
+        "service_removed_during_maintenance",
+        "service_renamed_or_rematched"
+      ],
+      "title": "ServiceLifecycleEventType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One lifecycle event emitted for a service.",
+  "properties": {
+    "change_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Change Id"
+    },
+    "event_type": {
+      "$ref": "#/$defs/ServiceLifecycleEventType"
+    },
+    "related_service_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Related Service Ids",
+      "type": "array"
+    },
+    "service_id": {
+      "title": "Service Id",
+      "type": "string"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "service_id",
+    "event_type",
+    "timestamp",
+    "summary"
+  ],
+  "title": "ServiceLifecycleEvent",
+  "type": "object"
+}

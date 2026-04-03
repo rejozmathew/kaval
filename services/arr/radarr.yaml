@@ -54,7 +54,76 @@ investigation_context: |
   Radarr manages movie downloads. Its health API returns an array of issues,
   where an empty array means healthy. The most common dependency path is
   Radarr -> Prowlarr -> download client -> downloads/media shares.
+inspection:
+  surfaces:
+    - id: health_api
+      type: api
+      description: Radarr health diagnostics
+      endpoint: /api/v3/health
+      auth: api_key
+      auth_header: X-Api-Key
+      read_only: true
+      facts_provided:
+        - health_issues
+        - download_client_status
+        - indexer_status
+      confidence_effect: upgrade_to_runtime_observed
+      version_range: ">=3.0"
+    - id: system_status
+      type: api
+      description: Radarr system status and version
+      endpoint: /api/v3/system/status
+      auth: api_key
+      auth_header: X-Api-Key
+      read_only: true
+      facts_provided:
+        - version
+        - runtime_info
+        - startup_path
+      version_range: ">=3.0"
+    - id: download_clients
+      type: api
+      description: Radarr download client bindings
+      endpoint: /api/v3/downloadclient
+      auth: api_key
+      auth_header: X-Api-Key
+      read_only: true
+      facts_provided:
+        - download_clients
+      confidence_effect: upgrade_to_runtime_observed
+      version_range: ">=3.0"
+    - id: indexers
+      type: api
+      description: Radarr indexer configuration and provider status
+      endpoint: /api/v3/indexer
+      auth: api_key
+      auth_header: X-Api-Key
+      read_only: true
+      facts_provided:
+        - indexers
+      version_range: ">=3.0"
+    - id: queue_status
+      type: api
+      description: Radarr aggregate queue health
+      endpoint: /api/v3/queue/status
+      auth: api_key
+      auth_header: X-Api-Key
+      read_only: true
+      facts_provided:
+        - queue_status
+      version_range: ">=3.0"
+    - id: queue_details
+      type: api
+      description: Radarr queue items requiring attention
+      endpoint: /api/v3/queue/details
+      auth: api_key
+      auth_header: X-Api-Key
+      read_only: true
+      facts_provided:
+        - queue_items
+      version_range: ">=3.0"
 credential_hints:
   api_key:
     description: Radarr API Key
     location: Radarr Web UI -> Settings -> General -> API Key
+    prompt: Provide the Radarr API key to enable deep inspection.

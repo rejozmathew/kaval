@@ -10,6 +10,7 @@ import type {
   JournalEntry,
   RealtimeSnapshot,
   Service,
+  ServiceDetailResponse,
   SystemProfile,
   UserNote,
   WidgetSummary,
@@ -31,6 +32,12 @@ interface LoadState {
   systemProfile: SystemProfile | null;
   userNotes: UserNote[];
   widget: WidgetSummary | null;
+  error: string | null;
+  loading: boolean;
+}
+
+interface ServiceDetailState {
+  detail: ServiceDetailResponse | null;
   error: string | null;
   loading: boolean;
 }
@@ -62,6 +69,15 @@ const statusLabel = {
   unknown: "Unknown",
 } as const;
 
+const insightLabel = {
+  0: "Discovered",
+  1: "Matched",
+  2: "Monitored",
+  3: "Ready",
+  4: "Deep",
+  5: "Enriched",
+} as const;
+
 export default function App() {
   const [state, setState] = useState<LoadState>({
     graph: null,
@@ -75,6 +91,11 @@ export default function App() {
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [liveState, setLiveState] = useState<"connecting" | "live" | "offline">("connecting");
+  const [serviceDetailState, setServiceDetailState] = useState<ServiceDetailState>({
+    detail: null,
+    error: null,
+    loading: false,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -259,6 +280,66 @@ export default function App() {
     }
   }, [state.graph, state.incidents, selectedIncidentId, selectedServiceId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (selectedServiceId === null || state.graph === null) {
+      startTransition(() => {
+        setServiceDetailState({
+          detail: null,
+          error: null,
+          loading: false,
+        });
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    startTransition(() => {
+      setServiceDetailState((current) => ({
+        detail:
+          current.detail?.service.id === selectedServiceId ? current.detail : null,
+        error: null,
+        loading: true,
+      }));
+    });
+
+    void fetchJson<ServiceDetailResponse>(
+      `/api/v1/services/${encodeURIComponent(selectedServiceId)}/detail`,
+    )
+      .then((detail) => {
+        if (cancelled) {
+          return;
+        }
+        startTransition(() => {
+          setServiceDetailState({
+            detail,
+            error: null,
+            loading: false,
+          });
+        });
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        const message =
+          error instanceof Error ? error.message : "Unknown service detail load failure.";
+        startTransition(() => {
+          setServiceDetailState({
+            detail: null,
+            error: message,
+            loading: false,
+          });
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedServiceId, state.graph, state.credentialRequests]);
+
   const services = state.graph?.services ?? [];
   const edges = state.graph?.edges ?? [];
   const serviceNames = new Map(services.map((service) => [service.id, service.name]));
@@ -267,6 +348,10 @@ export default function App() {
   const layoutById = new Map(layouts.map((layout) => [layout.service.id, layout]));
   const selectedService =
     services.find((service) => service.id === selectedServiceId) ?? layouts[0]?.service ?? null;
+  const selectedServiceDetail =
+    selectedService !== null && serviceDetailState.detail?.service.id === selectedService.id
+      ? serviceDetailState.detail
+      : null;
   const sortedIncidents = [...state.incidents].sort((left, right) =>
     right.updated_at.localeCompare(left.updated_at),
   );
@@ -425,6 +510,139 @@ export default function App() {
           </section>
 
           <aside className="side-column">
+            <section className="panel detail-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="section-label">Service Detail</p>
+                  <h2>{selectedService?.name ?? "No service selected"}</h2>
+                </div>
+                {selectedService ? (
+                  <div className="panel-status service-detail-status">
+                    <span className={`status-pill status-${selectedService.status}`}>
+                      {statusLabel[selectedService.status]}
+                    </span>
+                    {selectedServiceDetail ? (
+                      <span
+                        className={`status-pill insight-pill insight-${selectedServiceDetail.insight_section.current_level}`}
+                      >
+                        L{selectedServiceDetail.insight_section.current_level}{" "}
+                        {labelForInsight(selectedServiceDetail.insight_section.current_level)}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
+              {selectedServiceDetail ? (
+                <div className="investigation-grid">
+                  <div className="action-strip">
+                    <span className="action-pill">{formatLabel(selectedServiceDetail.service.type)}</span>
+                    <span className="action-pill">
+                      {selectedServiceDetail.service.category}
+                    </span>
+                    <span className="action-pill">
+                      {formatLabel(selectedServiceDetail.service.lifecycle.state)}
+                    </span>
+                    {selectedServiceDetail.service.descriptor_id ? (
+                      <span className="action-pill">Descriptor matched</span>
+                    ) : null}
+                  </div>
+
+                  <div className="detail-block">
+                    <p className="detail-label">Insight Level</p>
+                    <p className="service-detail-lead">
+                      Level {selectedServiceDetail.insight_section.current_level}:{" "}
+                      {labelForInsight(selectedServiceDetail.insight_section.current_level)}
+                    </p>
+                    <p className="muted">
+                      Current insight reflects the shipped Phase 3A capability chain already
+                      active for this service.
+                    </p>
+                  </div>
+
+                  <div className="detail-block">
+                    <p className="detail-label">Deep Inspection</p>
+                    {selectedServiceDetail.insight_section.adapter_available ? (
+                      <div className="adapter-list">
+                        {selectedServiceDetail.insight_section.adapters.map((adapter) => (
+                          <article key={adapter.adapter_id} className="adapter-card">
+                            <div className="timeline-topline">
+                              <p className="timeline-service">{adapter.display_name}</p>
+                              <div className="adapter-state-strip">
+                                <span className="chip ghost">
+                                  {formatLabel(adapter.configuration_state)}
+                                </span>
+                                <span className="chip ghost">
+                                  {formatLabel(adapter.health_state)}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="muted">{adapter.configuration_summary}</p>
+                            <p className="muted">{adapter.health_summary}</p>
+                            {adapter.missing_credentials.length > 0 ? (
+                              <p className="muted">
+                                Missing:{" "}
+                                {adapter.missing_credentials
+                                  .map((credential) => formatLabel(credential))
+                                  .join(", ")}
+                              </p>
+                            ) : null}
+                            {adapter.supported_fact_names.length > 0 ? (
+                              <ul className="chip-list adapter-capability-list">
+                                {adapter.supported_fact_names.map((factName) => (
+                                  <li key={factName}>
+                                    <span className="chip">{formatLabel(factName)}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="muted">
+                        No shipped deep-inspection adapter is currently available for this
+                        service.
+                      </p>
+                    )}
+                    {!selectedServiceDetail.insight_section.fact_summary_available ? (
+                      <p className="muted">
+                        Imported adapter fact summaries are not available yet in this Phase 3A
+                        surface.
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="detail-block">
+                    <p className="detail-label">Improve</p>
+                    {selectedServiceDetail.insight_section.improve_actions.length > 0 ? (
+                      <div className="improve-list">
+                        {selectedServiceDetail.insight_section.improve_actions.map((action) => (
+                          <article key={`${action.kind}-${action.title}`} className="improve-card">
+                            <p className="improve-title">{action.title}</p>
+                            <p className="muted">{action.detail}</p>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="muted">
+                        No immediate improvement action is available from the current Phase 3A
+                        foundations.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : serviceDetailState.loading ? (
+                <p className="muted">Loading selected service detail…</p>
+              ) : serviceDetailState.error ? (
+                <p className="muted">{serviceDetailState.error}</p>
+              ) : (
+                <p className="muted">
+                  Select a service to see its current insight level and adapter status.
+                </p>
+              )}
+            </section>
+
             <section className="panel detail-panel">
               <div className="panel-header">
                 <div>
@@ -847,6 +1065,10 @@ function formatLabel(value: string): string {
     .join(" ");
 }
 
+function labelForInsight(level: number): string {
+  return insightLabel[level as keyof typeof insightLabel] ?? `Level ${level}`;
+}
+
 function formatTimestamp(value: string): string {
   return new Date(value).toLocaleString(undefined, {
     month: "short",
@@ -918,6 +1140,9 @@ function ServiceNode(props: {
   onSelect: (serviceId: string) => void;
 }) {
   const { layout, selected, onSelect } = props;
+  const insightLevel = layout.service.insight?.level ?? 0;
+  const insightName = insightLabel[insightLevel as keyof typeof insightLabel] ?? "Unknown";
+
   return (
     <g
       className={`service-node ${layout.service.status} ${selected ? "selected" : ""}`}
@@ -932,7 +1157,14 @@ function ServiceNode(props: {
       tabIndex={0}
       transform={`translate(${layout.x}, ${layout.y})`}
     >
+      <title>{`Insight Level ${insightLevel}: ${insightName}`}</title>
       <rect width={CARD_WIDTH} height={CARD_HEIGHT} rx={28} />
+      <g className={`insight-badge insight-${insightLevel}`} transform="translate(148 14)">
+        <rect width={54} height={20} rx={10} />
+        <text x={27} y={14} textAnchor="middle">
+          {`L${insightLevel}`}
+        </text>
+      </g>
       <text className="node-name" x={18} y={30}>
         {layout.service.name}
       </text>

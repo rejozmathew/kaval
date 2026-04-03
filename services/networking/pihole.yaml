@@ -37,3 +37,37 @@ common_failure_modes:
 investigation_context: |
   Pi-hole is often a core DNS dependency for the whole homelab. When it fails,
   wide DNS symptoms can appear across otherwise healthy services.
+inspection:
+  surfaces:
+    - id: upstream_dns
+      type: api
+      description: Configured upstream DNS servers
+      endpoint: /api/config/dns
+      auth: token
+      auth_header: X-FTL-SID
+      read_only: true
+      facts_provided:
+        - upstream_dns_servers
+    - id: blocklist_status
+      type: api
+      description: DNS blocking status and gravity summary
+      endpoint: /api/stats/summary
+      auth: token
+      auth_header: X-FTL-SID
+      read_only: true
+      facts_provided:
+        - blocklist_status
+    - id: dhcp_config
+      type: api
+      description: DHCP-related Pi-hole config
+      endpoint: /api/config/dhcp
+      auth: token
+      auth_header: X-FTL-SID
+      read_only: true
+      facts_provided:
+        - dhcp_config
+credential_hints:
+  password:
+    description: Pi-hole admin or application password
+    location: Pi-hole Web UI -> Settings -> API / Passwords
+    prompt: Provide the Pi-hole admin or application password to enable authenticated deep inspection when the API is protected.

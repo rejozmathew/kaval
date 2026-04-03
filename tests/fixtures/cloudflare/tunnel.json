@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": {
+    "id": "tunnel-123",
+    "name": "homelab-ingress",
+    "status": "healthy",
+    "created_at": "2026-01-15T09:00:00Z",
+    "deleted_at": null,
+    "tun_type": "cfd_tunnel",
+    "config_src": "cloudflare",
+    "remote_config": true
+  }
+}

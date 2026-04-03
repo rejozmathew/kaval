@@ -1,0 +1,2 @@
+{"status":"start","id":"abc123","from":"lscr.io/linuxserver/radarr:latest","Type":"container","Action":"start","Actor":{"ID":"abc123","Attributes":{"name":"radarr","image":"lscr.io/linuxserver/radarr:latest"}},"scope":"local","time":1775239200,"timeNano":1775239200000000000}
+{"status":"die","id":"def456","from":"binhex/arch-delugevpn:latest","Type":"container","Action":"die","Actor":{"ID":"def456","Attributes":{"name":"delugevpn","image":"binhex/arch-delugevpn:latest"}},"scope":"local","time":1775239260,"timeNano":1775239260000000000}

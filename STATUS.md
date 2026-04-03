@@ -3,9 +3,9 @@
 ## Project
 - Name: Kaval
 - PRD version: 4.1
-- Current phase: Phase 2B
-- Current task: Phase 2B complete; awaiting next phase authorization
-- Overall status: Phase 2B is complete; the UI/API polish surface passed validation and the repo is paused before any Phase 3 work
+- Current phase: Phase 3A
+- Current task: P3A-19 UI: Kaval health panel
+- Overall status: Phase 3A is paused at P3A-19 because the repo still lacks trustworthy runtime health inputs for several capability layers; P3A-01 through P3A-18 passed validation
 
 ## Phase gates
 - [x] Phase 0 complete
@@ -24,6 +24,173 @@
 - [x] Operational Memory query/result schema
 
 ## Completed work
+- 2026-04-03: Completed P3A-18 UI: Service detail insight section.
+- Goal: implement the approved minimum service-detail insight surface only, with a typed later-enrichable payload, current insight visibility, adapter availability/configured state, adapter health only where currently derivable, and explicit improve affordances.
+- Goal: keep imported-fact summaries, evidence-path rendering, and broader 3A/3C service-detail behavior out of scope until the later adapter-fact and evidence tasks land.
+- Applied the narrow execution-contract clarification in `plans/phase-3a.md`, added a typed `/api/v1/services/{service_id}/detail` payload in `src/kaval/api/schemas.py` and `src/kaval/api/app.py`, and updated `src/web/src/App.tsx`, `src/web/src/types.ts`, and `src/web/src/styles.css` to render a new minimum service-detail panel with current insight level, adapter state, and improve actions.
+- Added focused FastAPI coverage in `tests/integration/test_fastapi_app.py` for a descriptor-backed service with no shipped adapter plus Radarr adapter state transitions across unconfigured, configured, and locked vault-backed paths.
+- Files changed: `plans/phase-3a.md`, `src/kaval/api/app.py`, `src/kaval/api/schemas.py`, `src/web/src/App.tsx`, `src/web/src/styles.css`, `src/web/src/types.ts`, `tests/integration/test_fastapi_app.py`, `STATUS.md`.
+- Validations run: `rg -n "P3A-18|min(imum)? service-detail|imported fact|improve affordances" plans/phase-3a.md STATUS.md docs/phase3_4_requirements_expansion.md`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/integration/test_fastapi_app.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`, and `npm run build` in `src/web`.
+- Failures/blockers: none. One stale plan bullet still mentioned imported facts, one new test assertion exceeded the line-length limit, and the default adapter-registry constant needed an explicit `ServiceAdapter` protocol cast for `mypy`; all were corrected and the reruns passed.
+- Next task: P3A-19 UI: Kaval health panel.
+- 2026-04-03: Completed P3A-17 UI: Insight level badges on service map nodes.
+- Goal: expose per-service insight level directly on the existing service map so the user can see capability depth at a glance without opening a detail panel.
+- Goal: keep the UI change minimal and local to the map rendering, without pulling richer adapter detail or service-detail affordances forward from later Phase 3A tasks.
+- Updated `src/web/src/types.ts` so the frontend service contract includes `insight` and `lifecycle`, added a compact `L0`-`L5` insight badge with hover title text to each service card in `src/web/src/App.tsx`, and styled the badge tones in `src/web/src/styles.css` to distinguish lower and higher insight levels while preserving the existing map layout.
+- Files changed: `src/web/src/types.ts`, `src/web/src/App.tsx`, `src/web/src/styles.css`, `STATUS.md`.
+- Validations run: `npm run build` in `src/web`.
+- Failures/blockers: none.
+- Next task: P3A-18 UI: Service detail insight section.
+- 2026-04-03: Completed P3A-16 Adapter fact refresh cadence.
+- Goal: define a separate scheduler/config contract for deep-inspection adapter refreshes so adapter facts are refreshed on their own cadence rather than piggybacking on the core monitoring check loop.
+- Goal: keep the work limited to refresh policy, investigation-triggered refresh representation, and rate-limit-aware defaults without wiring adapter execution, evidence gathering, or UI tuning forward.
+- Added `src/kaval/integrations/adapter_refresh.py` with typed per-adapter refresh policies, default cadence rules, due-decision helpers, and an in-memory adapter refresh scheduler that tracks last refresh timestamps separately from core checks.
+- Exported the new adapter refresh contracts through `src/kaval/integrations/__init__.py` and added focused coverage in `tests/unit/test_adapter_refresh.py` for default intervals, Cloudflare's safer rate-limit-aware cadence, duplicate-policy rejection, first-run scheduling, background interval gating, investigation-triggered refresh, and generic fallback handling for unknown adapters.
+- Files changed: `src/kaval/integrations/adapter_refresh.py`, `src/kaval/integrations/__init__.py`, `tests/unit/test_adapter_refresh.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_adapter_refresh.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: none.
+- Next task: P3A-17 UI: Insight level badges on service map nodes.
+- 2026-04-03: Completed P3A-15 Service lifecycle event handling.
+- Goal: make service lifecycle transitions explicit and retained in persisted service state so removals do not silently erase context, while keeping intent classification tied only to trusted signals.
+- Goal: implement add/remove/missing/rename-rematch lifecycle handling on the backend without pulling maintenance UX, detail-panel rendering, or downstream incident automation forward.
+- Added lifecycle enums/models to `src/kaval/models.py`, extended `src/kaval/service_lifecycle.py` with typed lifecycle context, lifecycle-update application, retention of removed services, and mapping of existing image-update/restart changes into lifecycle events, and exported the new schema contracts through `src/kaval/schema_export.py`.
+- Regenerated checked-in schemas under `schemas/`, added focused lifecycle coverage in `tests/unit/test_service_lifecycle.py`, persistence coverage in `tests/integration/test_service_lifecycle_persistence.py`, scenario coverage in `tests/scenario/test_service_lifecycle_missing.py`, and updated `tests/contract/test_schemas.py`, `tests/unit/test_models.py`, and `tests/integration/test_fastapi_app.py` for the new service lifecycle payload surface.
+- Files changed: `src/kaval/models.py`, `src/kaval/service_lifecycle.py`, `src/kaval/schema_export.py`, `schemas/change.json`, `schemas/service.json`, `schemas/service_lifecycle.json`, `schemas/service_lifecycle_event.json`, `tests/unit/test_service_lifecycle.py`, `tests/unit/test_models.py`, `tests/integration/test_service_lifecycle_persistence.py`, `tests/integration/test_fastapi_app.py`, `tests/scenario/test_service_lifecycle_missing.py`, `tests/contract/test_schemas.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_service_lifecycle.py tests/unit/test_models.py tests/unit/test_database.py tests/contract/test_schemas.py tests/integration/test_service_lifecycle_persistence.py tests/integration/test_fastapi_app.py tests/scenario/test_service_lifecycle_missing.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first lint pass reported one unused local in `src/kaval/service_lifecycle.py`; after removing it, the rerun passed. No remaining blocker.
+- Next task: P3A-16 Adapter fact refresh cadence.
+- 2026-04-03: Completed P3A-14 Topology refresh model.
+- Goal: formalize the Phase 3A topology refresh path around real Docker event input plus a safe periodic reconciliation backstop, without pulling lifecycle persistence or UI handling from later tasks forward.
+- Goal: keep the current graph consistent by using Docker events to trigger explicit refresh planning and edge-recalculation scope, while falling back to scheduled full rediscovery for newly added services and missed events.
+- Added `fetch_container_events()` and typed Docker container-event parsing to `src/kaval/discovery/docker.py`, added `src/kaval/discovery/topology_refresh.py` with typed refresh policy/decision helpers for Docker-event triggers and periodic reconciliation, and exported the new contracts through `src/kaval/discovery/__init__.py`.
+- Added fixture-backed Docker event coverage in `tests/fixtures/docker/container_events.ndjson`, extended `tests/integration/test_docker_discovery_client.py` to validate read-only event fetches, and added focused planner coverage in `tests/unit/test_topology_refresh.py` for reconciliation backstop, watched Docker actions, safe refresh on unknown-container start events, and edge-recalculation scope.
+- Files changed: `src/kaval/discovery/docker.py`, `src/kaval/discovery/topology_refresh.py`, `src/kaval/discovery/__init__.py`, `tests/fixtures/docker/container_events.ndjson`, `tests/integration/test_docker_discovery_client.py`, `tests/unit/test_topology_refresh.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_topology_refresh.py tests/integration/test_docker_discovery_client.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first lint pass reported only two line-wrap issues in the new topology refresh files; after wrapping those lines, the rerun passed. No remaining blocker.
+- Next task: P3A-15 Service lifecycle event handling.
+- 2026-04-03: Completed P3A-13 Monitoring cadence formalization.
+- Goal: formalize the monitoring cadence contract so check defaults, incident-triggered acceleration, and future override layers are explicit and typed instead of being scattered across check constructors.
+- Goal: keep the implementation inside the scheduler/config foundation only, without pulling forward settings UI, persisted overrides, topology refresh, or adapter refresh cadence work.
+- Added `src/kaval/monitoring/cadence.py` with canonical built-in check cadence defaults, typed cadence override models, bounded incident-acceleration policy and scope helpers, and deterministic cadence-resolution helpers for scheduler and later config surfaces.
+- Extended `src/kaval/monitoring/scheduler.py` to consume the new cadence decision helper for due-check evaluation, exported the cadence contracts through `src/kaval/monitoring/__init__.py`, and added focused coverage in `tests/unit/test_monitoring_cadence.py` and `tests/unit/test_scheduler.py` for default coverage, override precedence, dependency-scope acceleration, bounded expiry, and accelerated due logic.
+- Files changed: `src/kaval/monitoring/cadence.py`, `src/kaval/monitoring/scheduler.py`, `src/kaval/monitoring/__init__.py`, `tests/unit/test_monitoring_cadence.py`, `tests/unit/test_scheduler.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_scheduler.py tests/unit/test_monitoring_cadence.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first lint pass reported only import ordering in `src/kaval/monitoring/scheduler.py` and one long line in `tests/unit/test_monitoring_cadence.py`; both were corrected and the rerun passed. No remaining blocker.
+- Next task: P3A-14 Topology refresh model.
+- 2026-04-03: Completed P3A-12 Kaval capability health model.
+- Goal: create a typed internal self-health model across all 10 Phase 3A capability layers without pulling the dashboard UI forward.
+- Goal: make the model explicit enough for later API/UI tasks by including per-layer status, detail, impact, guidance, and an overall health aggregation contract.
+- Added `src/kaval/runtime/capability_health.py` with the 10-layer capability-health enums/models, layer-specific evaluators for discovery, scheduler, local/cloud model, notifications, vault, adapters, webhooks, executor, and database, plus a snapshot aggregator that requires exactly one record for every layer.
+- Exported the capability-health helpers through `src/kaval/runtime/__init__.py` and added focused coverage in `tests/unit/test_capability_health.py` for layer aggregation, missing-layer rejection, optional disabled layers, adapter diagnostics aggregation, and critical executor/database failures.
+- Files changed: `src/kaval/runtime/capability_health.py`, `src/kaval/runtime/__init__.py`, `tests/unit/test_capability_health.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_capability_health.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first lint pass reported line-length issues only in `src/kaval/runtime/capability_health.py`; after wrapping those lines, the rerun passed. No remaining blocker.
+- Next task: P3A-13 Monitoring cadence formalization.
+- 2026-04-03: Completed P3A-11 Adapter degradation and fallback behavior.
+- Goal: implement the approved foundation-only fallback contract for deep-inspection adapters: typed degradation/fallback states, staleness markers, downgrade-policy helpers, and internal decision logic for later persistence/API/UI/evidence tasks.
+- Goal: keep the work internal and deterministic without pulling forward persisted graph reversion, API/detail payloads, UI degradation rendering, or evidence-path handling that belong to later Phase 3A tasks.
+- Applied a narrow execution-contract clarification in `plans/phase-3a.md` and resolved the sequencing blocker in `STATUS.md` so `P3A-11` is explicitly limited to foundation-only fallback contracts.
+- Added `src/kaval/integrations/adapter_fallback.py` with typed fallback states, fact freshness and staleness policy models, runtime-observed downgrade-policy helpers, and explicit fallback decisions that cap deep-inspection-only insight back to Level 3 when adapter output is no longer trusted.
+- Exported the new fallback helpers through `src/kaval/integrations/__init__.py` and added focused coverage in `tests/unit/test_adapter_fallback.py` for active, stale, degraded, unconfigured, disabled, confidence downgrade, and insight-cap behavior.
+- Files changed: `plans/phase-3a.md`, `src/kaval/integrations/adapter_fallback.py`, `src/kaval/integrations/__init__.py`, `tests/unit/test_adapter_fallback.py`, `STATUS.md`.
+- Validations run: `rg -n "P3A-11|foundation-only|staleness|downgrade-policy|persisted|API/detail|evidence-path" plans/phase-3a.md STATUS.md`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_adapter_fallback.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: none.
+- Next task: P3A-12 Kaval capability health model.
+- 2026-04-03: Completed P3A-10 Adapter self-diagnostic checks.
+- Goal: add a typed diagnostic layer over the existing adapter execution contract so adapters can self-report healthy/auth_failed/connection_failed/version_incompatible/parse_error/degraded without introducing a new runtime subsystem.
+- Goal: make the diagnostic output explicit enough for later capability-health work while keeping this task limited to internal models and helper routines rather than dashboards or scheduler policy.
+- Added `src/kaval/integrations/adapter_diagnostics.py` with typed diagnostic statuses, per-check outcomes for connection/auth/schema/version, a safe diagnostic runner built on `execute_service_adapter`, and deterministic status mapping from adapter execution results.
+- Exported the new diagnostic helpers through `src/kaval/integrations/__init__.py` and added focused coverage in `tests/unit/test_adapter_diagnostics.py` for healthy, auth_failed, connection_failed, parse_error, version_incompatible, and exception-driven degraded paths.
+- Files changed: `src/kaval/integrations/adapter_diagnostics.py`, `src/kaval/integrations/__init__.py`, `tests/unit/test_adapter_diagnostics.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_adapter_diagnostics.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: none.
+- Next task: P3A-11 Adapter degradation and fallback behavior.
+- 2026-04-03: Completed P3A-09 Pi-hole adapter.
+- Goal: implement a read-only Pi-hole deep-inspection adapter that returns structured facts for upstream DNS configuration, blocklist status, and DHCP-related health/config state.
+- Goal: keep the adapter safe around Pi-hole's session-based API by supporting authenticated and open installs without mutating config or assuming browser-driven flows.
+- Added `src/kaval/integrations/pihole_adapter.py` with a typed Pi-hole client, optional session authentication, normalized upstream/blocklist/DHCP facts, and clean auth/transport/parse failure handling, then exported it through `src/kaval/integrations/__init__.py`.
+- Extended the shipped Pi-hole descriptor in `services/networking/pihole.yaml` to declare the read-only API surfaces consumed by the adapter and added a password credential hint for protected API deployments.
+- Added fixture-backed Pi-hole API payloads under `tests/fixtures/pihole/`, focused adapter coverage in `tests/unit/test_pihole_adapter.py`, and shipped-descriptor contract coverage in `tests/contract/test_service_descriptors.py`.
+- Files changed: `src/kaval/integrations/pihole_adapter.py`, `src/kaval/integrations/__init__.py`, `services/networking/pihole.yaml`, `tests/fixtures/pihole/auth.json`, `tests/fixtures/pihole/dns_config.json`, `tests/fixtures/pihole/dns_blocking.json`, `tests/fixtures/pihole/stats_summary.json`, `tests/fixtures/pihole/dhcp_config.json`, `tests/unit/test_pihole_adapter.py`, `tests/contract/test_service_descriptors.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_pihole_adapter.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/contract/test_service_descriptors.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: none. The first unit-test pass only exposed urllib header-normalization assumptions in the test harness and one incorrect expected timestamp from the fixture epoch; both were corrected before the final validation pass.
+- Next task: P3A-10 Adapter self-diagnostic checks.
+- 2026-04-03: Completed P3A-08 Cloudflare adapter.
+- Goal: implement a read-only Cloudflare deep-inspection adapter attached to the existing `cloudflared` service context and return structured facts for DNS records, proxy mode, SSL mode, origin certificate access when available, and basic tunnel metadata/status.
+- Goal: keep the approved Phase 3A scope narrow by requiring only `Zone Read`, `DNS Read`, `Zone Settings Read`, and one account-scoped tunnel-read permission, with no private-network/teamnet route inventory and no separate Cloudflare external node/contract.
+- Applied the narrow follow-up control-doc patch in `docs/phase3_4_requirements_expansion.md`, `plans/phase-3a.md`, and `STATUS.md` to reflect the approved read-only `Zone Settings Read` addition needed for SSL mode retrieval.
+- Added `src/kaval/integrations/cloudflare_adapter.py` with a typed Cloudflare client, explicit zone/account/tunnel input handling, approved-scope DNS/SSL/tunnel fact extraction, optional origin-certificate access handling, and bounded DNS pagination for minimal rate-limit awareness, then exported the adapter through `src/kaval/integrations/__init__.py`.
+- Extended the shipped `cloudflared` descriptor in `services/networking/cloudflared.yaml` to declare the consumed Cloudflare inspection surfaces and explicit credential hints for the token, zone, account, and tunnel identifiers.
+- Added fixture-backed Cloudflare API payloads under `tests/fixtures/cloudflare/`, focused adapter coverage in `tests/unit/test_cloudflare_adapter.py`, and shipped-descriptor contract coverage in `tests/contract/test_service_descriptors.py`.
+- Files changed: `docs/phase3_4_requirements_expansion.md`, `plans/phase-3a.md`, `src/kaval/integrations/cloudflare_adapter.py`, `src/kaval/integrations/__init__.py`, `services/networking/cloudflared.yaml`, `tests/fixtures/cloudflare/zones.json`, `tests/fixtures/cloudflare/dns_records.json`, `tests/fixtures/cloudflare/ssl_mode.json`, `tests/fixtures/cloudflare/tunnel.json`, `tests/fixtures/cloudflare/tunnel_connections.json`, `tests/fixtures/cloudflare/origin_certificates.json`, `tests/unit/test_cloudflare_adapter.py`, `tests/contract/test_service_descriptors.py`, `STATUS.md`.
+- Validations run: `rg -n "Cloudflare Integration|Zone Settings Read|cloudflared|private-network|teamnet|P3A-08" docs/phase3_4_requirements_expansion.md plans/phase-3a.md STATUS.md`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_cloudflare_adapter.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/contract/test_service_descriptors.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: none. Optional origin-certificate inventory now degrades safely when the token lacks broader certificate access, but approved-scope DNS/SSL/tunnel facts remain sufficient for P3A-08 completion.
+- Next task: P3A-09 Pi-hole adapter.
+- 2026-04-03: Completed P3A-07 Authentik adapter.
+- Goal: implement a read-only Authentik deep-inspection adapter that returns identity topology facts for applications, providers, outposts, outpost health, and Authentik version/outpost mismatch status.
+- Goal: keep the adapter strictly read-only and safe by using bearer-token auth, paginated list endpoints, per-outpost health lookups, and normalized facts that omit raw outpost config, service-connection objects, and token-related fields.
+- Added `src/kaval/integrations/authentik_adapter.py` with a typed Authentik client, paginated application/provider/outpost fetches, outpost health and version health handling, and the `AuthentikAdapter`, then exported it through `src/kaval/integrations/__init__.py`.
+- Extended the shipped Authentik descriptor in `services/identity/authentik.yaml` to declare the read-only API surfaces consumed by the adapter and added an `api_token` credential hint for deep inspection.
+- Added fixture-backed Authentik API payloads under `tests/fixtures/authentik/`, added focused adapter coverage in `tests/unit/test_authentik_adapter.py`, and added shipped-descriptor contract coverage in `tests/contract/test_service_descriptors.py`.
+- Files changed: `src/kaval/integrations/authentik_adapter.py`, `src/kaval/integrations/__init__.py`, `services/identity/authentik.yaml`, `tests/fixtures/authentik/applications.json`, `tests/fixtures/authentik/providers.json`, `tests/fixtures/authentik/outposts.json`, `tests/fixtures/authentik/outpost_health.json`, `tests/fixtures/authentik/version.json`, `tests/unit/test_authentik_adapter.py`, `tests/contract/test_service_descriptors.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_authentik_adapter.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/contract/test_service_descriptors.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first `mypy src` pass flagged the generic pagination helper in `src/kaval/integrations/authentik_adapter.py` because it returned a broad union; the helper was split into explicit typed pagination paths for applications, providers, and outposts, after which the rerun passed. No remaining blocker.
+- Next task: P3A-08 Cloudflare adapter.
+- 2026-04-03: Completed P3A-06 Radarr adapter.
+- Goal: implement a read-only Radarr deep-inspection adapter that returns structured investigation facts for health, version/runtime, download clients, indexers, and queue health.
+- Goal: keep the adapter descriptor-driven and safe by exposing normalized summaries only, deriving runtime-observed download-client edges, and degrading cleanly on auth, transport, schema, or version failures.
+- Added `src/kaval/integrations/radarr_adapter.py` with a typed Radarr client, normalized fact models, version compatibility handling, queue-attention filtering, and the `RadarrAdapter`, then exported it through `src/kaval/integrations/__init__.py`.
+- Extended the shipped and fixture Radarr descriptors in `services/arr/radarr.yaml` and `tests/fixtures/descriptors/radarr.yaml` to declare the concrete read-only inspection surfaces the adapter now consumes: `download_clients`, `indexers`, `queue_status`, and `queue_details`.
+- Added fixture-backed Radarr API payloads under `tests/fixtures/radarr/`, added focused adapter coverage in `tests/unit/test_radarr_adapter.py`, and updated descriptor coverage in `tests/unit/test_service_descriptors.py` and `tests/contract/test_service_descriptors.py`.
+- Files changed: `src/kaval/integrations/radarr_adapter.py`, `src/kaval/integrations/__init__.py`, `services/arr/radarr.yaml`, `tests/fixtures/descriptors/radarr.yaml`, `tests/fixtures/radarr/health.json`, `tests/fixtures/radarr/system_status.json`, `tests/fixtures/radarr/downloadclients.json`, `tests/fixtures/radarr/indexers.json`, `tests/fixtures/radarr/queue_status.json`, `tests/fixtures/radarr/queue_details.json`, `tests/unit/test_radarr_adapter.py`, `tests/unit/test_service_descriptors.py`, `tests/contract/test_service_descriptors.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_radarr_adapter.py tests/unit/test_service_descriptors.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/contract/test_service_descriptors.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the combined unit-plus-contract pytest invocation hit the known duplicate-basename collection issue between `tests/unit/test_service_descriptors.py` and `tests/contract/test_service_descriptors.py`, so the task validation used the same split-command workaround already established earlier in Phase 3A. A first lint pass also flagged import formatting in `tests/unit/test_radarr_adapter.py`; after fixing that, the rerun passed. No remaining blocker.
+- Next task: P3A-07 Authentik adapter.
+- 2026-04-03: Completed P3A-05 Nginx Proxy Manager adapter.
+- Goal: implement the first real read-only deep-inspection adapter using the new typed adapter, credential, and descriptor contracts.
+- Goal: return structured proxy-host, upstream, and certificate facts without exposing raw certificate bodies, private keys, or any UI-scrape logic.
+- Added `src/kaval/integrations/npm_adapter.py` with a read-only NPM client and `NginxProxyManagerAdapter`, exported it through `src/kaval/integrations/__init__.py`, added shipped NPM inspection surfaces and credential hints to `services/networking/nginx_proxy_manager.yaml`, and added fixture-backed NPM API payloads under `tests/fixtures/npm/`.
+- Added focused adapter and descriptor coverage in `tests/unit/test_npm_adapter.py` and `tests/contract/test_service_descriptors.py`, including success, auth failure, transport failure, parse failure, and version incompatibility paths.
+- Files changed: `src/kaval/integrations/npm_adapter.py`, `src/kaval/integrations/__init__.py`, `services/networking/nginx_proxy_manager.yaml`, `tests/unit/test_npm_adapter.py`, `tests/contract/test_service_descriptors.py`, `tests/fixtures/npm/status.json`, `tests/fixtures/npm/token.json`, `tests/fixtures/npm/proxy_hosts.json`, `tests/fixtures/npm/certificates.json`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_npm_adapter.py tests/contract/test_service_descriptors.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first lint pass reported import ordering in `src/kaval/integrations/__init__.py` and one long line in `src/kaval/integrations/npm_adapter.py`; both were corrected and the full rerun passed. No remaining blocker.
+- Next task: P3A-06 Radarr adapter.
+- 2026-04-03: Completed P3A-04 Adapter credential integration.
+- Goal: plug deep-inspection adapters into the existing Phase 2B vault/UAC flow without redesigning the credential system or exposing raw secrets.
+- Goal: make adapter credential availability explicit so future adapters can distinguish `available`, `unconfigured`, and `locked` states without treating missing credentials as broken adapters.
+- Added `find_satisfied_request()` to `src/kaval/credentials/request_flow.py`, added adapter-facing credential resolution state and bundle handling to `src/kaval/credentials/vault.py`, exported the new symbols through `src/kaval/credentials/__init__.py`, and extended the adapter protocol to declare required `credential_keys` in `src/kaval/integrations/service_adapters.py`.
+- Added focused credential and security coverage in `tests/unit/test_credentials/test_request_flow.py`, `tests/unit/test_credentials/test_vault.py`, `tests/security/test_credential_request_security.py`, and updated `tests/unit/test_service_adapters.py` for the adapter credential declaration surface.
+- Files changed: `src/kaval/credentials/request_flow.py`, `src/kaval/credentials/vault.py`, `src/kaval/credentials/__init__.py`, `src/kaval/integrations/service_adapters.py`, `tests/unit/test_credentials/test_request_flow.py`, `tests/unit/test_credentials/test_vault.py`, `tests/security/test_credential_request_security.py`, `tests/unit/test_service_adapters.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_credentials tests/security/test_credential_request_security.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: none.
+- Next task: P3A-05 Nginx Proxy Manager adapter.
+- 2026-04-03: Completed P3A-03 ServiceAdapter protocol, AdapterResult model, adapter registry.
+- Goal: create the typed deep-inspection adapter interface and registry before implementing any service-specific adapter logic.
+- Goal: guarantee non-raising degradation behavior at the adapter execution boundary so later investigation integration can fail safely.
+- Added `src/kaval/integrations/service_adapters.py` with `ServiceAdapter`, `AdapterResult`, `AdapterDiscoveredEdge`, `AdapterSurfaceBinding`, `AdapterRegistry`, and `execute_service_adapter()`, then exported the new adapter foundation through `src/kaval/integrations/__init__.py`.
+- Added focused unit coverage in `tests/unit/test_service_adapters.py` for registry lookup, duplicate binding rejection, read-only enforcement, successful execution passthrough, and degraded execution on adapter exceptions.
+- Files changed: `src/kaval/integrations/service_adapters.py`, `src/kaval/integrations/__init__.py`, `tests/unit/test_service_adapters.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_service_adapters.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: none.
+- Next task: P3A-04 Adapter credential integration.
+- 2026-04-03: Completed P3A-02 Descriptor schema extension.
+- Goal: extend the service descriptor contract so it can declare deep inspection capability declaratively without embedding adapter execution logic in YAML.
+- Goal: keep existing shipped descriptors valid by default while proving the new schema with one minimal shipped Radarr example and explicit schema/loader validation.
+- Added typed inspection surface models in `src/kaval/discovery/descriptors.py`, including read-only enforcement, auth mode declarations, fact declarations, confidence effect metadata, version range support, unique surface IDs, and optional credential prompts.
+- Updated the Radarr descriptor example in `services/arr/radarr.yaml` and `tests/fixtures/descriptors/radarr.yaml`, expanded descriptor contract coverage in `tests/unit/test_service_descriptors.py`, `tests/contract/test_service_descriptors.py`, and `tests/contract/test_schemas.py`, and regenerated `schemas/service_descriptor.json`.
+- Files changed: `src/kaval/discovery/descriptors.py`, `services/arr/radarr.yaml`, `tests/fixtures/descriptors/radarr.yaml`, `tests/unit/test_service_descriptors.py`, `tests/contract/test_service_descriptors.py`, `tests/contract/test_schemas.py`, `schemas/service_descriptor.json`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_service_descriptors.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/contract/test_service_descriptors.py tests/contract/test_schemas.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first combined pytest invocation hit the repo's duplicate-basename collector issue because `tests/unit/test_service_descriptors.py` and `tests/contract/test_service_descriptors.py` cannot be collected in the same pytest process; rerunning the same focused surfaces as separate pytest commands passed cleanly. No remaining blocker.
+- Next task: P3A-03 ServiceAdapter protocol, AdapterResult model, adapter registry.
+- 2026-04-03: Completed P3A-01 Service insight level model and per-service tracking.
+- Goal: define the canonical Level 0-5 service insight contract so it matches the Phase 3/4 requirements without pulling adapter or UI implementation forward.
+- Goal: expose per-service insight data through the persisted service model and current API graph/service responses while keeping pre-Phase-3 service rows backwards-compatible.
+- Added `ServiceInsightLevel`, `ServiceInsight`, and `derive_service_insight()` in `src/kaval/models.py`, enriched `/api/v1/services`, `/api/v1/graph`, and realtime graph snapshots in `src/kaval/api/app.py`, and exported the new checked-in schema artifact via `src/kaval/schema_export.py`.
+- Added and updated validation coverage in `tests/unit/test_models.py`, `tests/unit/test_database.py`, `tests/integration/test_fastapi_app.py`, and `tests/contract/test_schemas.py`; regenerated `schemas/service.json` and added `schemas/service_insight.json`.
+- Files changed: `src/kaval/models.py`, `src/kaval/api/app.py`, `src/kaval/schema_export.py`, `tests/unit/test_models.py`, `tests/unit/test_database.py`, `tests/integration/test_fastapi_app.py`, `tests/contract/test_schemas.py`, `schemas/service.json`, `schemas/service_insight.json`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_models.py tests/unit/test_database.py tests/integration/test_fastapi_app.py tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first lint pass reported import ordering in `src/kaval/api/app.py` and `tests/unit/test_models.py`; `ruff --fix` resolved both and the full rerun passed. No remaining blocker.
+- Next task: P3A-02 Descriptor schema extension.
 - 2026-04-01: Resolved clean-environment unit-test failure in the scaffold import smoke test.
 - Goal: keep the frozen Phase 2B codebase buildable on a clean CI runner without relying on stray local namespace packages.
 - Goal: align the scaffold smoke test with the actual packaged module boundary after the executor moved under `kaval.executor`.
@@ -542,9 +709,24 @@
 - Next task: Phase 3 gate decision.
 
 ## Open blockers
-- None currently.
+- 2026-04-03: Blocked on `P3A-19 UI: Kaval health panel`.
+- Attempted: inspected `src/kaval/runtime/capability_health.py`, `src/kaval/monitoring/scheduler.py`, `src/kaval/runtime/supervisor.py`, `src/kaval/actions/client.py`, and the current API/UI surfaces.
+- Findings: the typed 10-layer health model exists, but the current repo does not persist or expose trustworthy runtime inputs for at least discovery-pipeline health, check-scheduler health, and executor-process health. The only scheduler run state is in-memory inside `CheckScheduler`, discovery has no persisted heartbeat/schedule status, and executor health has no existing API-facing runtime record.
+- Smallest unblocking decision needed: either approve a narrow `P3A-19` interpretation that shows only currently derivable layer states and explicitly marks the missing runtime layers as telemetry-not-yet-wired/degraded, or approve adding the minimum runtime heartbeat/persistence/API inputs needed for discovery, scheduler, and executor health before resuming `P3A-19`.
+- 2026-04-03: Blocked on `P3A-18 UI: Service detail insight section`.
+- Attempted: inspected the existing selected-service panel in `src/web/src/App.tsx`, the current FastAPI service/graph payloads in `src/kaval/api/app.py`, and the current adapter foundation modules under `src/kaval/integrations/`.
+- Findings: the repo currently exposes only base `Service`/graph data plus internal adapter foundation helpers; it does not yet persist or expose per-service adapter health/config state, imported fact summaries, or improve-affordance payloads required by the `P3A-18` acceptance criteria.
+- Smallest unblocking decision needed: either approve a narrow foundation-only interpretation of `P3A-18` limited to current insight level plus descriptor-declared deep-inspection availability/unconfigured affordances, or add/approve a backend detail-payload task that persists and exposes per-service adapter status/fact summaries before resuming `P3A-18`.
 
 ## Resolved blockers
+- 2026-04-03: Resolved the `P3A-18 UI: Service detail insight section` sequencing blocker with a narrow control-doc clarification and approved run-local interpretation.
+- Resolution: `P3A-18` is now treated as a minimum service-detail insight task only: current insight level, adapter availability/configured state, adapter health when already derivable, improve affordances, and a later-enrichable payload contract without requiring imported-fact summaries yet.
+- 2026-04-03: Resolved the `P3A-11 Adapter degradation and fallback behavior` sequencing blocker with a narrow control-doc clarification and approved run-local interpretation.
+- Resolution: `P3A-11` is now explicitly foundation-only in `plans/phase-3a.md`, limited to typed degradation/fallback states, staleness markers, downgrade-policy helpers, and internal contracts for later persistence/API/UI/evidence tasks without pulling those later behaviors forward.
+- 2026-04-03: Resolved the follow-up `P3A-08 Cloudflare adapter` SSL-mode permission blocker with a narrow control-doc clarification and approved run-local decision.
+- Resolution: Phase 3A Cloudflare deep inspection remains attached to the existing `cloudflared` service context and now uses a read-only token scoped to `Zone Read`, `DNS Read`, `Zone Settings Read`, and one account-scoped tunnel-read permission; private-network/teamnet route inventory remains out of scope for P3A-08.
+- 2026-04-03: Resolved the `P3A-08 Cloudflare adapter` scope/permission blocker with a narrow control-doc clarification and approved run-local decision.
+- Resolution: Phase 3A Cloudflare deep inspection remains attached to the existing `cloudflared` service context, uses a read-only token scoped to `Zone Read`, `DNS Read`, and one account-scoped tunnel-read permission, and excludes private-network/teamnet route inventory from P3A-08.
 - 2026-03-31: Resolved the `P2B-05` sequencing blocker with a narrow control-doc patch to `plans/phase-2b.md`.
 - Resolution: `P2B-05` now explicitly requires a minimum compliant cloud-safe redaction path before any cloud-bound prompt is sent, and it may pull forward only the minimum subset of `src/kaval/memory/redaction.py` needed for that path. `P2B-10` remains the task for broader redaction-module expansion, memory-flow integration, and hardening.
 - 2026-03-31 → 2026-04-01: The old `P2A-09 Executor sidecar` blocker was resolved by approved CR-0002 and accepted ADR-014.

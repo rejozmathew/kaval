@@ -1,0 +1,34 @@
+[
+  {
+    "id": 11,
+    "name": "Prowlarr",
+    "implementationName": "Torznab",
+    "implementation": "Torznab",
+    "enableRss": true,
+    "enableAutomaticSearch": true,
+    "enableInteractiveSearch": true,
+    "supportsRss": true,
+    "supportsSearch": true,
+    "protocol": "torrent",
+    "priority": 1,
+    "downloadClientId": 7
+  },
+  {
+    "id": 12,
+    "name": "Backup Indexer",
+    "implementationName": "Newznab",
+    "implementation": "Newznab",
+    "enableRss": false,
+    "enableAutomaticSearch": true,
+    "enableInteractiveSearch": true,
+    "supportsRss": true,
+    "supportsSearch": true,
+    "protocol": "usenet",
+    "priority": 2,
+    "downloadClientId": 8,
+    "message": {
+      "message": "Indexer unreachable",
+      "type": "warning"
+    }
+  }
+]

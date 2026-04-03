@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import parse
@@ -20,6 +21,10 @@ def load_fixture(name: str) -> bytes:
 class _RecordingDockerHandler(BaseHTTPRequestHandler):
     """Record GET requests and return canned Docker API fixtures."""
 
+    events_path = (
+        "/v1.43/events?filters=%7B%22type%22%3A%5B%22container%22%5D%7D"
+        "&since=1775239200&until=1775239260"
+    )
     responses = {
         "/v1.43/containers/json?all=1": load_fixture("container_list_response.json"),
         "/v1.43/containers/abc123/json": load_fixture("container_inspect_abc123.json"),
@@ -27,6 +32,7 @@ class _RecordingDockerHandler(BaseHTTPRequestHandler):
         "/v1.43/containers/def456/logs?stdout=1&stderr=1&tail=200&timestamps=0": load_fixture(
             "container_logs_def456.txt"
         ),
+        events_path: load_fixture("container_events.ndjson"),
         "/v1.43/images/sha256%3Aimg-radarr/json": load_fixture(
             "image_inspect_sha256_img-radarr.json"
         ),
@@ -133,6 +139,38 @@ def test_docker_discovery_client_fetches_recent_container_logs() -> None:
         assert _RecordingDockerHandler.received_paths == [
             "/v1.43/containers/def456/logs?stdout=1&stderr=1&tail=200&timestamps=0"
         ]
+        assert _RecordingDockerHandler.received_headers[0]["x-api-key"] == "test-api-key"
+        assert _RecordingDockerHandler.received_headers[0]["accept"] == "text/plain"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_docker_discovery_client_fetches_container_events() -> None:
+    """The client should fetch newline-delimited Docker container events."""
+    _RecordingDockerHandler.received_paths = []
+    _RecordingDockerHandler.received_headers = []
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _RecordingDockerHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = DockerDiscoveryClient(
+            DockerClientConfig(
+                base_url=f"http://127.0.0.1:{server.server_port}",
+                api_key="test-api-key",
+            )
+        )
+
+        events = client.fetch_container_events(
+            since=datetime.fromtimestamp(1775239200, tz=UTC),
+            until=datetime.fromtimestamp(1775239260, tz=UTC),
+        )
+
+        assert [event.action for event in events] == ["start", "die"]
+        assert [event.container_id for event in events] == ["abc123", "def456"]
+        assert _RecordingDockerHandler.received_paths == [_RecordingDockerHandler.events_path]
         assert _RecordingDockerHandler.received_headers[0]["x-api-key"] == "test-api-key"
         assert _RecordingDockerHandler.received_headers[0]["accept"] == "text/plain"
     finally:

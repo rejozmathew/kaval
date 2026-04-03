@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -138,6 +138,17 @@ class ServiceStatus(StrEnum):
     STOPPED = "stopped"
 
 
+class ServiceInsightLevel(IntEnum):
+    """Supported per-service insight levels."""
+
+    DISCOVERED = 0
+    MATCHED = 1
+    MONITORED = 2
+    INVESTIGATION_READY = 3
+    DEEP_INSPECTED = 4
+    OPERATOR_ENRICHED = 5
+
+
 class DescriptorSource(StrEnum):
     """Origins for service descriptors."""
 
@@ -169,12 +180,37 @@ class DependencySource(StrEnum):
 class ChangeType(StrEnum):
     """Supported change event types."""
 
+    SERVICE_ADDED = "service_added"
+    SERVICE_REMOVED = "service_removed"
+    SERVICE_MISSING = "service_missing"
+    SERVICE_RENAMED_OR_REMATCHED = "service_renamed_or_rematched"
     IMAGE_UPDATE = "image_update"
     CONTAINER_RESTART = "container_restart"
     CONFIG_CHANGE = "config_change"
     UNRAID_EVENT = "unraid_event"
     PLUGIN_UPDATE = "plugin_update"
     EXTERNAL_CHANGE = "external_change"
+
+
+class ServiceLifecycleState(StrEnum):
+    """Persistent lifecycle states for a discovered service."""
+
+    ACTIVE = "active"
+    MISSING = "missing"
+    REMOVED_INTENTIONAL = "removed_intentional"
+    REMOVED_DURING_MAINTENANCE = "removed_during_maintenance"
+
+
+class ServiceLifecycleEventType(StrEnum):
+    """Lifecycle events derived from discovery and trusted context."""
+
+    SERVICE_ADDED = "service_added"
+    SERVICE_UPDATED = "service_updated"
+    SERVICE_RESTARTED = "service_restarted"
+    SERVICE_REMOVED_INTENTIONAL = "service_removed_intentional"
+    SERVICE_REMOVED_UNEXPECTEDLY = "service_removed_unexpectedly"
+    SERVICE_REMOVED_DURING_MAINTENANCE = "service_removed_during_maintenance"
+    SERVICE_RENAMED_OR_REMATCHED = "service_renamed_or_rematched"
 
 
 class JournalConfidence(StrEnum):
@@ -476,6 +512,33 @@ class DependencyEdge(KavalModel):
     description: str | None
 
 
+class ServiceInsight(KavalModel):
+    """The current insight depth available for one service."""
+
+    level: ServiceInsightLevel
+
+
+class ServiceLifecycle(KavalModel):
+    """Lifecycle metadata retained for one service across discovery cycles."""
+
+    state: ServiceLifecycleState = ServiceLifecycleState.ACTIVE
+    last_event: ServiceLifecycleEventType | None = None
+    changed_at: datetime | None = None
+    previous_names: list[str] = Field(default_factory=list)
+    previous_descriptor_ids: list[str] = Field(default_factory=list)
+
+
+class ServiceLifecycleEvent(KavalModel):
+    """One lifecycle event emitted for a service."""
+
+    service_id: str
+    event_type: ServiceLifecycleEventType
+    timestamp: datetime
+    summary: str
+    change_id: str | None = None
+    related_service_ids: list[str] = Field(default_factory=list)
+
+
 class Service(KavalModel):
     """A discovered service in the monitored environment."""
 
@@ -493,9 +556,42 @@ class Service(KavalModel):
     dns_targets: list[DnsTarget] = Field(default_factory=list)
     dependencies: list[DependencyEdge]
     dependents: list[str]
+    insight: ServiceInsight | None = None
+    lifecycle: ServiceLifecycle = Field(default_factory=ServiceLifecycle)
     last_check: datetime | None
     active_findings: int = NonNegativeInt
     active_incidents: int = NonNegativeInt
+
+    @model_validator(mode="after")
+    def populate_insight(self) -> Self:
+        """Populate the base insight level when callers do not provide one."""
+        if self.insight is None:
+            self.insight = derive_service_insight(self)
+        return self
+
+
+def derive_service_insight(
+    service: Service,
+    *,
+    local_model_configured: bool = False,
+    deep_inspection_configured: bool = False,
+    operator_enriched: bool = False,
+) -> ServiceInsight:
+    """Derive the current service insight level from the available capability chain."""
+    level = ServiceInsightLevel.DISCOVERED
+
+    if service.descriptor_id is not None:
+        level = ServiceInsightLevel.MATCHED
+        if service.last_check is not None:
+            level = ServiceInsightLevel.MONITORED
+            if local_model_configured:
+                level = ServiceInsightLevel.INVESTIGATION_READY
+                if deep_inspection_configured:
+                    level = ServiceInsightLevel.DEEP_INSPECTED
+                    if operator_enriched:
+                        level = ServiceInsightLevel.OPERATOR_ENRICHED
+
+    return ServiceInsight(level=level)
 
 
 class Incident(KavalModel):

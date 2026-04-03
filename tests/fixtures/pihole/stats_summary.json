@@ -1,0 +1,11 @@
+{
+  "queries": {
+    "total": 12345,
+    "blocked": 678,
+    "percent_blocked": 5.49
+  },
+  "gravity": {
+    "domains_being_blocked": 145632,
+    "last_update": 1775210400
+  }
+}

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from kaval.credentials import (
+    AdapterCredentialState,
     CredentialMaterialService,
     CredentialRequestManager,
     CredentialRequestMode,
@@ -183,6 +184,127 @@ def test_material_service_requires_unlocked_vault_for_vault_mode(tmp_path: Path)
             service.get_secret(satisfied.credential_reference, now=ts(18, 4))
             == "radarr-secret-value"
         )
+    finally:
+        database.close()
+
+
+def test_material_service_resolves_adapter_credentials_from_volatile_storage(
+    tmp_path: Path,
+) -> None:
+    """Adapter credential resolution should return available material when configured."""
+    database_path = seed_database(tmp_path / "adapter-volatile.db")
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+    try:
+        service = CredentialMaterialService(
+            request_manager=CredentialRequestManager(database=database),
+            volatile_store=VolatileCredentialStore(default_ttl_seconds=1800),
+            vault=CredentialVault(database_path=database_path, auto_lock_minutes=5),
+        )
+        request_record = service.request_manager.create_request(
+            incident_id="inc-1",
+            service_id="svc-radarr",
+            credential_key="api_key",
+            reason="Need diagnostics API access.",
+            now=ts(18, 0),
+        )
+        service.request_manager.resolve_choice(
+            request_id=request_record.id,
+            mode=CredentialRequestMode.VOLATILE,
+            decided_by="user_via_telegram",
+            now=ts(18, 1),
+        )
+        service.submit_secret(
+            request_id=request_record.id,
+            secret_value="radarr-secret-value",
+            submitted_by="user_via_telegram",
+            now=ts(18, 2),
+        )
+
+        resolved = service.resolve_adapter_credentials(
+            service_id="svc-radarr",
+            credential_keys=["api_key"],
+            now=ts(18, 3),
+        )
+
+        assert resolved.state == AdapterCredentialState.AVAILABLE
+        assert resolved.missing_keys == ()
+        assert resolved.credentials == {"api_key": "radarr-secret-value"}
+        assert "radarr-secret-value" not in repr(resolved)
+    finally:
+        database.close()
+
+
+def test_material_service_reports_unconfigured_adapter_credentials(tmp_path: Path) -> None:
+    """Missing adapter credentials should surface as unconfigured, not broken."""
+    database_path = seed_database(tmp_path / "adapter-unconfigured.db")
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+    try:
+        service = CredentialMaterialService(
+            request_manager=CredentialRequestManager(database=database),
+            volatile_store=VolatileCredentialStore(default_ttl_seconds=1800),
+            vault=CredentialVault(database_path=database_path, auto_lock_minutes=5),
+        )
+
+        resolved = service.resolve_adapter_credentials(
+            service_id="svc-radarr",
+            credential_keys=["api_key"],
+            now=ts(18, 0),
+        )
+
+        assert resolved.state == AdapterCredentialState.UNCONFIGURED
+        assert resolved.missing_keys == ("api_key",)
+        assert resolved.credentials == {}
+    finally:
+        database.close()
+
+
+def test_material_service_reports_locked_vault_for_adapter_credentials(
+    tmp_path: Path,
+) -> None:
+    """Vault-backed adapter credentials should report locked state without exposing secrets."""
+    database_path = seed_database(tmp_path / "adapter-locked.db")
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+    try:
+        service = CredentialMaterialService(
+            request_manager=CredentialRequestManager(database=database),
+            volatile_store=VolatileCredentialStore(default_ttl_seconds=1800),
+            vault=CredentialVault(database_path=database_path, auto_lock_minutes=5),
+        )
+        request_record = service.request_manager.create_request(
+            incident_id="inc-1",
+            service_id="svc-radarr",
+            credential_key="api_key",
+            reason="Need diagnostics API access.",
+            now=ts(18, 0),
+        )
+        service.request_manager.resolve_choice(
+            request_id=request_record.id,
+            mode=CredentialRequestMode.VAULT,
+            decided_by="user_via_telegram",
+            now=ts(18, 1),
+        )
+        service.unlock_vault("correct horse battery staple", now=ts(18, 2))
+        service.submit_secret(
+            request_id=request_record.id,
+            secret_value="radarr-secret-value",
+            submitted_by="user_via_telegram",
+            now=ts(18, 3),
+        )
+        service.lock_vault()
+
+        resolved = service.resolve_adapter_credentials(
+            service_id="svc-radarr",
+            credential_keys=["api_key"],
+            now=ts(18, 4),
+        )
+
+        assert resolved.state == AdapterCredentialState.LOCKED
+        assert resolved.missing_keys == ("api_key",)
+        assert resolved.credentials == {}
+        assert "radarr-secret-value" not in repr(resolved)
     finally:
         database.close()
 

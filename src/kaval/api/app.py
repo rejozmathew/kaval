@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections import defaultdict
 from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +21,13 @@ from kaval.api.schemas import (
     CredentialSecretSubmissionRequest,
     HealthResponse,
     RealtimeSnapshotResponse,
+    ServiceDetailAdapterConfigurationState,
+    ServiceDetailAdapterHealthState,
+    ServiceDetailAdapterResponse,
+    ServiceDetailImproveActionKind,
+    ServiceDetailImproveActionResponse,
+    ServiceDetailInsightSectionResponse,
+    ServiceDetailResponse,
     ServiceGraphEdge,
     ServiceGraphResponse,
     TelegramCredentialCallbackRequest,
@@ -37,6 +45,7 @@ from kaval.credentials.telegram import (
     parse_credential_request_callback_id,
 )
 from kaval.credentials.vault import (
+    AdapterCredentialState,
     CredentialMaterialService,
     CredentialVault,
     CredentialVaultLockedError,
@@ -44,6 +53,21 @@ from kaval.credentials.vault import (
     VolatileCredentialStore,
 )
 from kaval.database import KavalDatabase
+from kaval.discovery.descriptors import (
+    DescriptorInspectionSurface,
+    LoadedServiceDescriptor,
+    ServiceDescriptor,
+)
+from kaval.integrations import (
+    AdapterRegistry,
+    AuthentikAdapter,
+    CloudflareAdapter,
+    NginxProxyManagerAdapter,
+    PiHoleAdapter,
+    RadarrAdapter,
+    ServiceAdapter,
+)
+from kaval.investigation.local_model import load_local_model_config_from_env
 from kaval.models import (
     Change,
     Finding,
@@ -56,6 +80,7 @@ from kaval.models import (
     ServiceStatus,
     SystemProfile,
     UserNote,
+    derive_service_insight,
 )
 
 _ACTIVE_FINDING_STATUSES = {
@@ -69,6 +94,18 @@ _ACTIVE_INCIDENT_STATUSES = {
     IncidentStatus.AWAITING_APPROVAL,
     IncidentStatus.REMEDIATING,
 }
+_DEFAULT_ADAPTER_REGISTRY = AdapterRegistry(
+    cast(
+        Sequence[ServiceAdapter],
+        (
+            NginxProxyManagerAdapter(),
+            RadarrAdapter(),
+            AuthentikAdapter(),
+            CloudflareAdapter(),
+            PiHoleAdapter(),
+        ),
+    )
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,7 +236,24 @@ def healthz(database: ApiDatabase) -> HealthResponse:
 @_api_router.get("/services", response_model=list[Service])
 def list_services(database: ApiDatabase) -> list[Service]:
     """List persisted services for the current monitoring graph."""
-    return database.list_services()
+    return enrich_services_with_current_insight(database.list_services())
+
+
+@_api_router.get("/services/{service_id}/detail", response_model=ServiceDetailResponse)
+def service_detail(
+    service_id: str,
+    database: ApiDatabase,
+    credential_material_service: ApiCredentialMaterialService,
+) -> ServiceDetailResponse:
+    """Return the minimum service-detail insight payload for one service."""
+    service = database.get_service(service_id)
+    if service is None:
+        raise HTTPException(status_code=404, detail="service not found")
+    enriched_service = enrich_services_with_current_insight([service])[0]
+    return build_service_detail_response(
+        service=enriched_service,
+        credential_material_service=credential_material_service,
+    )
 
 
 @_api_router.get("/findings", response_model=list[Finding])
@@ -368,7 +422,7 @@ def lock_vault(service: ApiCredentialMaterialService) -> VaultStatus:
 @_api_router.get("/graph", response_model=ServiceGraphResponse)
 def graph(database: ApiDatabase) -> ServiceGraphResponse:
     """Return the Phase 1 service map with explicit dependency edges."""
-    return build_service_graph(database.list_services())
+    return build_service_graph(enrich_services_with_current_insight(database.list_services()))
 
 
 @_api_router.get("/system-profile", response_model=SystemProfile)
@@ -428,6 +482,269 @@ def build_service_graph(services: Sequence[Service]) -> ServiceGraphResponse:
     return ServiceGraphResponse(services=ordered_services, edges=edges)
 
 
+def enrich_services_with_current_insight(services: Sequence[Service]) -> list[Service]:
+    """Attach current insight levels using the active runtime investigation capability."""
+    local_model_configured = load_local_model_config_from_env() is not None
+    return [
+        service.model_copy(
+            update={
+                "insight": derive_service_insight(
+                    service,
+                    local_model_configured=local_model_configured,
+                )
+            }
+        )
+        for service in services
+    ]
+
+
+def build_service_detail_response(
+    *,
+    service: Service,
+    credential_material_service: CredentialMaterialService,
+) -> ServiceDetailResponse:
+    """Build the minimum later-enrichable service-detail response for one service."""
+    current_level = 0 if service.insight is None else int(service.insight.level)
+    loaded_descriptor = _loaded_descriptor_for_service(
+        service=service,
+        descriptors=credential_material_service.request_manager.descriptors,
+    )
+    adapter_statuses = _build_service_detail_adapter_statuses(
+        service=service,
+        loaded_descriptor=loaded_descriptor,
+        credential_material_service=credential_material_service,
+    )
+    return ServiceDetailResponse(
+        service=service,
+        insight_section=ServiceDetailInsightSectionResponse(
+            current_level=current_level,
+            adapter_available=bool(adapter_statuses),
+            adapters=adapter_statuses,
+            improve_actions=_build_service_detail_improve_actions(
+                service=service,
+                loaded_descriptor=loaded_descriptor,
+                adapter_statuses=adapter_statuses,
+            ),
+            fact_summary_available=False,
+        ),
+    )
+
+
+def _build_service_detail_adapter_statuses(
+    *,
+    service: Service,
+    loaded_descriptor: LoadedServiceDescriptor | None,
+    credential_material_service: CredentialMaterialService,
+) -> list[ServiceDetailAdapterResponse]:
+    """Build one adapter summary for each implemented deep-inspection adapter."""
+    if loaded_descriptor is None or service.descriptor_id is None:
+        return []
+
+    surfaces_by_adapter_id: dict[str, list[DescriptorInspectionSurface]] = defaultdict(list)
+    adapters_by_id: dict[str, ServiceAdapter] = {}
+    for surface in loaded_descriptor.descriptor.inspection.surfaces:
+        adapter = _DEFAULT_ADAPTER_REGISTRY.get(
+            descriptor_id=service.descriptor_id,
+            surface_id=surface.id,
+        )
+        if adapter is None:
+            continue
+        adapters_by_id[adapter.adapter_id] = adapter
+        surfaces_by_adapter_id[adapter.adapter_id].append(surface)
+
+    adapter_statuses: list[ServiceDetailAdapterResponse] = []
+    for adapter_id, adapter in adapters_by_id.items():
+        surfaces = surfaces_by_adapter_id[adapter_id]
+        resolution = credential_material_service.resolve_adapter_credentials(
+            service_id=service.id,
+            credential_keys=adapter.credential_keys,
+        )
+        configuration_state, configuration_summary = _service_detail_configuration_state(
+            resolution.state
+        )
+        health_state, health_summary = _service_detail_health_state(
+            configuration_state=configuration_state
+        )
+        adapter_statuses.append(
+            ServiceDetailAdapterResponse(
+                adapter_id=adapter_id,
+                display_name=_adapter_display_name(adapter_id),
+                configuration_state=configuration_state,
+                configuration_summary=configuration_summary,
+                health_state=health_state,
+                health_summary=health_summary,
+                missing_credentials=list(resolution.missing_keys),
+                supported_fact_names=sorted(
+                    {
+                        fact_name
+                        for surface in surfaces
+                        for fact_name in surface.facts_provided
+                    }
+                ),
+            )
+        )
+    return sorted(adapter_statuses, key=lambda status: status.display_name)
+
+
+def _build_service_detail_improve_actions(
+    *,
+    service: Service,
+    loaded_descriptor: LoadedServiceDescriptor | None,
+    adapter_statuses: Sequence[ServiceDetailAdapterResponse],
+) -> list[ServiceDetailImproveActionResponse]:
+    """Build explicit improvement affordances for the minimum service detail view."""
+    improve_actions: list[ServiceDetailImproveActionResponse] = []
+    local_model_configured = load_local_model_config_from_env() is not None
+    if (
+        service.descriptor_id is not None
+        and service.last_check is not None
+        and not local_model_configured
+    ):
+        improve_actions.append(
+            ServiceDetailImproveActionResponse(
+                kind=ServiceDetailImproveActionKind.CONFIGURE_LOCAL_MODEL,
+                title="Configure a local model",
+                detail=(
+                    "Add a local investigation model endpoint to unlock "
+                    "investigation-ready insight for this service."
+                ),
+            )
+        )
+
+    descriptor = None if loaded_descriptor is None else loaded_descriptor.descriptor
+    for adapter_status in adapter_statuses:
+        if (
+            adapter_status.configuration_state
+            == ServiceDetailAdapterConfigurationState.UNCONFIGURED
+        ):
+            improve_actions.append(
+                ServiceDetailImproveActionResponse(
+                    kind=ServiceDetailImproveActionKind.CONFIGURE_ADAPTER,
+                    title=f"Configure {adapter_status.display_name}",
+                    detail=(
+                        "Provide "
+                        + _format_requirement_list(
+                            _credential_descriptions(
+                                descriptor=descriptor,
+                                credential_keys=adapter_status.missing_credentials,
+                            )
+                        )
+                        + " to enable deep inspection for this service."
+                    ),
+                )
+            )
+        elif (
+            adapter_status.configuration_state
+            == ServiceDetailAdapterConfigurationState.LOCKED
+        ):
+            improve_actions.append(
+                ServiceDetailImproveActionResponse(
+                    kind=ServiceDetailImproveActionKind.UNLOCK_VAULT,
+                    title="Unlock the credential vault",
+                    detail=(
+                        f"Unlock the vault so {adapter_status.display_name} can use "
+                        "stored deep-inspection credentials."
+                    ),
+                )
+            )
+    return improve_actions
+
+
+def _loaded_descriptor_for_service(
+    *,
+    service: Service,
+    descriptors: Sequence[LoadedServiceDescriptor],
+) -> LoadedServiceDescriptor | None:
+    """Return the shipped descriptor record that matches the persisted service."""
+    if service.descriptor_id is None:
+        return None
+    for loaded_descriptor in descriptors:
+        if _loaded_descriptor_id(loaded_descriptor) == service.descriptor_id:
+            return loaded_descriptor
+    return None
+
+
+def _loaded_descriptor_id(loaded_descriptor: LoadedServiceDescriptor) -> str:
+    """Return the stable service descriptor identifier used in persisted services."""
+    return f"{loaded_descriptor.path.parent.name}/{loaded_descriptor.path.stem}"
+
+
+def _service_detail_configuration_state(
+    credential_state: AdapterCredentialState,
+) -> tuple[ServiceDetailAdapterConfigurationState, str]:
+    """Map one adapter credential-resolution state into UI detail wording."""
+    if credential_state == AdapterCredentialState.AVAILABLE:
+        return (
+            ServiceDetailAdapterConfigurationState.CONFIGURED,
+            "Required adapter inputs are configured.",
+        )
+    if credential_state == AdapterCredentialState.LOCKED:
+        return (
+            ServiceDetailAdapterConfigurationState.LOCKED,
+            "Stored credentials exist, but the vault is currently locked.",
+        )
+    return (
+        ServiceDetailAdapterConfigurationState.UNCONFIGURED,
+        "Required adapter inputs have not been configured yet.",
+    )
+
+
+def _service_detail_health_state(
+    *,
+    configuration_state: ServiceDetailAdapterConfigurationState,
+) -> tuple[ServiceDetailAdapterHealthState, str]:
+    """Return the currently derivable adapter-health wording for the detail panel."""
+    if configuration_state == ServiceDetailAdapterConfigurationState.CONFIGURED:
+        return (
+            ServiceDetailAdapterHealthState.UNKNOWN,
+            "No adapter diagnostics have been recorded yet.",
+        )
+    if configuration_state == ServiceDetailAdapterConfigurationState.LOCKED:
+        return (
+            ServiceDetailAdapterHealthState.UNKNOWN,
+            "Unlock the vault before adapter diagnostics can evaluate health.",
+        )
+    return (
+        ServiceDetailAdapterHealthState.UNKNOWN,
+        "Health will remain unknown until the adapter is configured.",
+    )
+
+
+def _adapter_display_name(adapter_id: str) -> str:
+    """Return a compact human-readable adapter label."""
+    if adapter_id.endswith("_api"):
+        return f"{adapter_id[:-4].replace('_', ' ').title()} API"
+    return adapter_id.replace("_", " ").title()
+
+
+def _credential_descriptions(
+    *,
+    descriptor: ServiceDescriptor | None,
+    credential_keys: Sequence[str],
+) -> list[str]:
+    """Resolve friendly credential descriptions from descriptor hints when available."""
+    hints = {} if descriptor is None else descriptor.credential_hints
+    descriptions: list[str] = []
+    for credential_key in credential_keys:
+        hint = hints.get(credential_key)
+        if hint is not None:
+            descriptions.append(hint.description)
+        else:
+            descriptions.append(credential_key.replace("_", " "))
+    return descriptions
+
+
+def _format_requirement_list(requirements: Sequence[str]) -> str:
+    """Format one or more missing requirements for a user-facing affordance."""
+    if not requirements:
+        return "the required inputs"
+    if len(requirements) == 1:
+        return requirements[0]
+    if len(requirements) == 2:
+        return f"{requirements[0]} and {requirements[1]}"
+    return f"{', '.join(requirements[:-1])}, and {requirements[-1]}"
+
+
 def build_widget_summary(
     *,
     services: Sequence[Service],
@@ -472,7 +789,7 @@ def _load_realtime_snapshot(settings: ApiSettings) -> RealtimeSnapshotResponse:
         migrations_dir=settings.migrations_dir,
     )
     try:
-        services = database.list_services()
+        services = enrich_services_with_current_insight(database.list_services())
         incidents = database.list_incidents()
         investigations = database.list_investigations()
         return RealtimeSnapshotResponse(

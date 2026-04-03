@@ -33,3 +33,63 @@ common_failure_modes:
 investigation_context: |
   cloudflared bridges external traffic into local services. Failures often
   indicate an origin outage, tunnel instability, or Cloudflare-side issues.
+inspection:
+  surfaces:
+    - id: dns_records
+      type: api
+      description: Zone DNS records and proxy mode relevant to this tunnel
+      endpoint: /zones/{zone_id}/dns_records
+      auth: token
+      auth_header: Authorization
+      read_only: true
+      facts_provided:
+        - dns_records
+        - tunnel_dns_records
+        - proxy_status
+    - id: ssl_mode
+      type: api
+      description: Zone SSL/TLS mode
+      endpoint: /zones/{zone_id}/settings/ssl
+      auth: token
+      auth_header: Authorization
+      read_only: true
+      facts_provided:
+        - ssl_mode
+    - id: tunnel_status
+      type: api
+      description: Cloudflare tunnel metadata and live connection status
+      endpoint: /accounts/{account_id}/cfd_tunnel/{tunnel_id}
+      auth: token
+      auth_header: Authorization
+      read_only: true
+      facts_provided:
+        - tunnel
+        - tunnel_connections
+        - tunnel_status
+    - id: origin_certificates
+      type: api
+      description: Origin CA certificate inventory when token scope permits
+      endpoint: /certificates?zone_id={zone_id}
+      auth: token
+      auth_header: Authorization
+      read_only: true
+      facts_provided:
+        - origin_certificates
+        - origin_certificate_access
+credential_hints:
+  api_token:
+    description: Cloudflare API Token
+    location: Cloudflare Dashboard -> Manage Account -> API Tokens
+    prompt: Provide a read-only Cloudflare API token with Zone Read, DNS Read, Zone Settings Read, and an account-scoped tunnel-read permission to enable deep inspection.
+  zone_name:
+    description: Cloudflare zone name
+    location: Cloudflare Dashboard -> Websites -> desired zone
+    prompt: Provide the Cloudflare zone name associated with this cloudflared service.
+  account_id:
+    description: Cloudflare account ID
+    location: Cloudflare Dashboard URL or Account Home -> Account ID
+    prompt: Provide the Cloudflare account ID that owns the tunnel used by this cloudflared service.
+  tunnel_id:
+    description: Cloudflare tunnel ID
+    location: Cloudflare Zero Trust Dashboard -> Networks -> Tunnels -> tunnel details
+    prompt: Provide the Cloudflare tunnel ID used by this cloudflared service.

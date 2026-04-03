@@ -34,3 +34,39 @@ common_failure_modes:
 investigation_context: |
   Nginx Proxy Manager fronts many internal services. Reverse proxy failures are
   often caused by upstream outages, TLS issues, or recent image changes.
+inspection:
+  surfaces:
+    - id: proxy_hosts
+      type: api
+      description: Proxy host inventory and upstream routing
+      endpoint: /api/nginx/proxy-hosts
+      auth: token
+      auth_header: Authorization
+      read_only: true
+      facts_provided:
+        - proxy_hosts
+        - upstream_targets
+        - certificate_bindings
+      confidence_effect: upgrade_to_runtime_observed
+      version_range: ">=2.0,<3.0"
+    - id: certificates
+      type: api
+      description: Certificate inventory and expiry metadata
+      endpoint: /api/nginx/certificates
+      auth: token
+      auth_header: Authorization
+      read_only: true
+      facts_provided:
+        - certificates
+        - certificate_domains
+        - certificate_expiry
+      version_range: ">=2.0,<3.0"
+credential_hints:
+  identity:
+    description: Nginx Proxy Manager login email
+    location: Nginx Proxy Manager login form -> Email
+    prompt: Provide the Nginx Proxy Manager login email to enable deep inspection.
+  secret:
+    description: Nginx Proxy Manager login password
+    location: Nginx Proxy Manager login form -> Password
+    prompt: Provide the Nginx Proxy Manager login password to enable deep inspection.

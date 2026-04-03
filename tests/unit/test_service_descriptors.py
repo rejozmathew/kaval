@@ -26,7 +26,13 @@ def test_load_service_descriptor_from_yaml_fixture() -> None:
     assert loaded.descriptor.source == DescriptorSource.SHIPPED
     assert loaded.descriptor.match.image_patterns[0] == "lscr.io/linuxserver/radarr*"
     assert loaded.descriptor.endpoints["health_api"].auth_header == "X-Api-Key"
+    assert len(loaded.descriptor.inspection.surfaces) == 6
+    assert loaded.descriptor.inspection.surfaces[0].id == "health_api"
+    assert loaded.descriptor.inspection.surfaces[2].id == "download_clients"
+    assert loaded.descriptor.inspection.surfaces[5].id == "queue_details"
+    assert loaded.descriptor.inspection.surfaces[0].confidence_effect is not None
     assert loaded.descriptor.credential_hints["api_key"].description == "Radarr API Key"
+    assert loaded.descriptor.credential_hints["api_key"].prompt is not None
 
 
 def test_discover_descriptor_files_ignores_gitkeep_and_loads_yaml(tmp_path: Path) -> None:
@@ -57,6 +63,27 @@ def test_load_service_descriptors_rejects_duplicate_ids(tmp_path: Path) -> None:
 
     with pytest.raises(DescriptorLoadError, match="duplicate descriptor ids"):
         load_service_descriptors([descriptor_root])
+
+
+def test_load_service_descriptor_rejects_procedural_inspection_fields(
+    tmp_path: Path,
+) -> None:
+    """Inspection declarations must reject procedural adapter logic in YAML."""
+    descriptor_path = tmp_path / "radarr.yaml"
+    fixture_text = (FIXTURES_DIR / "radarr.yaml").read_text(encoding="utf-8")
+    descriptor_path.write_text(
+        fixture_text.replace(
+            '      version_range: ">=3.0"\n',
+            '      version_range: ">=3.0"\n'
+            "      selectors:\n"
+            '        - ".health-table"\n',
+            1,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DescriptorLoadError, match="descriptor validation failed"):
+        load_service_descriptor(descriptor_path)
 
 
 def test_shipped_pihole_descriptor_exposes_dns_target_metadata() -> None:

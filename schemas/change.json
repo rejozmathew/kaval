@@ -3,6 +3,10 @@
     "ChangeType": {
       "description": "Supported change event types.",
       "enum": [
+        "service_added",
+        "service_removed",
+        "service_missing",
+        "service_renamed_or_rematched",
         "image_update",
         "container_restart",
         "config_change",

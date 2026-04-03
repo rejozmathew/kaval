@@ -1,0 +1,16 @@
+[
+  {
+    "uid": "proxy-outpost-1",
+    "last_seen": "2026-04-03T10:05:00Z",
+    "version": "2026.5.0",
+    "golang_version": "go1.24.2",
+    "openssl_enabled": true,
+    "openssl_version": "3.0.15",
+    "fips_enabled": false,
+    "version_should": "2026.5.0",
+    "version_outdated": false,
+    "build_hash": "deadbeef",
+    "build_hash_should": "deadbeef",
+    "hostname": "authentik-proxy-01"
+  }
+]

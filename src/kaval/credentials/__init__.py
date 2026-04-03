@@ -21,6 +21,8 @@ __all__ = [
     "CredentialRequestMode",
     "CredentialRequestNotFoundError",
     "CredentialRequestStatus",
+    "AdapterCredentialResolution",
+    "AdapterCredentialState",
     "CredentialMaterialNotFoundError",
     "CredentialMaterialService",
     "CredentialVault",
@@ -48,6 +50,8 @@ def __getattr__(name: str) -> Any:
     }:
         return getattr(import_module("kaval.credentials.request_flow"), name)
     if name in {
+        "AdapterCredentialResolution",
+        "AdapterCredentialState",
         "CredentialMaterialNotFoundError",
         "CredentialMaterialService",
         "CredentialVault",

@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1,
+    "source": "DownloadCheck",
+    "type": "error",
+    "message": "Download client qBittorrent is unavailable",
+    "wikiUrl": "https://wiki.servarr.com/radarr/system#download-client-unavailable"
+  },
+  {
+    "id": 2,
+    "source": "IndexerCheck",
+    "type": "warning",
+    "message": "Unable to connect to indexer Prowlarr",
+    "wikiUrl": "https://wiki.servarr.com/radarr/system#indexer-unavailable"
+  }
+]

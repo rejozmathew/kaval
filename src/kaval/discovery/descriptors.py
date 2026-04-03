@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Sequence
 
@@ -70,11 +71,85 @@ class DescriptorFailureMode(KavalModel):
     check_first: list[str] = Field(default_factory=list)
 
 
+class DescriptorInspectionSurfaceType(StrEnum):
+    """Supported deep-inspection surface types."""
+
+    API = "api"
+    CONFIG = "config"
+    DATABASE = "database"
+
+
+class DescriptorInspectionAuthMode(StrEnum):
+    """Supported auth modes for inspection surfaces."""
+
+    API_KEY = "api_key"
+    TOKEN = "token"
+    BASIC = "basic"
+
+
+class DescriptorInspectionConfidenceEffect(StrEnum):
+    """Supported dependency-confidence upgrades from inspection surfaces."""
+
+    UPGRADE_TO_RUNTIME_OBSERVED = "upgrade_to_runtime_observed"
+
+
+class DescriptorInspectionSurface(KavalModel):
+    """One declarative deep-inspection surface exposed by a service descriptor."""
+
+    id: str
+    type: DescriptorInspectionSurfaceType
+    description: str
+    endpoint: str | None = None
+    auth: DescriptorInspectionAuthMode | None = None
+    auth_header: str | None = None
+    read_only: bool = True
+    facts_provided: list[str] = Field(default_factory=list)
+    confidence_effect: DescriptorInspectionConfidenceEffect | None = None
+    version_range: str | None = None
+
+    @model_validator(mode="after")
+    def validate_surface_contract(self) -> DescriptorInspectionSurface:
+        """Enforce the declarative descriptor contract for deep inspection."""
+        if self.type == DescriptorInspectionSurfaceType.API:
+            if self.endpoint is None or not self.endpoint.startswith("/"):
+                msg = "api inspection surfaces require a relative endpoint path"
+                raise ValueError(msg)
+        if not self.facts_provided:
+            msg = "inspection surfaces require at least one declared fact"
+            raise ValueError(msg)
+        if not self.read_only:
+            msg = "inspection surfaces must be read_only in Phase 3A"
+            raise ValueError(msg)
+        if self.auth is None and self.auth_header is not None:
+            msg = "auth_header requires an auth mode"
+            raise ValueError(msg)
+        return self
+
+
+class DescriptorInspection(KavalModel):
+    """Inspection capability declarations for a service descriptor."""
+
+    surfaces: list[DescriptorInspectionSurface] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_surface_ids(self) -> DescriptorInspection:
+        """Require stable, unique surface identifiers per descriptor."""
+        surface_ids = [surface.id for surface in self.surfaces]
+        duplicate_ids = sorted(
+            {surface_id for surface_id in surface_ids if surface_ids.count(surface_id) > 1}
+        )
+        if duplicate_ids:
+            duplicates = ", ".join(duplicate_ids)
+            raise ValueError(f"inspection surfaces require unique ids: {duplicates}")
+        return self
+
+
 class DescriptorCredentialHint(KavalModel):
     """Instructions for locating a service credential."""
 
     description: str
     location: str
+    prompt: str | None = None
 
 
 class ServiceDescriptor(KavalModel):
@@ -92,6 +167,7 @@ class ServiceDescriptor(KavalModel):
     typical_dependencies: DescriptorDependencies = Field(default_factory=DescriptorDependencies)
     common_failure_modes: list[DescriptorFailureMode] = Field(default_factory=list)
     investigation_context: str | None = None
+    inspection: DescriptorInspection = Field(default_factory=DescriptorInspection)
     credential_hints: dict[str, DescriptorCredentialHint] = Field(default_factory=dict)
     source: DescriptorSource = DescriptorSource.SHIPPED
     verified: bool = True

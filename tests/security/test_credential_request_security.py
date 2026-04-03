@@ -8,7 +8,14 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from kaval.api import create_app
-from kaval.credentials import build_credential_request_callback_id
+from kaval.credentials import (
+    AdapterCredentialState,
+    CredentialMaterialService,
+    CredentialRequestManager,
+    CredentialVault,
+    VolatileCredentialStore,
+    build_credential_request_callback_id,
+)
 from kaval.credentials.models import CredentialRequestMode
 from kaval.database import KavalDatabase
 from kaval.models import DescriptorSource, Service, ServiceStatus, ServiceType
@@ -155,6 +162,50 @@ def test_locked_vault_submission_never_echoes_secret(tmp_path: Path) -> None:
 
     assert submit_response.status_code == 423
     assert "super-secret-value" not in submit_response.text
+
+
+def test_adapter_credential_resolution_repr_never_echoes_secret(tmp_path: Path) -> None:
+    """Adapter credential bundles should not expose secret material through repr output."""
+    database_path = tmp_path / "adapter-security.db"
+    seed_database(database_path)
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+    try:
+        service = CredentialMaterialService(
+            request_manager=CredentialRequestManager(database=database),
+            volatile_store=VolatileCredentialStore(default_ttl_seconds=1800),
+            vault=CredentialVault(database_path=database_path, auto_lock_minutes=5),
+        )
+        request_record = service.request_manager.create_request(
+            incident_id="inc-1",
+            service_id="svc-radarr",
+            credential_key="api_key",
+            reason="Need diagnostics API access.",
+            now=ts(18, 0),
+        )
+        service.request_manager.resolve_choice(
+            request_id=request_record.id,
+            mode=CredentialRequestMode.VOLATILE,
+            decided_by="user_via_telegram",
+            now=ts(18, 1),
+        )
+        service.submit_secret(
+            request_id=request_record.id,
+            secret_value="super-secret-value",
+            submitted_by="user_via_telegram",
+            now=ts(18, 2),
+        )
+
+        resolved = service.resolve_adapter_credentials(
+            service_id="svc-radarr",
+            credential_keys=["api_key"],
+            now=ts(18, 3),
+        )
+    finally:
+        database.close()
+
+    assert resolved.state == AdapterCredentialState.AVAILABLE
+    assert "super-secret-value" not in repr(resolved)
 
 
 def seed_database(database_path: Path) -> None:

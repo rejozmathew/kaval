@@ -1,0 +1,32 @@
+[
+  {
+    "id": 7,
+    "name": "DelugeVPN",
+    "implementationName": "Deluge",
+    "implementation": "Deluge",
+    "enable": true,
+    "protocol": "torrent",
+    "priority": 1,
+    "removeCompletedDownloads": true,
+    "removeFailedDownloads": true,
+    "message": {
+      "message": "Connection test succeeded",
+      "type": "info"
+    }
+  },
+  {
+    "id": 8,
+    "name": "qBittorrent",
+    "implementationName": "qBittorrent",
+    "implementation": "QBittorrent",
+    "enable": true,
+    "protocol": "torrent",
+    "priority": 2,
+    "removeCompletedDownloads": false,
+    "removeFailedDownloads": true,
+    "message": {
+      "message": "Connection refused",
+      "type": "error"
+    }
+  }
+]

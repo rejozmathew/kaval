@@ -159,6 +159,60 @@ def test_resolve_choice_rejects_already_decided_requests(tmp_path: Path) -> None
         database.close()
 
 
+def test_find_satisfied_request_returns_latest_matching_credential(tmp_path: Path) -> None:
+    """Adapters should be able to look up the newest satisfied credential request."""
+    database = seed_database(tmp_path / "credential-latest.db")
+    try:
+        manager = CredentialRequestManager(database=database)
+        first_request = manager.create_request(
+            incident_id="inc-1",
+            service_id="svc-radarr",
+            credential_key="api_key",
+            reason="Need API diagnostics.",
+            now=ts(18, 0),
+        )
+        manager.resolve_choice(
+            request_id=first_request.id,
+            mode=CredentialRequestMode.VOLATILE,
+            decided_by="user_via_telegram",
+            now=ts(18, 1),
+        )
+        manager.mark_satisfied(
+            request_id=first_request.id,
+            credential_reference="volatile:first",
+            now=ts(18, 2),
+        )
+
+        second_request = manager.create_request(
+            incident_id="inc-2",
+            service_id="svc-radarr",
+            credential_key="api_key",
+            reason="Need API diagnostics again.",
+            now=ts(18, 10),
+        )
+        manager.resolve_choice(
+            request_id=second_request.id,
+            mode=CredentialRequestMode.VAULT,
+            decided_by="user_via_web",
+            now=ts(18, 11),
+        )
+        satisfied = manager.mark_satisfied(
+            request_id=second_request.id,
+            credential_reference="vault:second",
+            now=ts(18, 12),
+        )
+
+        resolved = manager.find_satisfied_request(
+            service_id="svc-radarr",
+            credential_key="api_key",
+            now=ts(18, 13),
+        )
+
+        assert resolved == satisfied
+    finally:
+        database.close()
+
+
 def seed_database(database_path: Path) -> KavalDatabase:
     """Create one temporary database with a descriptor-backed Radarr service."""
     database = KavalDatabase(path=database_path)

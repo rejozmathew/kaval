@@ -200,6 +200,34 @@ class CredentialRequestManager:
         self.database.upsert_credential_request(updated_request)
         return updated_request
 
+    def find_satisfied_request(
+        self,
+        *,
+        service_id: str,
+        credential_key: str,
+        now: datetime | None = None,
+    ) -> CredentialRequest | None:
+        """Return the newest satisfied request for one service credential, if any."""
+        effective_now = now or datetime.now(tz=UTC)
+        satisfied_requests = [
+            credential_request
+            for credential_request in self.list_requests(now=effective_now)
+            if credential_request.service_id == service_id
+            and credential_request.credential_key == credential_key
+            and credential_request.status == CredentialRequestStatus.SATISFIED
+            and credential_request.credential_reference is not None
+        ]
+        if not satisfied_requests:
+            return None
+        satisfied_requests.sort(
+            key=lambda request: (
+                request.satisfied_at or request.decided_at or request.requested_at,
+                request.id,
+            ),
+            reverse=True,
+        )
+        return satisfied_requests[0]
+
     def _refresh_expiry(
         self,
         credential_request: CredentialRequest,

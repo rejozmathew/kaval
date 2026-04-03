@@ -1,0 +1,29 @@
+{
+  "$defs": {
+    "ServiceInsightLevel": {
+      "description": "Supported per-service insight levels.",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "title": "ServiceInsightLevel",
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The current insight depth available for one service.",
+  "properties": {
+    "level": {
+      "$ref": "#/$defs/ServiceInsightLevel"
+    }
+  },
+  "required": [
+    "level"
+  ],
+  "title": "ServiceInsight",
+  "type": "object"
+}

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from kaval.models import Evidence, EvidenceKind, Severity
+from kaval.models import Evidence, EvidenceKind, Incident, IncidentStatus, Severity
 from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
 from kaval.monitoring.scheduler import CheckScheduler
 from kaval.pipeline import build_mock_services
@@ -82,3 +82,62 @@ def test_scheduler_rejects_duplicate_check_ids() -> None:
         assert "duplicate check_id" in str(exc)
     else:
         raise AssertionError("expected duplicate check registration to fail")
+
+
+def test_scheduler_applies_bounded_incident_acceleration() -> None:
+    """Active incidents should accelerate related checks inside the policy window."""
+    services = build_mock_services()
+    scheduler = CheckScheduler([_StaticFindingCheck("a-check", interval_seconds=60)])
+    incident = _build_incident(
+        incident_id="inc-radarr",
+        affected_services=["svc-radarr"],
+        created_at=ts(10, 0, 0),
+    )
+
+    first_run = scheduler.run_due_checks(
+        CheckContext(services=services, now=ts(10, 0, 0)),
+        incidents=[incident],
+    )
+    accelerated_run = scheduler.run_due_checks(
+        CheckContext(services=services, now=ts(10, 0, 31)),
+        incidents=[incident],
+    )
+
+    assert first_run.executed_checks == ("a-check",)
+    assert accelerated_run.executed_checks == ("a-check",)
+    assert scheduler.last_run_at("a-check") == ts(10, 0, 31)
+
+
+def _build_incident(
+    *,
+    incident_id: str,
+    affected_services: list[str],
+    created_at: datetime,
+) -> Incident:
+    """Build the minimal active incident shape needed by scheduler tests."""
+    return Incident(
+        id=incident_id,
+        title="Synthetic scheduler incident",
+        severity=Severity.HIGH,
+        status=IncidentStatus.OPEN,
+        trigger_findings=["find-test"],
+        all_findings=["find-test"],
+        affected_services=affected_services,
+        triggering_symptom="Synthetic scheduler coverage.",
+        suspected_cause=None,
+        confirmed_cause=None,
+        root_cause_service=None,
+        resolution_mechanism=None,
+        cause_confirmation_source=None,
+        confidence=0.9,
+        investigation_id=None,
+        approved_actions=[],
+        changes_correlated=[],
+        grouping_window_start=created_at,
+        grouping_window_end=created_at,
+        created_at=created_at,
+        updated_at=created_at,
+        resolved_at=None,
+        mttr_seconds=None,
+        journal_entry_id=None,
+    )

@@ -18,6 +18,16 @@ export interface Service {
   type: string;
   category: string;
   status: ServiceStatus;
+  insight: {
+    level: number;
+  } | null;
+  lifecycle: {
+    state: string;
+    last_event: string | null;
+    changed_at: string | null;
+    previous_names: string[];
+    previous_descriptor_ids: string[];
+  };
   descriptor_id: string | null;
   descriptor_source: string | null;
   container_id: string | null;
@@ -216,4 +226,32 @@ export interface RealtimeSnapshot {
   incidents: Incident[];
   investigations: Investigation[];
   widget: WidgetSummary;
+}
+
+export interface ServiceDetailAdapter {
+  adapter_id: string;
+  display_name: string;
+  configuration_state: "configured" | "unconfigured" | "locked";
+  configuration_summary: string;
+  health_state: "healthy" | "degraded" | "unknown";
+  health_summary: string;
+  missing_credentials: string[];
+  supported_fact_names: string[];
+}
+
+export interface ServiceDetailImproveAction {
+  kind: "configure_local_model" | "configure_adapter" | "unlock_vault";
+  title: string;
+  detail: string;
+}
+
+export interface ServiceDetailResponse {
+  service: Service;
+  insight_section: {
+    current_level: number;
+    adapter_available: boolean;
+    adapters: ServiceDetailAdapter[];
+    improve_actions: ServiceDetailImproveAction[];
+    fact_summary_available: boolean;
+  };
 }

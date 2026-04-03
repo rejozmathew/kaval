@@ -58,6 +58,8 @@ from kaval.models import (
     RiskCheckResult,
     RiskLevel,
     Service,
+    ServiceInsightLevel,
+    ServiceLifecycleState,
     ServicesSummary,
     ServiceStatus,
     ServiceType,
@@ -66,6 +68,7 @@ from kaval.models import (
     SystemProfile,
     UserNote,
     VMProfile,
+    derive_service_insight,
 )
 
 
@@ -359,6 +362,9 @@ def test_service_and_operational_memory_contracts_round_trip() -> None:
         active_incidents=1,
     )
     assert Service.model_validate_json(service.model_dump_json()) == service
+    assert service.insight is not None
+    assert service.insight.level == ServiceInsightLevel.MONITORED
+    assert service.lifecycle.state == ServiceLifecycleState.ACTIVE
 
     system_profile = build_system_profile()
     journal_entry = JournalEntry(
@@ -420,6 +426,74 @@ def test_service_and_operational_memory_contracts_round_trip() -> None:
             include_journal=False,
             include_user_notes=False,
         )
+
+
+def test_service_insight_levels_follow_the_capability_chain() -> None:
+    """Insight levels should rise only when each prerequisite capability exists."""
+    discovered_service = Service(
+        id="svc-unknown",
+        name="Unknown",
+        type=ServiceType.CONTAINER,
+        category="container",
+        status=ServiceStatus.HEALTHY,
+        descriptor_id=None,
+        descriptor_source=None,
+        container_id="container-999",
+        vm_id=None,
+        image="example/unknown:latest",
+        endpoints=[],
+        dependencies=[],
+        dependents=[],
+        last_check=None,
+        active_findings=0,
+        active_incidents=0,
+    )
+    assert discovered_service.insight is not None
+    assert discovered_service.insight.level == ServiceInsightLevel.DISCOVERED
+
+    matched_service = Service.model_validate(
+        {
+            **discovered_service.model_dump(mode="python", exclude={"insight"}),
+            "descriptor_id": "custom/example",
+            "descriptor_source": DescriptorSource.USER,
+        }
+    )
+    assert matched_service.insight is not None
+    assert matched_service.insight.level == ServiceInsightLevel.MATCHED
+
+    monitored_service = Service.model_validate(
+        {
+            **matched_service.model_dump(mode="python", exclude={"insight"}),
+            "last_check": ts(14, 24),
+        }
+    )
+    assert monitored_service.insight is not None
+    assert monitored_service.insight.level == ServiceInsightLevel.MONITORED
+
+    assert (
+        derive_service_insight(
+            monitored_service,
+            local_model_configured=True,
+        ).level
+        == ServiceInsightLevel.INVESTIGATION_READY
+    )
+    assert (
+        derive_service_insight(
+            monitored_service,
+            local_model_configured=True,
+            deep_inspection_configured=True,
+        ).level
+        == ServiceInsightLevel.DEEP_INSPECTED
+    )
+    assert (
+        derive_service_insight(
+            monitored_service,
+            local_model_configured=True,
+            deep_inspection_configured=True,
+            operator_enriched=True,
+        ).level
+        == ServiceInsightLevel.OPERATOR_ENRICHED
+    )
 
 
 def test_approval_and_executor_contract_validation() -> None:

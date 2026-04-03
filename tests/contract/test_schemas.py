@@ -55,6 +55,11 @@ from kaval.models import (
     RiskCheckResult,
     RiskLevel,
     Service,
+    ServiceInsight,
+    ServiceLifecycle,
+    ServiceLifecycleEvent,
+    ServiceLifecycleEventType,
+    ServiceLifecycleState,
     ServicesSummary,
     ServiceStatus,
     ServiceType,
@@ -247,6 +252,34 @@ def build_service() -> Service:
     )
 
 
+def build_service_insight() -> ServiceInsight:
+    """Create a reusable service-insight sample."""
+    return ServiceInsight(level=2)
+
+
+def build_service_lifecycle() -> ServiceLifecycle:
+    """Create a reusable service lifecycle sample."""
+    return ServiceLifecycle(
+        state=ServiceLifecycleState.MISSING,
+        last_event=ServiceLifecycleEventType.SERVICE_REMOVED_UNEXPECTEDLY,
+        changed_at=ts(14, 30),
+        previous_names=["DelugeVPN"],
+        previous_descriptor_ids=["downloads/delugevpn"],
+    )
+
+
+def build_service_lifecycle_event() -> ServiceLifecycleEvent:
+    """Create a reusable lifecycle event sample."""
+    return ServiceLifecycleEvent(
+        service_id="svc-delugevpn",
+        event_type=ServiceLifecycleEventType.SERVICE_REMOVED_UNEXPECTEDLY,
+        timestamp=ts(14, 30),
+        summary="Service unexpectedly disappeared and now requires confirmation: DelugeVPN.",
+        change_id="chg-service_missing-svc-delugevpn-20260403T143000Z",
+        related_service_ids=["svc-radarr", "svc-sonarr"],
+    )
+
+
 def build_system_profile() -> SystemProfile:
     """Create a reusable system profile sample."""
     return SystemProfile(
@@ -403,10 +436,31 @@ def build_service_descriptor() -> ServiceDescriptor:
             }
         ],
         investigation_context="Radarr health returns an empty array when healthy.",
+        inspection={
+            "surfaces": [
+                {
+                    "id": "health_api",
+                    "type": "api",
+                    "description": "Radarr health diagnostics",
+                    "endpoint": "/api/v3/health",
+                    "auth": "api_key",
+                    "auth_header": "X-Api-Key",
+                    "read_only": True,
+                    "facts_provided": [
+                        "health_issues",
+                        "download_client_status",
+                        "indexer_status",
+                    ],
+                    "confidence_effect": "upgrade_to_runtime_observed",
+                    "version_range": ">=3.0",
+                }
+            ]
+        },
         credential_hints={
             "api_key": {
                 "description": "Radarr API Key",
                 "location": "Radarr Web UI → Settings → General → API Key",
+                "prompt": "Provide the Radarr API key to enable deep inspection.",
             }
         },
     )
@@ -447,6 +501,9 @@ def test_sample_payloads_validate_against_schemas() -> None:
     finding = build_finding()
     investigation = build_investigation()
     service = build_service()
+    service_insight = build_service_insight()
+    service_lifecycle = build_service_lifecycle()
+    service_lifecycle_event = build_service_lifecycle_event()
     system_profile = build_system_profile()
     journal_entry = build_journal_entry()
     user_note = build_user_note()
@@ -457,6 +514,18 @@ def test_sample_payloads_validate_against_schemas() -> None:
     validate_with_schema("finding.json", finding.model_dump(mode="json"))
     validate_with_schema("investigation.json", investigation.model_dump(mode="json"))
     validate_with_schema("service.json", service.model_dump(mode="json"))
+    validate_with_schema(
+        "service_insight.json",
+        service_insight.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "service_lifecycle.json",
+        service_lifecycle.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "service_lifecycle_event.json",
+        service_lifecycle_event.model_dump(mode="json"),
+    )
     validate_with_schema(
         "service_descriptor.json",
         service_descriptor.model_dump(mode="json"),
