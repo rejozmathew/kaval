@@ -11,9 +11,12 @@ from kaval.memory.journal import (
 from kaval.memory.recurrence import RecurrenceAnalysis, detect_recurrences
 from kaval.memory.redaction import (
     CloudRedactionReplacement,
+    StructuredRedactionPolicy,
+    StructuredRedactionResult,
     build_cloud_redaction_replacements,
     redact_for_cloud,
     redact_for_local,
+    redact_json_value,
     redact_text,
 )
 
@@ -26,8 +29,11 @@ __all__ = [
     "IncidentResolutionResult",
     "OperationalJournalService",
     "RecurrenceAnalysis",
+    "StructuredRedactionPolicy",
+    "StructuredRedactionResult",
     "build_cloud_redaction_replacements",
     "detect_recurrences",
+    "redact_json_value",
     "redact_for_cloud",
     "redact_for_local",
     "redact_text",

@@ -50,6 +50,14 @@ from kaval.models import (
     UserNote,
     VMProfile,
 )
+from kaval.runtime import (
+    CapabilityRuntimeSignalSource,
+    DiscoveryPipelineRuntimeSignal,
+    ExecutorProcessRuntimeSignal,
+    build_discovery_pipeline_runtime_signal,
+    build_executor_process_runtime_signal,
+    build_scheduler_runtime_signal,
+)
 
 
 def ts(hour: int, minute: int = 0) -> datetime:
@@ -362,7 +370,9 @@ def test_bootstrap_applies_baseline_migration(tmp_path: Path) -> None:
             "0001_phase0_baseline",
             "0002_phase2b_credential_requests",
             "0003_phase2b_vault",
+            "0004_phase3a_capability_runtime_signals",
         ]
+        assert database.migrations_current() is True
     finally:
         database.close()
 
@@ -522,5 +532,64 @@ def test_database_lists_changes_in_timestamp_order(tmp_path: Path) -> None:
         database.upsert_change(later)
         database.upsert_change(earlier)
         assert [stored.id for stored in database.list_changes()] == ["chg-1", "chg-2"]
+    finally:
+        database.close()
+
+
+def test_database_persists_capability_runtime_signals(tmp_path: Path) -> None:
+    """Capability runtime signals should round-trip through the keyed singleton table."""
+    database = build_database(tmp_path)
+    discovery_signal = build_discovery_pipeline_runtime_signal(
+        recorded_at=ts(12, 0),
+        last_succeeded_at=ts(12, 0),
+        unraid_api_reachable=True,
+        docker_api_reachable=True,
+        trigger="integration_test",
+    )
+    scheduler_signal = build_scheduler_runtime_signal(
+        recorded_at=ts(12, 5),
+        last_completed_at=ts(12, 5),
+        executed_check_ids=["dns_resolution", "endpoint_probe"],
+    )
+    executor_signal = build_executor_process_runtime_signal(
+        recorded_at=ts(12, 10),
+        listener_started_at=ts(12, 10),
+        socket_path=tmp_path / "executor.sock",
+        docker_socket_path=tmp_path / "docker.sock",
+        socket_reachable=True,
+        docker_accessible=True,
+    )
+
+    try:
+        database.upsert_capability_runtime_signal(discovery_signal)
+        database.upsert_capability_runtime_signal(scheduler_signal)
+        database.upsert_capability_runtime_signal(executor_signal)
+
+        stored_discovery = database.get_capability_runtime_signal(
+            CapabilityRuntimeSignalSource.DISCOVERY_PIPELINE
+        )
+        stored_executor = database.get_capability_runtime_signal(
+            CapabilityRuntimeSignalSource.EXECUTOR_PROCESS
+        )
+
+        assert isinstance(stored_discovery, DiscoveryPipelineRuntimeSignal)
+        assert stored_discovery == discovery_signal
+        assert isinstance(stored_executor, ExecutorProcessRuntimeSignal)
+        assert stored_executor == executor_signal
+        assert [
+            signal.source.value for signal in database.list_capability_runtime_signals()
+        ] == [
+            "check_scheduler",
+            "discovery_pipeline",
+            "executor_process",
+        ]
+
+        database.delete_capability_runtime_signal(
+            CapabilityRuntimeSignalSource.CHECK_SCHEDULER
+        )
+
+        assert database.get_capability_runtime_signal(
+            CapabilityRuntimeSignalSource.CHECK_SCHEDULER
+        ) is None
     finally:
         database.close()

@@ -5,10 +5,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from ipaddress import ip_address
-from typing import Sequence
+from typing import Self, Sequence
 from urllib.parse import SplitResult, parse_qsl, urlencode, urlsplit, urlunsplit
 
-from kaval.models import Incident, RedactionLevel, Service
+from pydantic import Field, model_validator
+
+from kaval.models import Incident, JsonValue, KavalModel, RedactionLevel, Service
 
 _KEY_VALUE_SECRET_RE = re.compile(
     r"(?i)\b("
@@ -51,6 +53,32 @@ class CloudRedactionReplacement:
 
     original: str
     placeholder: str
+
+
+class StructuredRedactionPolicy(KavalModel):
+    """Field-level exclusion policy for structured prompt-safe payloads."""
+
+    excluded_keys: tuple[str, ...] = ()
+    excluded_paths: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_entries(self) -> Self:
+        """Reject blank exclusion entries so policies stay deterministic."""
+        if any(not entry.strip() for entry in self.excluded_keys):
+            msg = "excluded_keys cannot contain blank values"
+            raise ValueError(msg)
+        if any(not entry.strip() for entry in self.excluded_paths):
+            msg = "excluded_paths cannot contain blank values"
+            raise ValueError(msg)
+        return self
+
+
+class StructuredRedactionResult(KavalModel):
+    """Redacted structured payload plus any fields withheld entirely."""
+
+    redacted_value: JsonValue
+    applied_redaction_level: RedactionLevel
+    excluded_paths: list[str] = Field(default_factory=list)
 
 
 def redact_text(
@@ -136,6 +164,30 @@ def build_cloud_redaction_replacements(
                 )
             )
     return tuple(replacements)
+
+
+def redact_json_value(
+    value: JsonValue,
+    *,
+    redaction_level: RedactionLevel,
+    cloud_replacements: Sequence[CloudRedactionReplacement] = (),
+    policy: StructuredRedactionPolicy | None = None,
+) -> StructuredRedactionResult:
+    """Redact one structured JSON-like payload for prompt-safe use."""
+    effective_policy = policy or StructuredRedactionPolicy()
+    redacted_value, excluded_paths = _redact_json_node(
+        value,
+        path="",
+        field_name=None,
+        redaction_level=redaction_level,
+        cloud_replacements=cloud_replacements,
+        policy=effective_policy,
+    )
+    return StructuredRedactionResult(
+        redacted_value=redacted_value,
+        applied_redaction_level=redaction_level,
+        excluded_paths=excluded_paths,
+    )
 
 
 def _apply_cloud_replacements(
@@ -239,3 +291,97 @@ def _is_sensitive_query_key(key: str) -> bool:
             normalized,
         )
     )
+
+
+def _redact_json_node(
+    value: JsonValue,
+    *,
+    path: str,
+    field_name: str | None,
+    redaction_level: RedactionLevel,
+    cloud_replacements: Sequence[CloudRedactionReplacement],
+    policy: StructuredRedactionPolicy,
+) -> tuple[JsonValue, list[str]]:
+    """Recursively redact a structured JSON-like payload."""
+    if value is None or isinstance(value, bool | int | float):
+        return value, []
+    if isinstance(value, str):
+        if field_name is not None and _is_sensitive_structured_key(field_name):
+            return "[REDACTED]", []
+        return (
+            redact_text(
+                value,
+                redaction_level=redaction_level,
+                cloud_replacements=cloud_replacements,
+            ),
+            [],
+        )
+    if isinstance(value, list):
+        redacted_items: list[JsonValue] = []
+        list_excluded_paths: list[str] = []
+        for index, item in enumerate(value):
+            child_value, child_excluded = _redact_json_node(
+                item,
+                path=f"{path}[{index}]" if path else f"[{index}]",
+                field_name=field_name,
+                redaction_level=redaction_level,
+                cloud_replacements=cloud_replacements,
+                policy=policy,
+            )
+            redacted_items.append(child_value)
+            list_excluded_paths.extend(child_excluded)
+        return redacted_items, list_excluded_paths
+
+    redacted_mapping: dict[str, JsonValue] = {}
+    mapping_excluded_paths: list[str] = []
+    for key, item in value.items():
+        child_path = f"{path}.{key}" if path else key
+        if _should_exclude_structured_field(
+            key=key,
+            path=child_path,
+            policy=policy,
+        ):
+            mapping_excluded_paths.append(child_path)
+            continue
+        child_value, child_excluded = _redact_json_node(
+            item,
+            path=child_path,
+            field_name=key,
+            redaction_level=redaction_level,
+            cloud_replacements=cloud_replacements,
+            policy=policy,
+        )
+        redacted_mapping[key] = child_value
+        mapping_excluded_paths.extend(child_excluded)
+    return redacted_mapping, mapping_excluded_paths
+
+
+def _should_exclude_structured_field(
+    *,
+    key: str,
+    path: str,
+    policy: StructuredRedactionPolicy,
+) -> bool:
+    """Return whether one structured field should be omitted entirely."""
+    normalized_key = _normalize_redaction_token(key)
+    normalized_path = _normalize_redaction_path(path)
+    return normalized_key in {
+        _normalize_redaction_token(entry) for entry in policy.excluded_keys
+    } or normalized_path in {
+        _normalize_redaction_path(entry) for entry in policy.excluded_paths
+    }
+
+
+def _normalize_redaction_token(value: str) -> str:
+    """Normalize one field token for tolerant exclusion matching."""
+    return re.sub(r"[^a-z0-9]+", "", value.casefold())
+
+
+def _normalize_redaction_path(value: str) -> str:
+    """Normalize one dotted field path for tolerant exclusion matching."""
+    return ".".join(_normalize_redaction_token(part) for part in value.split("."))
+
+
+def _is_sensitive_structured_key(key: str) -> bool:
+    """Return whether one structured field name likely contains secret material."""
+    return _is_sensitive_query_key(key)

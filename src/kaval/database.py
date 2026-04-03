@@ -6,7 +6,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from kaval.credentials.models import (
     CredentialRequest,
@@ -24,6 +24,11 @@ from kaval.models import (
     Service,
     SystemProfile,
     UserNote,
+)
+from kaval.runtime.capability_runtime import (
+    CapabilityRuntimeSignal,
+    CapabilityRuntimeSignalSource,
+    validate_capability_runtime_signal_json,
 )
 
 ModelT = TypeVar("ModelT", bound=KavalModel)
@@ -384,6 +389,62 @@ class KavalDatabase:
         """Delete the singleton system profile record."""
         with self.connection():
             self.connection().execute("DELETE FROM system_profiles WHERE singleton_key = 1")
+
+    def upsert_capability_runtime_signal(self, signal: CapabilityRuntimeSignal) -> None:
+        """Insert or update one runtime telemetry signal for capability health."""
+        self._upsert_record(
+            table="capability_runtime_signals",
+            key_column="source",
+            key_value=str(signal.source),
+            payload=cast(KavalModel, signal),
+            columns={
+                "recorded_at": signal.recorded_at.isoformat(),
+            },
+        )
+
+    def get_capability_runtime_signal(
+        self,
+        source: CapabilityRuntimeSignalSource,
+    ) -> CapabilityRuntimeSignal | None:
+        """Fetch one runtime telemetry signal by capability source."""
+        row = self.connection().execute(
+            "SELECT payload FROM capability_runtime_signals WHERE source = ?",
+            (source.value,),
+        ).fetchone()
+        if row is None:
+            return None
+        return validate_capability_runtime_signal_json(str(row["payload"]))
+
+    def list_capability_runtime_signals(self) -> list[CapabilityRuntimeSignal]:
+        """List runtime telemetry signals ordered by source."""
+        rows = self.connection().execute(
+            "SELECT payload FROM capability_runtime_signals ORDER BY source"
+        ).fetchall()
+        return [
+            validate_capability_runtime_signal_json(str(row["payload"]))
+            for row in rows
+        ]
+
+    def delete_capability_runtime_signal(
+        self,
+        source: CapabilityRuntimeSignalSource,
+    ) -> None:
+        """Delete one capability runtime signal by source."""
+        self._delete_record("capability_runtime_signals", "source", source.value)
+
+    def migrations_current(self) -> bool:
+        """Return whether all checked-in SQL migrations are applied."""
+        applied = set(self.applied_migrations())
+        migrations_dir = (
+            default_migrations_dir()
+            if self.migrations_dir is None
+            else Path(self.migrations_dir)
+        )
+        available = {
+            migration_path.stem
+            for migration_path in migrations_dir.glob("*.sql")
+        }
+        return applied == available
 
     def upsert_journal_entry(self, journal_entry: JournalEntry) -> None:
         """Insert or update a journal entry."""

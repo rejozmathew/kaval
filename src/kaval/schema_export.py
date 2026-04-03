@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from kaval.discovery.descriptors import ServiceDescriptor
+from kaval.integrations.service_adapters import AdapterResult
 from kaval.models import (
     ApprovalToken,
     Change,
@@ -34,6 +35,7 @@ from kaval.models import (
 
 SCHEMA_MODELS: tuple[tuple[str, type[KavalModel]], ...] = (
     ("approval_token.json", ApprovalToken),
+    ("adapter_result.json", AdapterResult),
     ("change.json", Change),
     ("evidence_step.json", EvidenceStep),
     ("executor_action_request.json", ExecutorActionRequest),

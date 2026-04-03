@@ -8,6 +8,7 @@ from collections import defaultdict
 from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, cast
 
@@ -58,6 +59,7 @@ from kaval.discovery.descriptors import (
     LoadedServiceDescriptor,
     ServiceDescriptor,
 )
+from kaval.effectiveness import EffectivenessReport, build_effectiveness_report
 from kaval.integrations import (
     AdapterRegistry,
     AuthentikAdapter,
@@ -67,6 +69,7 @@ from kaval.integrations import (
     RadarrAdapter,
     ServiceAdapter,
 )
+from kaval.investigation.cloud_model import load_cloud_model_config_from_env
 from kaval.investigation.local_model import load_local_model_config_from_env
 from kaval.models import (
     Change,
@@ -81,6 +84,19 @@ from kaval.models import (
     SystemProfile,
     UserNote,
     derive_service_insight,
+)
+from kaval.notifications import (
+    load_notification_bus_config_from_env,
+    load_telegram_config_from_env,
+)
+from kaval.runtime import (
+    CapabilityHealthReport,
+    CapabilityRuntimeSignalSource,
+    CheckSchedulerRuntimeSignal,
+    DiscoveryPipelineRuntimeSignal,
+    ExecutorProcessRuntimeSignal,
+    build_capability_health_report,
+    probe_unix_socket,
 )
 
 _ACTIVE_FINDING_STATUSES = {
@@ -253,6 +269,65 @@ def service_detail(
     return build_service_detail_response(
         service=enriched_service,
         credential_material_service=credential_material_service,
+    )
+
+
+@_api_router.get("/capability-health", response_model=CapabilityHealthReport)
+def capability_health(
+    database: ApiDatabase,
+    credential_material_service: ApiCredentialMaterialService,
+) -> CapabilityHealthReport:
+    """Return the current Kaval capability-health report for the UI panel."""
+    checked_at = datetime.now(tz=UTC)
+    quick_check_result = database.connection().execute("PRAGMA quick_check").fetchone()
+    database_corruption_detected = (
+        quick_check_result is None or str(quick_check_result[0]).casefold() != "ok"
+    )
+
+    discovery_signal = _typed_runtime_signal(
+        database.get_capability_runtime_signal(
+            CapabilityRuntimeSignalSource.DISCOVERY_PIPELINE
+        ),
+        DiscoveryPipelineRuntimeSignal,
+    )
+    scheduler_signal = _typed_runtime_signal(
+        database.get_capability_runtime_signal(
+            CapabilityRuntimeSignalSource.CHECK_SCHEDULER
+        ),
+        CheckSchedulerRuntimeSignal,
+    )
+    executor_signal = _typed_runtime_signal(
+        database.get_capability_runtime_signal(
+            CapabilityRuntimeSignalSource.EXECUTOR_PROCESS
+        ),
+        ExecutorProcessRuntimeSignal,
+    )
+    executor_socket_path = Path(
+        executor_signal.socket_path
+        if executor_signal is not None
+        else os.environ.get("KAVAL_EXECUTOR_SOCKET", "/run/kaval/executor.sock")
+    )
+    notification_bus_config = load_notification_bus_config_from_env()
+    telegram_config = load_telegram_config_from_env()
+
+    return build_capability_health_report(
+        checked_at=checked_at,
+        discovery_signal=discovery_signal,
+        scheduler_signal=scheduler_signal,
+        executor_signal=executor_signal,
+        executor_socket_reachable=probe_unix_socket(executor_socket_path),
+        local_model_configured=load_local_model_config_from_env() is not None,
+        cloud_model_configured=load_cloud_model_config_from_env() is not None,
+        notification_channel_count=(
+            len(notification_bus_config.channels)
+            if notification_bus_config is not None
+            else 0
+        )
+        + (1 if telegram_config is not None else 0),
+        vault_status=credential_material_service.vault_status(),
+        database_reachable=True,
+        migrations_current=database.migrations_current(),
+        database_corruption_detected=database_corruption_detected,
     )
 
 
@@ -441,6 +516,19 @@ def widget(database: ApiDatabase) -> WidgetSummaryResponse:
         services=database.list_services(),
         findings=database.list_findings(),
         incidents=database.list_incidents(),
+    )
+
+
+@_api_router.get("/effectiveness", response_model=EffectivenessReport)
+def effectiveness(
+    database: ApiDatabase,
+    manager: ApiCredentialRequestManager,
+) -> EffectivenessReport:
+    """Return the equal-weighted v1 effectiveness score and minimal breakdown."""
+    return build_effectiveness_report(
+        services=enrich_services_with_current_insight(database.list_services()),
+        descriptors=manager.descriptors,
+        adapter_registry=_DEFAULT_ADAPTER_REGISTRY,
     )
 
 
@@ -805,6 +893,14 @@ def _load_realtime_snapshot(settings: ApiSettings) -> RealtimeSnapshotResponse:
         )
     finally:
         database.close()
+
+
+def _typed_runtime_signal[TSignal](
+    signal: object,
+    signal_type: type[TSignal],
+) -> TSignal | None:
+    """Return one runtime signal only when it matches the expected type."""
+    return signal if isinstance(signal, signal_type) else None
 
 
 def _resolve_database_path(database_path: Path | str | None) -> Path:

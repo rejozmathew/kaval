@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import cast
 
 import pytest
 
+from kaval.credentials import (
+    CredentialMaterialService,
+    CredentialRequestManager,
+    CredentialRequestMode,
+    CredentialVault,
+    VolatileCredentialStore,
+)
 from kaval.database import KavalDatabase
 from kaval.integrations.external_apis.dockerhub import (
     DockerHubImageReference,
@@ -22,6 +30,13 @@ from kaval.integrations.external_apis.github_releases import (
     GitHubRelease,
     GitHubReleasesNotFoundError,
     parse_repository_reference,
+)
+from kaval.integrations.service_adapters import (
+    AdapterDiscoveredEdge,
+    AdapterRegistry,
+    AdapterResult,
+    AdapterStatus,
+    AdapterSurfaceBinding,
 )
 from kaval.investigation.cloud_model import CloudPromptRedactionError
 from kaval.investigation.prompts import InvestigationSynthesis
@@ -93,6 +108,248 @@ def test_workflow_single_finding_produces_ordered_evidence_steps(tmp_path: Path)
         assert result.investigation.remediation.risk_assessment.checks[0].check == (
             "bounded_action_scope"
         )
+    finally:
+        database.close()
+
+
+def test_workflow_collects_prompt_safe_adapter_facts_when_credentials_available(
+    tmp_path: Path,
+) -> None:
+    """Available adapter credentials should add prompt-safe deep-inspection evidence."""
+    database_path = tmp_path / "adapter-evidence.db"
+    database = seed_database(database_path)
+    try:
+        credential_service = build_adapter_credential_service(
+            database=database,
+            database_path=database_path,
+        )
+        satisfy_adapter_secret(
+            service=credential_service,
+            secret_value="radarr-secret-value",
+        )
+        adapter = FakeInspectionAdapter(
+            result=AdapterResult(
+                adapter_id="radarr_api",
+                status=AdapterStatus.SUCCESS,
+                facts={
+                    "download_client": "DelugeVPN",
+                    "probe_url": "http://radarr:7878/api/v3/system/status?token=abc123",
+                    "api_key": "leak-me",
+                },
+                edges_discovered=[
+                    AdapterDiscoveredEdge(
+                        surface_id="download_clients",
+                        target_service_name="DelugeVPN",
+                        description="Radarr uses DelugeVPN as its download client.",
+                    )
+                ],
+                timestamp=ts(14, 25),
+                reason=None,
+            )
+        )
+        workflow = InvestigationWorkflow(
+            database=database,
+            synthesizer=StaticSynthesizer(
+                root_cause="DelugeVPN lost its VPN tunnel.",
+                confidence=0.91,
+                action_type="restart_container",
+                target="delugevpn",
+            ),
+            log_reader=fixture_log_reader,
+            credential_material_service=credential_service,
+            adapter_registry=AdapterRegistry([adapter]),
+        )
+
+        result = workflow.run(
+            incident_id="inc-delugevpn",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(14, 30),
+        )
+
+        assert adapter.seen_credentials == {"api_key": "radarr-secret-value"}
+        assert "Adapter Facts:" in result.prompt_bundle.user_prompt
+        assert "\"adapter_id\": \"radarr_api\"" in result.prompt_bundle.user_prompt
+        assert "\"download_client\": \"DelugeVPN\"" in result.prompt_bundle.user_prompt
+        assert "radarr-secret-value" not in result.prompt_bundle.user_prompt
+        assert "leak-me" not in result.prompt_bundle.user_prompt
+        persisted_radarr = database.get_service("svc-radarr")
+        assert persisted_radarr is not None
+        assert persisted_radarr.dependencies[0].confidence == DependencyConfidence.RUNTIME_OBSERVED
+        assert "radarr_api" in (persisted_radarr.dependencies[0].description or "")
+        assert any(
+            step.action == "inspect_service_adapter"
+            and step.result_data["status"] == "success"
+            and step.result_data["facts_available"] is True
+            for step in result.investigation.evidence_steps
+        )
+    finally:
+        database.close()
+
+
+def test_workflow_skips_adapter_when_credentials_are_unconfigured(
+    tmp_path: Path,
+) -> None:
+    """Missing adapter credentials should not crash the workflow or create adapter facts."""
+    database_path = tmp_path / "adapter-unconfigured.db"
+    database = seed_database(database_path)
+    try:
+        adapter = FakeInspectionAdapter(
+            result=AdapterResult(
+                adapter_id="radarr_api",
+                status=AdapterStatus.SUCCESS,
+                facts={"download_client": "DelugeVPN"},
+                edges_discovered=[],
+                timestamp=ts(14, 25),
+                reason=None,
+            )
+        )
+        workflow = InvestigationWorkflow(
+            database=database,
+            synthesizer=StaticSynthesizer(
+                root_cause="DelugeVPN lost its VPN tunnel.",
+                confidence=0.91,
+                action_type="restart_container",
+                target="delugevpn",
+            ),
+            log_reader=fixture_log_reader,
+            credential_material_service=build_adapter_credential_service(
+                database=database,
+                database_path=database_path,
+            ),
+            adapter_registry=AdapterRegistry([adapter]),
+        )
+
+        result = workflow.run(
+            incident_id="inc-delugevpn",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(14, 30),
+        )
+
+        adapter_steps = [
+            step
+            for step in result.investigation.evidence_steps
+            if step.action == "inspect_service_adapter"
+        ]
+        assert adapter.seen_credentials == {}
+        assert "Adapter Facts:" not in result.prompt_bundle.user_prompt
+        assert len(adapter_steps) == 1
+        assert adapter_steps[0].result_data["credential_state"] == "unconfigured"
+        assert adapter_steps[0].result_data["status"] == "skipped"
+    finally:
+        database.close()
+
+
+def test_workflow_records_adapter_failures_without_crashing(
+    tmp_path: Path,
+) -> None:
+    """Adapter execution failures should surface as evidence, not workflow exceptions."""
+    database_path = tmp_path / "adapter-failure.db"
+    database = seed_database(database_path)
+    try:
+        credential_service = build_adapter_credential_service(
+            database=database,
+            database_path=database_path,
+        )
+        satisfy_adapter_secret(
+            service=credential_service,
+            secret_value="radarr-secret-value",
+        )
+        adapter = FakeInspectionAdapter(
+            result=AdapterResult(
+                adapter_id="radarr_api",
+                status=AdapterStatus.AUTH_FAILED,
+                facts={},
+                edges_discovered=[],
+                timestamp=ts(14, 25),
+                reason="invalid api key",
+            )
+        )
+        workflow = InvestigationWorkflow(
+            database=database,
+            synthesizer=StaticSynthesizer(
+                root_cause="DelugeVPN lost its VPN tunnel.",
+                confidence=0.91,
+                action_type="restart_container",
+                target="delugevpn",
+            ),
+            log_reader=fixture_log_reader,
+            credential_material_service=credential_service,
+            adapter_registry=AdapterRegistry([adapter]),
+        )
+
+        result = workflow.run(
+            incident_id="inc-delugevpn",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(14, 30),
+        )
+
+        adapter_steps = [
+            step
+            for step in result.investigation.evidence_steps
+            if step.action == "inspect_service_adapter"
+        ]
+        assert "Adapter Facts:" not in result.prompt_bundle.user_prompt
+        assert len(adapter_steps) == 1
+        assert adapter_steps[0].result_data["status"] == "auth_failed"
+        assert adapter_steps[0].result_data["reason"] == "invalid api key"
+    finally:
+        database.close()
+
+
+def test_workflow_does_not_create_new_edges_from_unmatched_adapter_targets(
+    tmp_path: Path,
+) -> None:
+    """Only existing dependency edges should upgrade; unmatched targets must be ignored."""
+    database_path = tmp_path / "adapter-unmatched-edge.db"
+    database = seed_database(database_path)
+    try:
+        credential_service = build_adapter_credential_service(
+            database=database,
+            database_path=database_path,
+        )
+        satisfy_adapter_secret(
+            service=credential_service,
+            secret_value="radarr-secret-value",
+        )
+        adapter = FakeInspectionAdapter(
+            result=AdapterResult(
+                adapter_id="radarr_api",
+                status=AdapterStatus.SUCCESS,
+                facts={"download_client": "GhostDownloader"},
+                edges_discovered=[
+                    AdapterDiscoveredEdge(
+                        surface_id="download_clients",
+                        target_service_name="GhostDownloader",
+                        description="No matching local service exists.",
+                    )
+                ],
+                timestamp=ts(14, 25),
+                reason=None,
+            )
+        )
+        workflow = InvestigationWorkflow(
+            database=database,
+            synthesizer=StaticSynthesizer(
+                root_cause="DelugeVPN lost its VPN tunnel.",
+                confidence=0.91,
+                action_type="restart_container",
+                target="delugevpn",
+            ),
+            log_reader=fixture_log_reader,
+            credential_material_service=credential_service,
+            adapter_registry=AdapterRegistry([adapter]),
+        )
+
+        workflow.run(
+            incident_id="inc-delugevpn",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(14, 30),
+        )
+
+        persisted_radarr = database.get_service("svc-radarr")
+        assert persisted_radarr is not None
+        assert len(persisted_radarr.dependencies) == 1
+        assert persisted_radarr.dependencies[0].confidence == DependencyConfidence.INFERRED
     finally:
         database.close()
 
@@ -756,6 +1013,73 @@ class StaticSynthesizer:
                 "cloud_model_calls": 0,
             }
         )
+
+
+class FakeInspectionAdapter:
+    """Simple adapter double for workflow evidence-integration tests."""
+
+    adapter_id = "radarr_api"
+    surface_bindings = (
+        AdapterSurfaceBinding(descriptor_id="arr/radarr", surface_id="health_api"),
+    )
+    credential_keys = ("api_key",)
+    supported_versions = ">=3.0"
+    read_only = True
+
+    def __init__(self, *, result: AdapterResult) -> None:
+        """Store the deterministic adapter result."""
+        self._result = result
+        self.seen_credentials: dict[str, str] = {}
+
+    async def inspect(
+        self,
+        service: Service,
+        credentials: Mapping[str, str],
+    ) -> AdapterResult:
+        """Return the configured result and capture the supplied credential bundle."""
+        del service
+        self.seen_credentials = dict(credentials)
+        return self._result
+
+
+def build_adapter_credential_service(
+    *,
+    database: KavalDatabase,
+    database_path: Path,
+) -> CredentialMaterialService:
+    """Build a credential service wired to the seeded workflow database."""
+    return CredentialMaterialService(
+        request_manager=CredentialRequestManager(database=database),
+        volatile_store=VolatileCredentialStore(default_ttl_seconds=1800),
+        vault=CredentialVault(database_path=database_path, auto_lock_minutes=5),
+    )
+
+
+def satisfy_adapter_secret(
+    *,
+    service: CredentialMaterialService,
+    secret_value: str,
+) -> None:
+    """Satisfy the seeded Radarr adapter credential using volatile storage."""
+    request_record = service.request_manager.create_request(
+        incident_id="inc-delugevpn",
+        service_id="svc-radarr",
+        credential_key="api_key",
+        reason="Need Radarr deep inspection.",
+        now=ts(14, 20),
+    )
+    service.request_manager.resolve_choice(
+        request_id=request_record.id,
+        mode=CredentialRequestMode.VOLATILE,
+        decided_by="user_via_telegram",
+        now=ts(14, 21),
+    )
+    service.submit_secret(
+        request_id=request_record.id,
+        secret_value=secret_value,
+        submitted_by="user_via_telegram",
+        now=ts(14, 22),
+    )
 
 
 def fixture_log_reader(container_id: str, _tail_lines: int) -> str:

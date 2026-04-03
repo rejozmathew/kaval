@@ -2,7 +2,9 @@ import { startTransition, useEffect, useState } from "react";
 
 import type {
   Change,
+  CapabilityHealthReport,
   CredentialRequest,
+  EffectivenessReport,
   GraphEdge,
   GraphResponse,
   Incident,
@@ -24,8 +26,10 @@ const ROW_GAP = 128;
 
 interface LoadState {
   graph: GraphResponse | null;
+  capabilityHealth: CapabilityHealthReport | null;
   changes: Change[];
   credentialRequests: CredentialRequest[];
+  effectiveness: EffectivenessReport | null;
   incidents: Incident[];
   investigations: Investigation[];
   journalEntries: JournalEntry[];
@@ -43,8 +47,10 @@ interface ServiceDetailState {
 }
 
 const EMPTY_SUPPLEMENTAL_STATE: SupplementalPanelsState = {
+  capabilityHealth: null,
   changes: [],
   credentialRequests: [],
+  effectiveness: null,
   journalEntries: [],
   systemProfile: null,
   userNotes: [],
@@ -58,7 +64,13 @@ interface NodeLayout {
 
 type SupplementalPanelsState = Pick<
   LoadState,
-  "changes" | "credentialRequests" | "journalEntries" | "systemProfile" | "userNotes"
+  | "capabilityHealth"
+  | "changes"
+  | "credentialRequests"
+  | "effectiveness"
+  | "journalEntries"
+  | "systemProfile"
+  | "userNotes"
 >;
 
 const statusLabel = {
@@ -424,6 +436,13 @@ export default function App() {
             value={state.widget?.active_incidents ?? 0}
             accent="ice"
           />
+          <SummaryTile
+            label="Effectiveness"
+            value={
+              state.effectiveness ? `${Math.round(state.effectiveness.score_percent)}%` : "0%"
+            }
+            accent="ice"
+          />
         </div>
       </header>
 
@@ -434,6 +453,45 @@ export default function App() {
 
       {!state.loading && !state.error && state.graph && state.widget ? (
         <>
+        {state.effectiveness ? (
+          <section className="panel effectiveness-panel">
+            <div className="panel-header">
+              <div>
+                <p className="section-label">Effectiveness</p>
+                <h2>Coverage at maximum insight</h2>
+              </div>
+              <div className="panel-status">
+                <span className="status-pill effectiveness-score">
+                  {state.effectiveness.score_percent.toFixed(1)}%
+                </span>
+                <p className="panel-meta">
+                  {state.effectiveness.services_at_target}/
+                  {state.effectiveness.total_services} at max
+                </p>
+              </div>
+            </div>
+
+            <p className="muted effectiveness-formula">{state.effectiveness.formula}.</p>
+
+            <div className="effectiveness-breakdown">
+              {state.effectiveness.breakdown.map((item) => (
+                <article key={`${item.bucket}-${item.target_level}`} className="effectiveness-card">
+                  <div className="timeline-topline">
+                    <p className="timeline-service">{item.label}</p>
+                    <span className="chip ghost">L{item.target_level}</span>
+                  </div>
+                  <p className="muted">
+                    {item.services_at_target}/{item.service_count} services currently at max.
+                  </p>
+                  <p className="step-meta">
+                    {item.services_below_target} can still be improved.
+                  </p>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         <main className="content">
           <section className="map-panel panel">
             <div className="panel-header">
@@ -510,6 +568,59 @@ export default function App() {
           </section>
 
           <aside className="side-column">
+            <section className="panel detail-panel">
+              <div className="panel-header">
+                <div>
+                  <p className="section-label">Kaval Health</p>
+                  <h2>Capability layers</h2>
+                </div>
+                {state.capabilityHealth ? (
+                  <div className="panel-status">
+                    <span
+                      className={`status-pill capability-state state-${state.capabilityHealth.overall_status}`}
+                    >
+                      {formatLabel(state.capabilityHealth.overall_status)}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+
+              {state.capabilityHealth ? (
+                <div className="investigation-grid">
+                  <div className="detail-block">
+                    <p className="detail-label">Scope</p>
+                    <p className="muted">
+                      These states describe Kaval's own runtime capabilities, not the selected
+                      service.
+                    </p>
+                    <p className="muted">
+                      Checked {formatTimestamp(state.capabilityHealth.checked_at)}
+                    </p>
+                  </div>
+
+                  <div className="kaval-health-list">
+                    {state.capabilityHealth.layers.map((layer) => (
+                      <article key={layer.layer} className="kaval-health-card">
+                        <div className="timeline-topline">
+                          <p className="timeline-service">{formatLabel(layer.layer)}</p>
+                          <span
+                            className={`status-pill capability-state state-${layer.display_state}`}
+                          >
+                            {formatLabel(layer.display_state)}
+                          </span>
+                        </div>
+                        <p className="muted capability-summary">{layer.summary}</p>
+                        <p className="muted">{layer.detail}</p>
+                        <p className="step-meta">Impact: {layer.user_impact}</p>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="muted">Capability-health data has not been loaded yet.</p>
+              )}
+            </section>
+
             <section className="panel detail-panel">
               <div className="panel-header">
                 <div>
@@ -1041,17 +1152,29 @@ async function fetchOptionalJson<T>(url: string): Promise<T | null> {
 }
 
 async function loadSupplementalPanels(): Promise<SupplementalPanelsState> {
-  const [changes, credentialRequests, journalEntries, systemProfile, userNotes] =
+  const [
+    capabilityHealth,
+    changes,
+    credentialRequests,
+    effectiveness,
+    journalEntries,
+    systemProfile,
+    userNotes,
+  ] =
     await Promise.all([
+      fetchJson<CapabilityHealthReport>("/api/v1/capability-health"),
       fetchJson<Change[]>("/api/v1/changes"),
       fetchJson<CredentialRequest[]>("/api/v1/credential-requests"),
+      fetchJson<EffectivenessReport>("/api/v1/effectiveness"),
       fetchJson<JournalEntry[]>("/api/v1/journal-entries"),
       fetchOptionalJson<SystemProfile>("/api/v1/system-profile"),
       fetchJson<UserNote[]>("/api/v1/user-notes"),
     ]);
   return {
+    capabilityHealth,
     changes,
     credentialRequests,
+    effectiveness,
     journalEntries,
     systemProfile,
     userNotes,
@@ -1114,7 +1237,7 @@ function latestIncident(incidents: Incident[]): Incident | null {
 
 function SummaryTile(props: {
   label: string;
-  value: number;
+  value: number | string;
   accent: "warm" | "alert" | "ice";
 }) {
   return (

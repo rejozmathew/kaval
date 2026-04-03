@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import importlib
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -43,6 +44,13 @@ from kaval.models import (
     UserNote,
     VMProfile,
 )
+from kaval.runtime import (
+    build_discovery_pipeline_runtime_signal,
+    build_executor_process_runtime_signal,
+    build_scheduler_runtime_signal,
+)
+
+api_app_module = importlib.import_module("kaval.api.app")
 
 
 def ts(hour: int, minute: int = 0) -> datetime:
@@ -342,6 +350,103 @@ def test_service_detail_endpoint_surfaces_unconfigured_configured_and_locked_ada
     assert "radarr-secret-value" not in locked_detail.text
 
 
+def test_capability_health_endpoint_reports_missing_runtime_layers_as_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Capability health should not guess missing runtime telemetry as healthy."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/capability-health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    layers = {layer["layer"]: layer for layer in payload["layers"]}
+    assert layers["discovery_pipeline"]["display_state"] == "unavailable"
+    assert layers["check_scheduler"]["display_state"] == "unavailable"
+    assert layers["executor_process"]["display_state"] == "unavailable"
+
+
+def test_capability_health_endpoint_uses_persisted_runtime_signals(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Capability health should expose runtime-backed healthy and stale states."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    monkeypatch.setattr(api_app_module, "probe_unix_socket", lambda _: True)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    seed_capability_runtime_signals(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/capability-health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    layers = {layer["layer"]: layer for layer in payload["layers"]}
+    assert payload["overall_status"] == "degraded"
+    assert layers["discovery_pipeline"]["display_state"] == "healthy"
+    assert layers["check_scheduler"]["display_state"] == "stale"
+    assert layers["executor_process"]["display_state"] == "healthy"
+    assert layers["executor_process"]["summary"] == "Executor process is healthy."
+
+
+def test_effectiveness_endpoint_reports_equal_weighted_v1_breakdown(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Effectiveness should expose the simple v1 score and bucket breakdown."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/effectiveness")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["score_percent"] == 33.3
+    assert payload["services_at_target"] == 1
+    assert payload["total_services"] == 3
+    assert payload["improvable_services"] == 2
+    assert payload["breakdown"] == [
+        {
+            "bucket": "discovered_only",
+            "label": "Discovered only",
+            "target_level": 0,
+            "service_count": 1,
+            "services_at_target": 1,
+            "services_below_target": 0,
+        },
+        {
+            "bucket": "investigation_ready",
+            "label": "Investigation-ready",
+            "target_level": 3,
+            "service_count": 1,
+            "services_at_target": 0,
+            "services_below_target": 1,
+        },
+        {
+            "bucket": "deep_inspection_ready",
+            "label": "Deep-inspection-ready",
+            "target_level": 4,
+            "service_count": 1,
+            "services_at_target": 0,
+            "services_below_target": 1,
+        },
+    ]
+
+
 def test_fastapi_credential_request_endpoints_manage_request_lifecycle(tmp_path: Path) -> None:
     """Credential-request endpoints should create, list, and resolve UAC choices."""
     database_path = tmp_path / "kaval.db"
@@ -602,6 +707,42 @@ def add_radarr_service(database_path: Path) -> None:
                 last_check=ts(12, 1),
                 active_findings=1,
                 active_incidents=1,
+            )
+        )
+    finally:
+        database.close()
+
+
+def seed_capability_runtime_signals(database_path: Path) -> None:
+    """Seed runtime telemetry for capability-health endpoint tests."""
+    now = datetime.now(tz=UTC)
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+    try:
+        database.upsert_capability_runtime_signal(
+            build_discovery_pipeline_runtime_signal(
+                recorded_at=now - timedelta(minutes=2),
+                last_succeeded_at=now - timedelta(minutes=2),
+                unraid_api_reachable=True,
+                docker_api_reachable=True,
+                trigger="integration_test",
+            )
+        )
+        database.upsert_capability_runtime_signal(
+            build_scheduler_runtime_signal(
+                recorded_at=now - timedelta(minutes=30),
+                last_completed_at=now - timedelta(minutes=30),
+                executed_check_ids=["dns_resolution"],
+            )
+        )
+        database.upsert_capability_runtime_signal(
+            build_executor_process_runtime_signal(
+                recorded_at=now - timedelta(minutes=1),
+                listener_started_at=now - timedelta(minutes=20),
+                socket_path=database_path.parent / "executor.sock",
+                docker_socket_path=database_path.parent / "docker.sock",
+                socket_reachable=True,
+                docker_accessible=True,
             )
         )
     finally:

@@ -2,18 +2,44 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping, Protocol, TypedDict
+from typing import Any, Callable, Mapping, Protocol, TypedDict, cast
 from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
 
+from kaval.credentials.vault import (
+    AdapterCredentialResolution,
+    AdapterCredentialState,
+    CredentialMaterialService,
+)
 from kaval.database import KavalDatabase
-from kaval.discovery.descriptors import LoadedServiceDescriptor, load_service_descriptors
+from kaval.discovery.descriptors import (
+    DescriptorInspectionConfidenceEffect,
+    LoadedServiceDescriptor,
+    load_service_descriptors,
+)
 from kaval.discovery.docker import DockerDiscoverySnapshot
 from kaval.grouping import can_transition_incident_status, transition_incident
+from kaval.integrations import (
+    AdapterDiscoveredEdge,
+    AdapterRegistry,
+    AuthentikAdapter,
+    CloudflareAdapter,
+    NginxProxyManagerAdapter,
+    PiHoleAdapter,
+    RadarrAdapter,
+    ServiceAdapter,
+    execute_service_adapter,
+)
+from kaval.integrations.adapter_facts import (
+    PromptSafeAdapterFact,
+    redact_adapter_result_for_prompt,
+)
+from kaval.integrations.service_adapters import AdapterStatus
 from kaval.investigation.cloud_model import (
     CloudInvestigationSynthesizer,
     CloudModelError,
@@ -25,9 +51,11 @@ from kaval.investigation.cloud_model import (
     load_cloud_model_config_from_env,
 )
 from kaval.investigation.evidence import (
+    AdapterEvidenceCollection,
     InvestigationEvidenceResult,
     LogReader,
     collect_incident_evidence,
+    merge_adapter_evidence,
 )
 from kaval.investigation.local_model import (
     LocalModelError,
@@ -56,6 +84,8 @@ from kaval.investigation.risk_assessment import apply_deterministic_risk_assessm
 from kaval.models import (
     ActionType,
     Change,
+    DependencyConfidence,
+    EvidenceStep,
     Finding,
     FindingStatus,
     Incident,
@@ -64,7 +94,9 @@ from kaval.models import (
     InvestigationStatus,
     InvestigationTrigger,
     JournalEntry,
+    JsonValue,
     ModelUsed,
+    RedactionLevel,
     RemediationProposal,
     RemediationStatus,
     RiskAssessment,
@@ -78,6 +110,22 @@ from kaval.models import (
 )
 
 type DockerSnapshotProvider = Callable[[], DockerDiscoverySnapshot | None]
+
+
+def _build_default_adapter_registry() -> AdapterRegistry:
+    """Build the default registry for the Phase 3A shipped deep adapters."""
+    return AdapterRegistry(
+        cast(
+            tuple[ServiceAdapter, ...],
+            (
+            NginxProxyManagerAdapter(),
+            RadarrAdapter(),
+            AuthentikAdapter(),
+            CloudflareAdapter(),
+            PiHoleAdapter(),
+            ),
+        )
+    )
 
 
 def default_services_dir() -> Path:
@@ -101,6 +149,7 @@ class InvestigationWorkflowState(TypedDict, total=False):
     user_notes: list[UserNote]
     docker_snapshot: DockerDiscoverySnapshot | None
     evidence: InvestigationEvidenceResult
+    adapter_edge_observations: list[_AdapterEdgeObservation]
     research: Tier2ResearchBundle
     prompt_bundle: InvestigationPromptBundle
     synthesis: InvestigationSynthesis
@@ -134,6 +183,24 @@ class InvestigationWorkflowResult:
 
 
 @dataclass(frozen=True, slots=True)
+class _AdapterEdgeObservation:
+    """Internal adapter-discovered edge observations from one evidence run."""
+
+    source_service_id: str
+    adapter_id: str
+    observed_at: datetime
+    edges: tuple[AdapterDiscoveredEdge, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _CollectedAdapterEvidence:
+    """Internal adapter evidence bundle plus edge observations for graph updates."""
+
+    evidence: AdapterEvidenceCollection
+    edge_observations: list[_AdapterEdgeObservation] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
 class InvestigationWorkflow:
     """Run the Phase 2A investigation graph against persisted state."""
 
@@ -142,6 +209,8 @@ class InvestigationWorkflow:
     descriptors: tuple[LoadedServiceDescriptor, ...] = ()
     log_reader: LogReader | None = None
     docker_snapshot_provider: DockerSnapshotProvider | None = None
+    credential_material_service: CredentialMaterialService | None = None
+    adapter_registry: AdapterRegistry = field(default_factory=_build_default_adapter_registry)
     research_hints_by_service: Mapping[str, PublicResearchHints] = field(default_factory=dict)
     github_research_client: GitHubResearchClient | None = None
     dockerhub_research_client: DockerHubResearchClient | None = None
@@ -205,20 +274,29 @@ class InvestigationWorkflow:
 
     def _collect_evidence(self, state: InvestigationWorkflowState) -> InvestigationWorkflowState:
         """Collect read-only evidence for the incident."""
+        base_evidence = collect_incident_evidence(
+            incident=state["incident"],
+            findings=state["findings"],
+            services=state["services"],
+            changes=state["changes"],
+            docker_snapshot=state.get("docker_snapshot"),
+            system_profile=state["system_profile"],
+            journal_entries=state["journal_entries"],
+            user_notes=state["user_notes"],
+            descriptors=self.descriptors,
+            log_reader=self.log_reader,
+            now=state["started_at"],
+        )
+        collected_adapter_evidence = self._collect_adapter_evidence(
+            state=state,
+            base_step_count=len(base_evidence.evidence_steps),
+        )
         return {
-            "evidence": collect_incident_evidence(
-                incident=state["incident"],
-                findings=state["findings"],
-                services=state["services"],
-                changes=state["changes"],
-                docker_snapshot=state.get("docker_snapshot"),
-                system_profile=state["system_profile"],
-                journal_entries=state["journal_entries"],
-                user_notes=state["user_notes"],
-                descriptors=self.descriptors,
-                log_reader=self.log_reader,
-                now=state["started_at"],
-            )
+            "evidence": merge_adapter_evidence(
+                base_evidence,
+                adapter_evidence=collected_adapter_evidence.evidence,
+            ),
+            "adapter_edge_observations": collected_adapter_evidence.edge_observations,
         }
 
     def _build_prompt(self, state: InvestigationWorkflowState) -> InvestigationWorkflowState:
@@ -449,11 +527,18 @@ class InvestigationWorkflow:
             findings=state["findings"],
             incident_id=state["incident"].id,
         )
+        updated_services = _apply_runtime_observed_upgrades(
+            services=state["services"],
+            descriptors=self.descriptors,
+            observations=state.get("adapter_edge_observations", []),
+        )
 
         self.database.upsert_investigation(investigation)
         self.database.upsert_incident(updated_incident)
         for finding in updated_findings:
             self.database.upsert_finding(finding)
+        for service in updated_services:
+            self.database.upsert_service(service)
 
         return {
             "investigation": investigation,
@@ -500,6 +585,363 @@ class InvestigationWorkflow:
                 dockerhub_reference=dockerhub_reference,
             )
         return hints
+
+    def _collect_adapter_evidence(
+        self,
+        *,
+        state: InvestigationWorkflowState,
+        base_step_count: int,
+    ) -> _CollectedAdapterEvidence:
+        """Collect prompt-safe adapter facts for relevant services when possible."""
+        if self.credential_material_service is None:
+            return _CollectedAdapterEvidence(evidence=AdapterEvidenceCollection())
+
+        relevant_services = _workflow_relevant_services(
+            incident=state["incident"],
+            findings=state["findings"],
+            services=state["services"],
+        )
+        evidence_steps: list[EvidenceStep] = []
+        adapter_facts: list[PromptSafeAdapterFact] = []
+        edge_observations: list[_AdapterEdgeObservation] = []
+        next_order = base_step_count + 1
+
+        for service in relevant_services:
+            for adapter in _bound_adapters_for_service(
+                service=service,
+                descriptors=self.descriptors,
+                adapter_registry=self.adapter_registry,
+            ):
+                resolution = self.credential_material_service.resolve_adapter_credentials(
+                    service_id=service.id,
+                    credential_keys=adapter.credential_keys,
+                    now=state["started_at"],
+                )
+                if resolution.state is not AdapterCredentialState.AVAILABLE:
+                    evidence_steps.append(
+                        _adapter_skip_step(
+                            order=next_order,
+                            service=service,
+                            adapter=adapter,
+                            resolution=resolution,
+                            timestamp=state["started_at"],
+                        )
+                    )
+                    next_order += 1
+                    continue
+
+                adapter_result = asyncio.run(
+                    execute_service_adapter(
+                        adapter,
+                        service=service,
+                        credentials=resolution.credentials,
+                        now=state["started_at"],
+                    )
+                )
+                prompt_safe_fact = redact_adapter_result_for_prompt(
+                    adapter_result,
+                    redaction_level=RedactionLevel.REDACT_FOR_LOCAL,
+                )
+                evidence_steps.append(
+                    _adapter_result_step(
+                        order=next_order,
+                        service=service,
+                        adapter=adapter,
+                        resolution=resolution,
+                        prompt_safe_fact=prompt_safe_fact,
+                        timestamp=state["started_at"],
+                    )
+                )
+                next_order += 1
+                if adapter_result.status is AdapterStatus.SUCCESS and prompt_safe_fact.facts:
+                    adapter_facts.append(prompt_safe_fact)
+                if adapter_result.edges_discovered:
+                    edge_observations.append(
+                        _AdapterEdgeObservation(
+                            source_service_id=service.id,
+                            adapter_id=adapter.adapter_id,
+                            observed_at=adapter_result.timestamp,
+                            edges=tuple(adapter_result.edges_discovered),
+                        )
+                    )
+
+        return _CollectedAdapterEvidence(
+            evidence=AdapterEvidenceCollection(
+                evidence_steps=evidence_steps,
+                adapter_facts=adapter_facts,
+            ),
+            edge_observations=edge_observations,
+        )
+
+
+def _workflow_relevant_services(
+    *,
+    incident: Incident,
+    findings: list[Finding],
+    services: list[Service],
+) -> list[Service]:
+    """Return services worth attempting deep inspection for this investigation."""
+    services_by_id = {service.id: service for service in services}
+    relevant_service_ids: list[str] = []
+    if (
+        incident.root_cause_service is not None
+        and incident.root_cause_service in services_by_id
+    ):
+        relevant_service_ids.append(incident.root_cause_service)
+    for service_id in incident.affected_services:
+        if service_id in services_by_id and service_id not in relevant_service_ids:
+            relevant_service_ids.append(service_id)
+    for finding in findings:
+        if finding.service_id in services_by_id and finding.service_id not in relevant_service_ids:
+            relevant_service_ids.append(finding.service_id)
+    return [services_by_id[service_id] for service_id in relevant_service_ids]
+
+
+def _bound_adapters_for_service(
+    *,
+    service: Service,
+    descriptors: tuple[LoadedServiceDescriptor, ...],
+    adapter_registry: AdapterRegistry,
+) -> list[ServiceAdapter]:
+    """Resolve unique bound adapters for one descriptor-backed service."""
+    if service.descriptor_id is None:
+        return []
+    descriptor = next(
+        (
+            item
+            for item in descriptors
+            if f"{item.path.parent.name}/{item.path.stem}" == service.descriptor_id
+        ),
+        None,
+    )
+    if descriptor is None:
+        return []
+
+    adapters: list[ServiceAdapter] = []
+    seen_adapter_ids: set[str] = set()
+    for surface in descriptor.descriptor.inspection.surfaces:
+        adapter = adapter_registry.get(
+            descriptor_id=service.descriptor_id,
+            surface_id=surface.id,
+        )
+        if adapter is None or adapter.adapter_id in seen_adapter_ids:
+            continue
+        seen_adapter_ids.add(adapter.adapter_id)
+        adapters.append(adapter)
+    return adapters
+
+
+def _adapter_skip_step(
+    *,
+    order: int,
+    service: Service,
+    adapter: ServiceAdapter,
+    resolution: AdapterCredentialResolution,
+    timestamp: datetime,
+) -> EvidenceStep:
+    """Build one evidence step for a skipped adapter invocation."""
+    state_label = (
+        "vault is locked"
+        if resolution.state is AdapterCredentialState.LOCKED
+        else "credentials are not configured"
+    )
+    return EvidenceStep(
+        order=order,
+        action="inspect_service_adapter",
+        target=service.id,
+        result_summary=(
+            f"Deep inspection via {adapter.adapter_id} skipped because {state_label}."
+        ),
+        result_data={
+            "service_id": service.id,
+            "adapter_id": adapter.adapter_id,
+            "credential_state": resolution.state.value,
+            "missing_credentials": cast(JsonValue, list(resolution.missing_keys)),
+            "status": "skipped",
+            "reason": resolution.detail,
+        },
+        timestamp=timestamp,
+    )
+
+
+def _adapter_result_step(
+    *,
+    order: int,
+    service: Service,
+    adapter: ServiceAdapter,
+    resolution: AdapterCredentialResolution,
+    prompt_safe_fact: PromptSafeAdapterFact,
+    timestamp: datetime,
+) -> EvidenceStep:
+    """Build one evidence step from an executed adapter result."""
+    facts_available = bool(prompt_safe_fact.facts)
+    if prompt_safe_fact.status is AdapterStatus.SUCCESS:
+        summary = (
+            f"Deep inspection via {adapter.adapter_id} returned "
+            f"{len(prompt_safe_fact.facts)} fact group(s) for {service.name}."
+        )
+    else:
+        summary = (
+            f"Deep inspection via {adapter.adapter_id} completed with status "
+            f"{prompt_safe_fact.status.value}."
+        )
+    return EvidenceStep(
+        order=order,
+        action="inspect_service_adapter",
+        target=service.id,
+        result_summary=summary,
+        result_data={
+            "service_id": service.id,
+            "adapter_id": adapter.adapter_id,
+            "credential_state": resolution.state.value,
+            "status": prompt_safe_fact.status.value,
+            "facts_available": facts_available,
+            "fact_keys": cast(JsonValue, sorted(prompt_safe_fact.facts.keys())),
+            "excluded_paths": cast(JsonValue, list(prompt_safe_fact.excluded_paths)),
+            "reason": prompt_safe_fact.reason,
+        },
+        timestamp=timestamp,
+    )
+
+
+def _apply_runtime_observed_upgrades(
+    *,
+    services: list[Service],
+    descriptors: tuple[LoadedServiceDescriptor, ...],
+    observations: list[_AdapterEdgeObservation],
+) -> list[Service]:
+    """Upgrade existing dependency edges when adapters confirm them at runtime."""
+    if not observations:
+        return services
+
+    services_by_id = {service.id: service for service in services}
+    alias_index = _unique_service_alias_index(services)
+    confidence_effects = _descriptor_confidence_effects(descriptors)
+    updated_services: list[Service] = []
+
+    for service in services:
+        observed = [
+            item
+            for item in observations
+            if item.source_service_id == service.id
+        ]
+        if not observed:
+            updated_services.append(service)
+            continue
+
+        edges_by_target = {
+            edge.target_service_id: edge
+            for edge in service.dependencies
+        }
+        changed = False
+        allowed_surfaces = (
+            confidence_effects.get(service.descriptor_id, {})
+            if service.descriptor_id is not None
+            else {}
+        )
+        for observation in observed:
+            for discovered_edge in observation.edges:
+                if allowed_surfaces.get(discovered_edge.surface_id) is not True:
+                    continue
+                target_service_id = alias_index.get(
+                    discovered_edge.target_service_name.casefold()
+                )
+                if target_service_id is None or target_service_id == service.id:
+                    continue
+                current_edge = edges_by_target.get(target_service_id)
+                if current_edge is None or current_edge.confidence not in {
+                    DependencyConfidence.CONFIGURED,
+                    DependencyConfidence.INFERRED,
+                }:
+                    continue
+                target_service = services_by_id.get(target_service_id)
+                if target_service is None:
+                    continue
+                edges_by_target[target_service_id] = current_edge.model_copy(
+                    update={
+                        "confidence": DependencyConfidence.RUNTIME_OBSERVED,
+                        "description": _runtime_observed_edge_description(
+                            current_description=current_edge.description,
+                            adapter_id=observation.adapter_id,
+                            target_service=target_service,
+                        ),
+                    }
+                )
+                changed = True
+
+        if not changed:
+            updated_services.append(service)
+            continue
+        updated_services.append(
+            service.model_copy(
+                update={
+                    "dependencies": sorted(
+                        edges_by_target.values(),
+                        key=lambda edge: edge.target_service_id,
+                    )
+                }
+            )
+        )
+
+    return updated_services
+
+
+def _descriptor_confidence_effects(
+    descriptors: tuple[LoadedServiceDescriptor, ...],
+) -> dict[str, dict[str, bool]]:
+    """Return which descriptor surfaces are allowed to confirm runtime edges."""
+    effects: dict[str, dict[str, bool]] = {}
+    for descriptor in descriptors:
+        descriptor_key = f"{descriptor.path.parent.name}/{descriptor.path.stem}"
+        effects[descriptor_key] = {
+            surface.id: (
+                surface.confidence_effect
+                is DescriptorInspectionConfidenceEffect.UPGRADE_TO_RUNTIME_OBSERVED
+            )
+            for surface in descriptor.descriptor.inspection.surfaces
+        }
+    return effects
+
+
+def _unique_service_alias_index(services: list[Service]) -> dict[str, str]:
+    """Build a deterministic alias index for exact, unique service matches only."""
+    alias_counts: dict[str, int] = {}
+    alias_to_service_id: dict[str, str] = {}
+    for service in services:
+        for alias in _service_aliases(service):
+            alias_counts[alias] = alias_counts.get(alias, 0) + 1
+            alias_to_service_id.setdefault(alias, service.id)
+    return {
+        alias: service_id
+        for alias, service_id in alias_to_service_id.items()
+        if alias_counts.get(alias) == 1
+    }
+
+
+def _service_aliases(service: Service) -> set[str]:
+    """Return exact aliases that are safe to use for adapter-edge matching."""
+    aliases = {service.name.casefold(), service.id.removeprefix("svc-").casefold()}
+    if service.descriptor_id is not None:
+        aliases.add(service.descriptor_id.split("/")[-1].casefold())
+    return {alias for alias in aliases if alias}
+
+
+def _runtime_observed_edge_description(
+    *,
+    current_description: str | None,
+    adapter_id: str,
+    target_service: Service,
+) -> str:
+    """Append a stable runtime-observed confirmation note to one edge description."""
+    confirmation = (
+        f"Adapter {adapter_id} confirmed the relationship to {target_service.name} "
+        "at runtime."
+    )
+    if current_description is None or current_description == "":
+        return confirmation
+    if confirmation in current_description:
+        return current_description
+    return f"{current_description} {confirmation}"
 
 
 class HeuristicInvestigationSynthesizer:

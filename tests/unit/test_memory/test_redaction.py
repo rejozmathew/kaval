@@ -5,14 +5,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from kaval.memory.redaction import (
+    StructuredRedactionPolicy,
     build_cloud_redaction_replacements,
     redact_for_cloud,
     redact_for_local,
+    redact_json_value,
 )
 from kaval.models import (
     DescriptorSource,
     Incident,
     IncidentStatus,
+    RedactionLevel,
     Service,
     ServiceStatus,
     ServiceType,
@@ -100,6 +103,81 @@ def test_redact_for_local_masks_secret_query_params_and_cookie_headers() -> None
         "https://example.com/api?token=%5BREDACTED%5D&view=full&password=%5BREDACTED%5D"
         in redacted
     )
+
+
+def test_redact_json_value_recurses_and_excludes_sensitive_fields() -> None:
+    """Structured redaction should recurse and omit explicitly excluded fields."""
+    payload = {
+        "service": "svc-delugevpn",
+        "probe_url": "http://delugevpn:8112/api/status?token=abc123",
+        "auth": {
+            "authorization": "Bearer really-secret",
+            "password": "hunter2",
+        },
+        "diagnostics": {
+            "session_cookie": "abc123",
+            "note": "Authorization: Bearer nested-secret",
+        },
+        "events": [
+            "token=xyz987",
+            {"api_key": "should-not-appear", "summary": "queue healthy"},
+        ],
+    }
+
+    redacted = redact_json_value(
+        payload,
+        redaction_level=RedactionLevel.REDACT_FOR_LOCAL,
+        policy=StructuredRedactionPolicy(
+            excluded_keys=("authorization", "api_key"),
+            excluded_paths=("diagnostics.session_cookie",),
+        ),
+    )
+
+    assert redacted.applied_redaction_level is RedactionLevel.REDACT_FOR_LOCAL
+    assert "http://delugevpn:8112/api/status?token=%5BREDACTED%5D" in redacted.redacted_value[
+        "probe_url"
+    ]
+    assert redacted.redacted_value["auth"]["password"] == "[REDACTED]"
+    assert redacted.redacted_value["diagnostics"]["note"] == (
+        "Authorization: Bearer [REDACTED]"
+    )
+    assert redacted.redacted_value["events"][0] == "token=[REDACTED]"
+    assert redacted.redacted_value["events"][1]["summary"] == "queue healthy"
+    assert "authorization" not in redacted.redacted_value["auth"]
+    assert "session_cookie" not in redacted.redacted_value["diagnostics"]
+    assert "api_key" not in redacted.redacted_value["events"][1]
+    assert redacted.excluded_paths == [
+        "auth.authorization",
+        "diagnostics.session_cookie",
+        "events[1].api_key",
+    ]
+
+
+def test_redact_json_value_applies_cloud_replacements_to_structured_payloads() -> None:
+    """Cloud-level structured redaction should apply stable placeholder replacements."""
+    incident = build_incident()
+    service = build_service()
+    payload = {
+        "incident_id": "inc-delugevpn",
+        "service_id": "svc-delugevpn",
+        "probe_url": "http://delugevpn:8112/api/status",
+        "private_ip": "192.168.1.50",
+    }
+
+    redacted = redact_json_value(
+        payload,
+        redaction_level=RedactionLevel.REDACT_FOR_CLOUD,
+        cloud_replacements=build_cloud_redaction_replacements(
+            incident=incident,
+            services=[service],
+        ),
+    )
+
+    assert redacted.redacted_value["incident_id"] == "[INCIDENT_ID]"
+    assert redacted.redacted_value["service_id"] == "[SERVICE_ID_1]"
+    assert redacted.redacted_value["probe_url"] == "http://[REDACTED_URL]"
+    assert redacted.redacted_value["private_ip"] == "[REDACTED_IP]"
+    assert redacted.excluded_paths == []
 
 
 def build_incident() -> Incident:

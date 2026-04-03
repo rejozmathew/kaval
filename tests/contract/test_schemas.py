@@ -9,6 +9,11 @@ from pathlib import Path
 from jsonschema.validators import validator_for
 
 from kaval.discovery.descriptors import ServiceDescriptor
+from kaval.integrations.service_adapters import (
+    AdapterDiscoveredEdge,
+    AdapterResult,
+    AdapterStatus,
+)
 from kaval.models import (
     ActionType,
     ApprovalToken,
@@ -90,6 +95,27 @@ def build_change() -> Change:
         new_value="2.1.1",
         timestamp=ts(13, 45),
         correlated_incidents=["inc-1"],
+    )
+
+
+def build_adapter_result() -> AdapterResult:
+    """Create a reusable adapter result sample."""
+    return AdapterResult(
+        adapter_id="radarr_api",
+        status=AdapterStatus.SUCCESS,
+        facts={
+            "download_clients": [{"name": "DelugeVPN", "enabled": True}],
+            "version": "5.0.3",
+        },
+        edges_discovered=[
+            AdapterDiscoveredEdge(
+                surface_id="download_clients",
+                target_service_name="DelugeVPN",
+                description="Radarr is configured to use DelugeVPN.",
+            )
+        ],
+        timestamp=ts(14, 25),
+        reason=None,
     )
 
 
@@ -497,6 +523,7 @@ def test_checked_in_schemas_match_exported_models(tmp_path: Path) -> None:
 
 def test_sample_payloads_validate_against_schemas() -> None:
     """Representative payloads should validate against checked-in schemas."""
+    adapter_result = build_adapter_result()
     incident = build_incident()
     finding = build_finding()
     investigation = build_investigation()
@@ -510,6 +537,7 @@ def test_sample_payloads_validate_against_schemas() -> None:
     approval_token = build_approval_token()
     service_descriptor = build_service_descriptor()
 
+    validate_with_schema("adapter_result.json", adapter_result.model_dump(mode="json"))
     validate_with_schema("incident.json", incident.model_dump(mode="json"))
     validate_with_schema("finding.json", finding.model_dump(mode="json"))
     validate_with_schema("investigation.json", investigation.model_dump(mode="json"))

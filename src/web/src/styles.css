@@ -550,7 +550,9 @@ select {
 .queue-list,
 .memory-list,
 .adapter-list,
-.improve-list {
+.improve-list,
+.kaval-health-list,
+.effectiveness-breakdown {
   display: grid;
   gap: 0.8rem;
 }
@@ -559,11 +561,60 @@ select {
 .queue-item,
 .memory-item,
 .adapter-card,
-.improve-card {
+.improve-card,
+.kaval-health-card,
+.effectiveness-card {
   border-radius: 1.15rem;
   padding: 0.9rem 0.95rem;
   background: rgba(8, 13, 19, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.effectiveness-panel {
+  margin-bottom: 1rem;
+}
+
+.effectiveness-score {
+  background: rgba(255, 149, 83, 0.16);
+  color: #ffbe7d;
+}
+
+.effectiveness-formula {
+  margin-bottom: 0.9rem;
+}
+
+.capability-state {
+  text-transform: none;
+}
+
+.state-healthy {
+  background: rgba(120, 216, 164, 0.16);
+  color: #8af2b9;
+}
+
+.state-degraded,
+.state-stale {
+  background: rgba(255, 191, 91, 0.16);
+  color: #ffd27a;
+}
+
+.state-unavailable {
+  background: rgba(255, 102, 91, 0.16);
+  color: #ff8c82;
+}
+
+.state-critical {
+  background: rgba(255, 102, 91, 0.16);
+  color: #ff8c82;
+}
+
+.state-disabled {
+  background: rgba(255, 255, 255, 0.06);
+  color: #d0d6de;
+}
+
+.capability-summary {
+  color: #f4efe7;
 }
 
 .service-detail-status {

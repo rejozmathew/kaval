@@ -588,20 +588,38 @@ This task is foundation-only for the service detail surface:
 **Goal**
 Provide a minimal dashboard/panel showing Kaval capability-layer health.
 
+This task includes the minimum runtime telemetry wiring needed to make the
+panel truthful for the currently missing capability layers:
+- discovery pipeline health
+- check scheduler health
+- executor process health
+
+This remains a narrow Phase 3A capability-health task only:
+- add typed runtime heartbeat/status inputs and persistence/query support only
+  where needed for honest health rendering
+- expose a typed API/UI contract for the capability-health panel
+- do not build a generalized telemetry or observability subsystem
+
 **Primary touch surfaces**
 - `src/web/`
 - backend API for capability health
+- minimal runtime telemetry persistence/helpers
 
 **Acceptance criteria**
 - The panel shows per-capability layer status and explanation.
 - It clearly distinguishes Kaval-health issues from service-health issues.
+- Discovery pipeline, check scheduler, and executor process states are backed by
+  real runtime signals rather than placeholder assumptions.
 
 **Validation focus**
 - UI build
 - API tests
+- focused runtime telemetry tests
 
 **Stop conditions**
 - Keep this focused on visibility, not alert routing policy.
+- Do not expand this into a broad telemetry platform, generalized metrics
+  system, or later 3B/3C observability work.
 
 ## P3A-20 — UI: Effectiveness score stub
 

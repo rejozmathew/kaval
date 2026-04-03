@@ -18,6 +18,9 @@ from kaval.models import (
     SystemProfile,
     VMProfile,
 )
+from kaval.runtime.capability_runtime import (
+    build_discovery_pipeline_runtime_signal,
+)
 
 _BYTES_PER_GIB = 1024**3
 _BYTES_PER_TIB = 1024**4
@@ -74,6 +77,15 @@ def build_system_profile(
 def persist_system_profile(database: KavalDatabase, system_profile: SystemProfile) -> None:
     """Persist the singleton system profile into the existing SQLite store."""
     database.upsert_system_profile(system_profile)
+    database.upsert_capability_runtime_signal(
+        build_discovery_pipeline_runtime_signal(
+            recorded_at=system_profile.last_updated,
+            last_succeeded_at=system_profile.last_updated,
+            unraid_api_reachable=True,
+            docker_api_reachable=True,
+            trigger="system_profile_persisted",
+        )
+    )
 
 
 def _build_networking_profile(services: Sequence[Service]) -> NetworkingProfile:

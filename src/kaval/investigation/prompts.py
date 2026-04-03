@@ -211,6 +211,7 @@ def _render_user_prompt(
     sections = [
         _render_incident_section(incident=incident, now=now),
         _render_evidence_section(evidence),
+        _render_adapter_facts_section(evidence),
         _render_research_section(research),
         _render_memory_section(evidence),
         _render_constraints_section(degraded_reasons),
@@ -279,6 +280,17 @@ def _render_memory_section(evidence: InvestigationEvidenceResult) -> str:
         ),
     }
     return "Operational Memory:\n" + _render_json(memory_payload)
+
+
+def _render_adapter_facts_section(evidence: InvestigationEvidenceResult) -> str:
+    """Render prompt-safe adapter facts when they have been supplied."""
+    if not evidence.adapter_facts:
+        return ""
+    payload = cast(
+        JsonValue,
+        [item.model_dump(mode="json") for item in evidence.adapter_facts],
+    )
+    return "Adapter Facts:\n" + _render_json(payload)
 
 
 def _render_research_section(research: Tier2ResearchBundle | None) -> str:

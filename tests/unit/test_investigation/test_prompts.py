@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
+from kaval.integrations.adapter_facts import PromptSafeAdapterFact
+from kaval.integrations.service_adapters import AdapterStatus
 from kaval.investigation.evidence import InvestigationEvidenceResult
 from kaval.investigation.prompts import (
     INVESTIGATION_RESPONSE_SCHEMA,
@@ -87,6 +89,37 @@ def test_prompt_bundle_renders_tier2_research_context_when_present() -> None:
     assert "Research Results:" in bundle.user_prompt
     assert "\"github_status\": \"success\"" in bundle.user_prompt
     assert "\"dockerhub_status\": \"partial\"" in bundle.user_prompt
+
+
+def test_prompt_bundle_renders_prompt_safe_adapter_facts_when_present() -> None:
+    """Prompt rendering should include the adapter-facts section only when supplied."""
+    evidence = build_evidence_result()
+    evidence.adapter_facts.append(
+        PromptSafeAdapterFact(
+            adapter_id="cloudflare_api",
+            status=AdapterStatus.SUCCESS,
+            timestamp=ts(14, 26),
+            applied_redaction_level=RedactionLevel.REDACT_FOR_LOCAL,
+            facts={
+                "probe_url": "http://delugevpn:8112/api/status",
+                "ssl_mode": {"value": "full_strict"},
+            },
+            excluded_paths=["credentials.authorization"],
+            reason=None,
+        )
+    )
+
+    bundle = build_investigation_prompt_bundle(
+        incident=build_incident(),
+        evidence=evidence,
+        now=ts(14, 30),
+    )
+
+    assert "Adapter Facts:" in bundle.user_prompt
+    assert "\"adapter_id\": \"cloudflare_api\"" in bundle.user_prompt
+    assert "\"applied_redaction_level\": \"redact_for_local\"" in bundle.user_prompt
+    assert "\"excluded_paths\": [" in bundle.user_prompt
+    assert "\"credentials.authorization\"" in bundle.user_prompt
 
 
 def build_incident() -> Incident:

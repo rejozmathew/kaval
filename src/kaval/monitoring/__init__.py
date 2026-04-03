@@ -14,7 +14,12 @@ from kaval.monitoring.cadence import (
     resolve_monitoring_cadence_decision,
     resolve_service_check_interval,
 )
-from kaval.monitoring.scheduler import CheckScheduler, SchedulerRunResult, persist_findings
+from kaval.monitoring.scheduler import (
+    CheckScheduler,
+    SchedulerRunResult,
+    persist_findings,
+    persist_scheduler_runtime_signal,
+)
 
 __all__ = [
     "CheckScheduler",
@@ -29,6 +34,7 @@ __all__ = [
     "incident_acceleration_active",
     "incident_service_scope",
     "persist_findings",
+    "persist_scheduler_runtime_signal",
     "resolve_check_interval",
     "resolve_monitoring_cadence_decision",
     "resolve_service_check_interval",

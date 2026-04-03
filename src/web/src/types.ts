@@ -220,6 +220,41 @@ export interface WidgetSummary {
   last_updated: string | null;
 }
 
+export interface CapabilityHealthLayer {
+  layer: string;
+  status: string;
+  display_state: "healthy" | "degraded" | "unavailable" | "stale" | "disabled";
+  summary: string;
+  detail: string;
+  user_impact: string;
+  guidance: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface CapabilityHealthReport {
+  checked_at: string;
+  overall_status: string;
+  layers: CapabilityHealthLayer[];
+}
+
+export interface EffectivenessBreakdownItem {
+  bucket: string;
+  label: string;
+  target_level: number;
+  service_count: number;
+  services_at_target: number;
+  services_below_target: number;
+}
+
+export interface EffectivenessReport {
+  score_percent: number;
+  services_at_target: number;
+  total_services: number;
+  improvable_services: number;
+  formula: string;
+  breakdown: EffectivenessBreakdownItem[];
+}
+
 export interface RealtimeSnapshot {
   kind: "snapshot";
   graph: GraphResponse;

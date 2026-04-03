@@ -14,6 +14,7 @@ from kaval.monitoring.cadence import (
     resolve_monitoring_cadence_decision,
 )
 from kaval.monitoring.checks.base import CheckContext, MonitoringCheck
+from kaval.runtime.capability_runtime import build_scheduler_runtime_signal
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +97,22 @@ def persist_findings(database: KavalDatabase, findings: Sequence[Finding]) -> No
     """Persist scheduler findings into the existing SQLite store."""
     for finding in findings:
         database.upsert_finding(finding)
+
+
+def persist_scheduler_runtime_signal(
+    database: KavalDatabase,
+    *,
+    run_at: datetime,
+    result: SchedulerRunResult,
+) -> None:
+    """Persist one completed scheduler tick for capability-health reporting."""
+    database.upsert_capability_runtime_signal(
+        build_scheduler_runtime_signal(
+            recorded_at=run_at,
+            last_completed_at=run_at,
+            executed_check_ids=result.executed_checks,
+        )
+    )
 
 
 def _is_due(

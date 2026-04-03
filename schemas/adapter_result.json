@@ -1,0 +1,148 @@
+{
+  "$defs": {
+    "AdapterDiscoveredEdge": {
+      "additionalProperties": false,
+      "description": "One dependency hint extracted from a deep-inspection surface.",
+      "properties": {
+        "confidence": {
+          "$ref": "#/$defs/DependencyConfidence",
+          "default": "runtime_observed"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "surface_id": {
+          "minLength": 1,
+          "title": "Surface Id",
+          "type": "string"
+        },
+        "target_service_name": {
+          "minLength": 1,
+          "title": "Target Service Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "surface_id",
+        "target_service_name"
+      ],
+      "title": "AdapterDiscoveredEdge",
+      "type": "object"
+    },
+    "AdapterStatus": {
+      "description": "Supported adapter execution outcomes.",
+      "enum": [
+        "success",
+        "auth_failed",
+        "connection_failed",
+        "version_incompatible",
+        "parse_error",
+        "degraded"
+      ],
+      "title": "AdapterStatus",
+      "type": "string"
+    },
+    "DependencyConfidence": {
+      "description": "Confidence levels for dependency edges.",
+      "enum": [
+        "configured",
+        "runtime_observed",
+        "user_confirmed",
+        "inferred",
+        "auto_generated"
+      ],
+      "title": "DependencyConfidence",
+      "type": "string"
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "Structured output returned by one deep-inspection adapter execution.",
+  "properties": {
+    "adapter_id": {
+      "minLength": 1,
+      "title": "Adapter Id",
+      "type": "string"
+    },
+    "edges_discovered": {
+      "items": {
+        "$ref": "#/$defs/AdapterDiscoveredEdge"
+      },
+      "title": "Edges Discovered",
+      "type": "array"
+    },
+    "facts": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Facts",
+      "type": "object"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "status": {
+      "$ref": "#/$defs/AdapterStatus"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "adapter_id",
+    "status",
+    "timestamp"
+  ],
+  "title": "AdapterResult",
+  "type": "object"
+}

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from itertools import zip_longest
 from typing import Callable, Iterable, Sequence, cast
@@ -14,6 +14,7 @@ from kaval.discovery.docker import (
     DockerDiscoverySnapshot,
     DockerTransportError,
 )
+from kaval.integrations.adapter_facts import PromptSafeAdapterFact
 from kaval.memory.recurrence import detect_recurrences
 from kaval.memory.redaction import (
     CloudRedactionReplacement,
@@ -46,6 +47,15 @@ class InvestigationEvidenceResult:
 
     evidence_steps: list[EvidenceStep]
     operational_memory: OperationalMemoryResult
+    adapter_facts: list[PromptSafeAdapterFact] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class AdapterEvidenceCollection:
+    """Additional adapter-derived evidence attached to one investigation run."""
+
+    evidence_steps: list[EvidenceStep] = field(default_factory=list)
+    adapter_facts: list[PromptSafeAdapterFact] = field(default_factory=list)
 
 
 def collect_incident_evidence(
@@ -180,6 +190,21 @@ def collect_incident_evidence(
     return InvestigationEvidenceResult(
         evidence_steps=steps,
         operational_memory=operational_memory,
+    )
+
+
+def merge_adapter_evidence(
+    evidence: InvestigationEvidenceResult,
+    *,
+    adapter_evidence: AdapterEvidenceCollection,
+) -> InvestigationEvidenceResult:
+    """Attach adapter-derived evidence to a base investigation evidence result."""
+    if not adapter_evidence.evidence_steps and not adapter_evidence.adapter_facts:
+        return evidence
+    return InvestigationEvidenceResult(
+        evidence_steps=[*evidence.evidence_steps, *adapter_evidence.evidence_steps],
+        operational_memory=evidence.operational_memory,
+        adapter_facts=[*evidence.adapter_facts, *adapter_evidence.adapter_facts],
     )
 
 

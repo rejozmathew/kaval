@@ -4,8 +4,8 @@
 - Name: Kaval
 - PRD version: 4.1
 - Current phase: Phase 3A
-- Current task: P3A-19 UI: Kaval health panel
-- Overall status: Phase 3A is paused at P3A-19 because the repo still lacks trustworthy runtime health inputs for several capability layers; P3A-01 through P3A-18 passed validation
+- Current task: Phase 3A complete
+- Overall status: Phase 3A task execution is complete from the current repo state; P3A-01 through P3A-25 passed validation and the Phase 3A exit criteria are satisfied
 
 ## Phase gates
 - [x] Phase 0 complete
@@ -24,6 +24,67 @@
 - [x] Operational Memory query/result schema
 
 ## Completed work
+- 2026-04-03: Completed P3A-25 Scenario tests.
+- Goal: prove the Phase 3A cross-cutting behavior with scenario coverage for one visible adapter degradation fallback path and for lifecycle add/remove/update semantics at the service-map/history level.
+- Goal: keep the scope narrow by reusing the shipped capability-health, fallback, lifecycle, graph, and change-history surfaces instead of inventing new telemetry or UI behavior just for test coverage.
+- Added `tests/scenario/test_phase3a_degradation_and_lifecycle.py` with one scenario that shows a degraded `radarr_api` diagnostic capping deep-inspection insight back to investigation-ready while the capability-health panel reports adapter degradation, and one scenario that persists lifecycle refresh output then verifies add/remove/update semantics through `/api/v1/graph` and `/api/v1/changes`.
+- Files changed: `tests/scenario/test_phase3a_degradation_and_lifecycle.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/scenario/test_phase3a_degradation_and_lifecycle.py`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit tests/integration`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/contract`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/scenario`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: none. The new scenario coverage and the full Phase 3A validation surface passed from the current repo state.
+- Next task: none within Phase 3A; await direction before starting Phase 3B.
+- 2026-04-03: Completed P3A-24 Contract tests.
+- Goal: add contract-level coverage for the shipped Phase 3A adapter interfaces and the stable service-insight progression without expanding the contract surface to private helpers.
+- Goal: formalize `AdapterResult` as a checked-in schema artifact so adapter payloads stay aligned with the typed Pydantic model already used across investigation and adapter flows.
+- Extended `src/kaval/schema_export.py` and regenerated `schemas/adapter_result.json`, then expanded `tests/contract/test_schemas.py` with a representative `AdapterResult` payload and added `tests/contract/test_adapter_contracts.py` to assert shipped adapter bindings exactly match declared inspection surfaces and the approved insight ladder remains stable.
+- Files changed: `src/kaval/schema_export.py`, `schemas/adapter_result.json`, `tests/contract/test_schemas.py`, `tests/contract/test_adapter_contracts.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -c "from pathlib import Path; from kaval.schema_export import export_schemas; export_schemas(Path('schemas'))"`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/contract`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: none. The partial schema/test work already matched the current stable interfaces, so the generated artifact and focused contract sweep passed without further fixes.
+- Next task: P3A-25 Scenario tests.
+- 2026-04-03: Completed P3A-23 Confidence upgrade.
+- Goal: upgrade existing dependency edges from `inferred` or `configured` to `runtime_observed` when adapter-confirmed relationships arrive during investigation evidence gathering.
+- Goal: keep the upgrade deterministic and narrow by matching only exact unique service aliases, updating only pre-existing edges, and preserving compatibility with the existing fallback/staleness model from P3A-11.
+- Extended `src/kaval/investigation/workflow.py` with internal adapter edge observations, runtime-observed upgrade helpers, and service persistence updates so successful adapter-confirmed edges now harden the stored graph after investigation completion.
+- Expanded `tests/unit/test_investigation/test_workflow.py` to cover the confidence-upgrade path and the guardrail that unmatched adapter targets must not create new dependency edges automatically.
+- Files changed: `src/kaval/investigation/workflow.py`, `tests/unit/test_investigation/test_workflow.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_memory tests/unit/test_investigation tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first pass surfaced a nullable descriptor-id lookup in the new confidence-effect map and one unnecessary draft recomputation of base evidence; both were corrected before the final validation sweep. No blocker for P3A-23.
+- Next task: P3A-24 Contract tests.
+- 2026-04-03: Completed P3A-22 Evidence gathering integration.
+- Goal: wire deep-inspection adapters into Tier 1 investigations so available credentials can unlock adapter facts during evidence collection without broadening remediation scope.
+- Goal: keep the integration narrow by using the existing credential service, adapter registry, and P3A-21 prompt-safe redaction path while degrading cleanly on missing credentials or failed adapter runs.
+- Added `AdapterEvidenceCollection` and merge helpers in `src/kaval/investigation/evidence.py`, then updated `src/kaval/investigation/workflow.py` to resolve bound adapters per service, invoke them during evidence collection, append structured adapter evidence steps, and attach redacted prompt-safe adapter facts only on successful reads.
+- Added focused workflow coverage in `tests/unit/test_investigation/test_workflow.py` for successful adapter evidence collection, unconfigured credentials, and adapter auth-failure behavior; existing memory/investigation/security suites now exercise the integrated prompt-safe path end to end.
+- Files changed: `src/kaval/investigation/evidence.py`, `src/kaval/investigation/workflow.py`, `tests/unit/test_investigation/test_workflow.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_memory tests/unit/test_investigation tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first implementation pass exposed a descriptor-key mismatch (`category/stem` vs YAML `id:`), an import omission for `cast`, and typed JSON/result-data cleanup in the new workflow helper; all were corrected and the reruns passed. No blocker for P3A-22.
+- Next task: P3A-23 Confidence upgrade.
+- 2026-04-03: Completed P3A-21 Two-level redaction for adapter facts.
+- Goal: extend the existing local-safe and cloud-safe redaction path so adapter-imported facts cannot enter model-facing prompts unredacted.
+- Goal: keep the task foundational by adding typed structured-redaction and prompt-assembly support without pulling full adapter evidence collection forward ahead of P3A-22.
+- Added recursive structured redaction in `src/kaval/memory/redaction.py`, exported the new helpers from `src/kaval/memory/__init__.py`, and added `src/kaval/integrations/adapter_facts.py` for prompt-safe adapter-fact serialization with explicit excluded-field tracking.
+- Extended `src/kaval/investigation/evidence.py` and `src/kaval/investigation/prompts.py` with an optional typed `adapter_facts` prompt section, and added focused coverage in `tests/unit/test_memory/test_redaction.py`, `tests/unit/test_investigation/test_prompts.py`, and `tests/security/test_cloud_prompt_redaction.py`.
+- Files changed: `src/kaval/memory/redaction.py`, `src/kaval/memory/__init__.py`, `src/kaval/integrations/adapter_facts.py`, `src/kaval/investigation/evidence.py`, `src/kaval/investigation/prompts.py`, `tests/unit/test_memory/test_redaction.py`, `tests/unit/test_investigation/test_prompts.py`, `tests/security/test_cloud_prompt_redaction.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_memory tests/unit/test_investigation tests/security`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, and `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`.
+- Failures/blockers: the first validation pass surfaced a missing test import, an overly strict prompt assertion, an import-cycle risk from package-level re-export in `kaval.integrations`, and a structured-redaction gap for sensitive keyed leaf values; all were corrected and the reruns passed. No blocker for P3A-21.
+- Next task: P3A-22 Evidence gathering integration.
+- 2026-04-03: Completed P3A-20 UI: Effectiveness score stub.
+- Goal: expose the minimum equal-weighted v1 effectiveness score and a transparent breakdown showing how many services are already at their maximum achievable insight level.
+- Goal: keep the work narrow by using the explicit v1 formula from the requirements, avoiding weighting systems or speculative scoring dimensions, and shipping only the minimal API/dashboard surface needed to understand the number.
+- Added `src/kaval/effectiveness.py` with typed maximum-achievable insight buckets, the equal-weighted v1 aggregation logic, and a simple breakdown contract keyed by target insight level.
+- Added `/api/v1/effectiveness` in `src/kaval/api/app.py`, updated `src/web/src/App.tsx`, `src/web/src/types.ts`, and `src/web/src/styles.css` to show an effectiveness tile plus a compact breakdown panel, and added focused coverage in `tests/unit/test_effectiveness.py` and `tests/integration/test_fastapi_app.py`.
+- Files changed: `src/kaval/effectiveness.py`, `src/kaval/api/app.py`, `src/web/src/App.tsx`, `src/web/src/types.ts`, `src/web/src/styles.css`, `tests/unit/test_effectiveness.py`, `tests/integration/test_fastapi_app.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_effectiveness.py tests/integration/test_fastapi_app.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`, and `npm run build` in `src/web`.
+- Failures/blockers: the first validation pass surfaced only three line-length violations in the new score helper and test assertion; after wrapping those lines, the rerun passed. No blocker for P3A-20.
+- Next task: P3A-21 Two-level redaction for adapter facts.
+- 2026-04-03: Completed P3A-19 UI: Kaval health panel.
+- Goal: implement the approved minimum Kaval capability-health panel with truthful runtime backing for discovery pipeline, check scheduler, and executor process layers rather than placeholder UI-only states.
+- Goal: keep the work narrowly scoped to typed runtime telemetry inputs, persistence/query support, a typed API/UI contract, and a minimum panel surface without building a general telemetry subsystem.
+- Applied the narrow execution-contract clarification in `plans/phase-3a.md`, added keyed runtime signal persistence via `migrations/0004_phase3a_capability_runtime_signals.sql`, `src/kaval/database.py`, and new runtime report helpers in `src/kaval/runtime/capability_runtime.py`, then wired discovery capture through `src/kaval/system_profile.py`, scheduler capture through `src/kaval/monitoring/scheduler.py`, and executor startup reporting through `src/kaval/executor/server.py`.
+- Added `/api/v1/capability-health` in `src/kaval/api/app.py`, exported the new runtime contracts through `src/kaval/runtime/__init__.py`, updated `src/web/src/App.tsx`, `src/web/src/types.ts`, and `src/web/src/styles.css` to render a dedicated Kaval health panel, and added focused runtime/API coverage in `tests/unit/test_capability_runtime.py`, `tests/unit/test_database.py`, `tests/integration/test_fastapi_app.py`, and `tests/integration/test_system_profile_persistence.py`.
+- Files changed: `plans/phase-3a.md`, `migrations/0004_phase3a_capability_runtime_signals.sql`, `src/kaval/api/app.py`, `src/kaval/database.py`, `src/kaval/executor/server.py`, `src/kaval/monitoring/__init__.py`, `src/kaval/monitoring/scheduler.py`, `src/kaval/runtime/__init__.py`, `src/kaval/runtime/capability_runtime.py`, `src/kaval/system_profile.py`, `src/web/src/App.tsx`, `src/web/src/styles.css`, `src/web/src/types.ts`, `tests/unit/test_capability_runtime.py`, `tests/unit/test_database.py`, `tests/integration/test_fastapi_app.py`, `tests/integration/test_system_profile_persistence.py`, `STATUS.md`.
+- Validations run: `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_capability_runtime.py tests/unit/test_database.py tests/integration/test_fastapi_app.py tests/integration/test_system_profile_persistence.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`, and `npm run build` in `src/web`.
+- Failures/blockers: the first validation pass exposed only import ordering, a few long lines, one runtime-signal adapter typing gap, one `migrations_current()` type issue, and a test monkeypatch that targeted the FastAPI app object instead of the module; all were corrected and the reruns passed. No remaining blocker for P3A-19.
+- Next task: P3A-20 UI: Effectiveness score stub.
 - 2026-04-03: Completed P3A-18 UI: Service detail insight section.
 - Goal: implement the approved minimum service-detail insight surface only, with a typed later-enrichable payload, current insight visibility, adapter availability/configured state, adapter health only where currently derivable, and explicit improve affordances.
 - Goal: keep imported-fact summaries, evidence-path rendering, and broader 3A/3C service-detail behavior out of scope until the later adapter-fact and evidence tasks land.
@@ -709,16 +770,11 @@
 - Next task: Phase 3 gate decision.
 
 ## Open blockers
-- 2026-04-03: Blocked on `P3A-19 UI: Kaval health panel`.
-- Attempted: inspected `src/kaval/runtime/capability_health.py`, `src/kaval/monitoring/scheduler.py`, `src/kaval/runtime/supervisor.py`, `src/kaval/actions/client.py`, and the current API/UI surfaces.
-- Findings: the typed 10-layer health model exists, but the current repo does not persist or expose trustworthy runtime inputs for at least discovery-pipeline health, check-scheduler health, and executor-process health. The only scheduler run state is in-memory inside `CheckScheduler`, discovery has no persisted heartbeat/schedule status, and executor health has no existing API-facing runtime record.
-- Smallest unblocking decision needed: either approve a narrow `P3A-19` interpretation that shows only currently derivable layer states and explicitly marks the missing runtime layers as telemetry-not-yet-wired/degraded, or approve adding the minimum runtime heartbeat/persistence/API inputs needed for discovery, scheduler, and executor health before resuming `P3A-19`.
-- 2026-04-03: Blocked on `P3A-18 UI: Service detail insight section`.
-- Attempted: inspected the existing selected-service panel in `src/web/src/App.tsx`, the current FastAPI service/graph payloads in `src/kaval/api/app.py`, and the current adapter foundation modules under `src/kaval/integrations/`.
-- Findings: the repo currently exposes only base `Service`/graph data plus internal adapter foundation helpers; it does not yet persist or expose per-service adapter health/config state, imported fact summaries, or improve-affordance payloads required by the `P3A-18` acceptance criteria.
-- Smallest unblocking decision needed: either approve a narrow foundation-only interpretation of `P3A-18` limited to current insight level plus descriptor-declared deep-inspection availability/unconfigured affordances, or add/approve a backend detail-payload task that persists and exposes per-service adapter status/fact summaries before resuming `P3A-18`.
+- None currently recorded.
 
 ## Resolved blockers
+- 2026-04-03: Resolved the `P3A-19 UI: Kaval health panel` sequencing blocker with a narrow control-doc clarification and approved run-local interpretation.
+- Resolution: `P3A-19` now explicitly includes only the minimum runtime heartbeat/persistence/API inputs needed to truthfully report discovery pipeline, check scheduler, and executor process health; it does not approve a broad telemetry or observability subsystem.
 - 2026-04-03: Resolved the `P3A-18 UI: Service detail insight section` sequencing blocker with a narrow control-doc clarification and approved run-local interpretation.
 - Resolution: `P3A-18` is now treated as a minimum service-detail insight task only: current insight level, adapter availability/configured state, adapter health when already derivable, improve affordances, and a later-enrichable payload contract without requiring imported-fact summaries yet.
 - 2026-04-03: Resolved the `P3A-11 Adapter degradation and fallback behavior` sequencing blocker with a narrow control-doc clarification and approved run-local interpretation.

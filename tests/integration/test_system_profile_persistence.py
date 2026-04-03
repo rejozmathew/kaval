@@ -12,6 +12,7 @@ from kaval.discovery.descriptors import load_service_descriptors
 from kaval.discovery.docker import build_discovery_snapshot
 from kaval.discovery.unraid import build_discovery_snapshot as build_unraid_discovery_snapshot
 from kaval.discovery.unraid import decode_graphql_data
+from kaval.runtime import CapabilityRuntimeSignalSource, DiscoveryPipelineRuntimeSignal
 from kaval.system_profile import build_system_profile, persist_system_profile
 
 DOCKER_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "docker"
@@ -67,3 +68,10 @@ def test_system_profile_persists_to_sqlite(tmp_path: Path) -> None:
     persist_system_profile(database, profile)
 
     assert database.get_system_profile() == profile
+    runtime_signal = database.get_capability_runtime_signal(
+        CapabilityRuntimeSignalSource.DISCOVERY_PIPELINE
+    )
+    assert isinstance(runtime_signal, DiscoveryPipelineRuntimeSignal)
+    assert runtime_signal.last_succeeded_at == profile.last_updated
+    assert runtime_signal.unraid_api_reachable is True
+    assert runtime_signal.docker_api_reachable is True

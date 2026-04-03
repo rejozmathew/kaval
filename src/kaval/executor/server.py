@@ -25,6 +25,10 @@ from kaval.models import (
     ExecutorActionResult,
     ExecutorActionStatus,
 )
+from kaval.runtime.capability_runtime import (
+    build_executor_process_runtime_signal,
+    probe_unix_socket,
+)
 
 ALLOWED_EXECUTOR_ACTIONS = frozenset({ActionType.RESTART_CONTAINER})
 _EXECUTION_STARTED_MARKER = "execution_started"
@@ -365,11 +369,14 @@ def serve_executor(
     now_factory: Callable[[], datetime] | None = None,
 ) -> None:
     """Run the executor socket server until it is terminated."""
+    effective_now_factory = now_factory or (lambda: datetime.now(tz=UTC))
     with create_executor_server(
         config,
         docker_client=docker_client,
-        now_factory=now_factory,
+        now_factory=effective_now_factory,
     ) as server:
+        started_at = effective_now_factory()
+        _persist_executor_startup_signal(config=config, started_at=started_at)
         server.serve_forever(poll_interval=0.25)
 
 
@@ -377,6 +384,32 @@ def main() -> int:
     """Launch the internal executor process from environment-backed settings."""
     serve_executor(ExecutorServerConfig.from_env())
     return 0
+
+
+def _persist_executor_startup_signal(
+    *,
+    config: ExecutorServerConfig,
+    started_at: datetime,
+) -> None:
+    """Persist the executor startup signal for capability-health reporting."""
+    database = KavalDatabase(
+        path=config.database_path,
+        migrations_dir=config.migrations_dir,
+    )
+    try:
+        database.bootstrap()
+        database.upsert_capability_runtime_signal(
+            build_executor_process_runtime_signal(
+                recorded_at=started_at,
+                listener_started_at=started_at,
+                socket_path=config.socket_path,
+                docker_socket_path=config.docker_socket_path,
+                socket_reachable=probe_unix_socket(config.socket_path),
+                docker_accessible=probe_unix_socket(config.docker_socket_path),
+            )
+        )
+    finally:
+        database.close()
 
 
 if __name__ == "__main__":  # pragma: no cover
