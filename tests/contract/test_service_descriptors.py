@@ -36,6 +36,7 @@ def test_shipped_service_descriptors_load_from_services_tree() -> None:
     assert {item.descriptor.id for item in loaded_descriptors} == EXPECTED_DESCRIPTOR_IDS
     assert all(item.descriptor.source == DescriptorSource.SHIPPED for item in loaded_descriptors)
     assert all(item.descriptor.verified is True for item in loaded_descriptors)
+    assert all(item.descriptor.generated_at is None for item in loaded_descriptors)
 
 
 def test_shipped_descriptors_live_under_expected_service_categories() -> None:

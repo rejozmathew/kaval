@@ -5,7 +5,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from kaval.api.schemas import ServiceAdapterFactsResponse
+from kaval.api.schemas import (
+    DescriptorCommunityExportResponse,
+    QuarantinedDescriptorActionResponse,
+    QuarantinedDescriptorQueueItemResponse,
+    ServiceAdapterFactsResponse,
+    ServiceDescriptorGenerateResponse,
+    ServiceDescriptorSaveRequest,
+    ServiceDescriptorSaveResponse,
+    ServiceDescriptorValidationResponse,
+    ServiceDescriptorViewResponse,
+)
 from kaval.discovery.descriptors import ServiceDescriptor
 from kaval.integrations.service_adapters import AdapterResult
 from kaval.integrations.webhooks import WebhookEvent
@@ -55,6 +65,14 @@ SCHEMA_MODELS: tuple[tuple[str, type[KavalModel]], ...] = (
     ("risk_assessment.json", RiskAssessment),
     ("service.json", Service),
     ("service_adapter_facts_response.json", ServiceAdapterFactsResponse),
+    ("descriptor_community_export_response.json", DescriptorCommunityExportResponse),
+    ("quarantined_descriptor_action_response.json", QuarantinedDescriptorActionResponse),
+    ("quarantined_descriptor_queue_item_response.json", QuarantinedDescriptorQueueItemResponse),
+    ("service_descriptor_generate_response.json", ServiceDescriptorGenerateResponse),
+    ("service_descriptor_save_request.json", ServiceDescriptorSaveRequest),
+    ("service_descriptor_save_response.json", ServiceDescriptorSaveResponse),
+    ("service_descriptor_validation_response.json", ServiceDescriptorValidationResponse),
+    ("service_descriptor_view_response.json", ServiceDescriptorViewResponse),
     ("service_insight.json", ServiceInsight),
     ("service_lifecycle.json", ServiceLifecycle),
     ("service_lifecycle_event.json", ServiceLifecycleEvent),

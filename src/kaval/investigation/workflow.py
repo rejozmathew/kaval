@@ -21,6 +21,7 @@ from kaval.discovery.descriptors import (
     DescriptorInspectionConfidenceEffect,
     LoadedServiceDescriptor,
     load_service_descriptors,
+    loaded_descriptor_identifier,
 )
 from kaval.discovery.docker import DockerDiscoverySnapshot
 from kaval.grouping import can_transition_incident_status, transition_incident
@@ -556,7 +557,7 @@ class InvestigationWorkflow:
             for service_id, hint in self.research_hints_by_service.items()
         }
         descriptors_by_service_id = {
-            f"{descriptor.path.parent.name}/{descriptor.path.stem}": descriptor
+            loaded_descriptor_identifier(descriptor): descriptor
             for descriptor in self.descriptors
         }
 
@@ -777,7 +778,7 @@ def _bound_adapters_for_service(
         (
             item
             for item in descriptors
-            if f"{item.path.parent.name}/{item.path.stem}" == service.descriptor_id
+            if loaded_descriptor_identifier(item) == service.descriptor_id
         ),
         None,
     )
@@ -959,7 +960,7 @@ def _descriptor_confidence_effects(
     """Return which descriptor surfaces are allowed to confirm runtime edges."""
     effects: dict[str, dict[str, bool]] = {}
     for descriptor in descriptors:
-        descriptor_key = f"{descriptor.path.parent.name}/{descriptor.path.stem}"
+        descriptor_key = loaded_descriptor_identifier(descriptor)
         effects[descriptor_key] = {
             surface.id: (
                 surface.confidence_effect

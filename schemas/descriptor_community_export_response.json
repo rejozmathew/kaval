@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "description": "Read-only export payload for a reviewed community descriptor candidate.",
+  "properties": {
+    "descriptor_id": {
+      "title": "Descriptor Id",
+      "type": "string"
+    },
+    "omitted_fields": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Omitted Fields",
+      "type": "array"
+    },
+    "target_path": {
+      "title": "Target Path",
+      "type": "string"
+    },
+    "yaml_text": {
+      "title": "Yaml Text",
+      "type": "string"
+    }
+  },
+  "required": [
+    "descriptor_id",
+    "target_path",
+    "yaml_text"
+  ],
+  "title": "DescriptorCommunityExportResponse",
+  "type": "object"
+}

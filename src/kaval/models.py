@@ -512,6 +512,23 @@ class DependencyEdge(KavalModel):
     description: str | None
 
 
+class DependencyOverrideState(StrEnum):
+    """Persisted admin intent for one dependency edge."""
+
+    PRESENT = "present"
+    ABSENT = "absent"
+
+
+class DependencyOverride(KavalModel):
+    """One persisted admin override for a discovered dependency edge."""
+
+    source_service_id: str
+    target_service_id: str
+    state: DependencyOverrideState
+    description: str | None
+    updated_at: datetime
+
+
 class ServiceInsight(KavalModel):
     """The current insight depth available for one service."""
 

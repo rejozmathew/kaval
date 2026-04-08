@@ -13,7 +13,11 @@ from kaval.credentials.models import (
     CredentialRequestStatus,
 )
 from kaval.database import KavalDatabase
-from kaval.discovery.descriptors import LoadedServiceDescriptor, load_service_descriptors
+from kaval.discovery.descriptors import (
+    LoadedServiceDescriptor,
+    load_service_descriptors,
+    loaded_descriptor_identifier,
+)
 from kaval.models import Service
 
 
@@ -43,6 +47,7 @@ class CredentialRequestManager:
     """Create, list, and advance credential requests without storing secrets."""
 
     database: KavalDatabase
+    services_dir: Path | str = field(default_factory=default_services_dir)
     descriptors: tuple[LoadedServiceDescriptor, ...] = ()
     default_request_ttl_seconds: int = 1800
     _descriptors_by_id: dict[str, LoadedServiceDescriptor] = field(
@@ -55,12 +60,16 @@ class CredentialRequestManager:
         if self.default_request_ttl_seconds <= 0:
             msg = "default_request_ttl_seconds must be positive"
             raise ValueError(msg)
+        self.services_dir = Path(self.services_dir)
         if not self.descriptors:
-            self.descriptors = tuple(load_service_descriptors([default_services_dir()]))
-        self._descriptors_by_id = {
-            f"{descriptor.path.parent.name}/{descriptor.path.stem}": descriptor
-            for descriptor in self.descriptors
-        }
+            self.reload_descriptors()
+            return
+        self._refresh_descriptor_index()
+
+    def reload_descriptors(self) -> None:
+        """Reload descriptors from the configured services tree."""
+        self.descriptors = tuple(load_service_descriptors([self.services_dir]))
+        self._refresh_descriptor_index()
 
     def create_request(
         self,
@@ -271,3 +280,10 @@ class CredentialRequestManager:
             )
             raise CredentialRequestHintError(msg)
         return hint.description, hint.location
+
+    def _refresh_descriptor_index(self) -> None:
+        """Rebuild the stable descriptor lookup used for request resolution."""
+        self._descriptors_by_id = {
+            loaded_descriptor_identifier(descriptor): descriptor
+            for descriptor in self.descriptors
+        }

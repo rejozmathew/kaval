@@ -8,7 +8,7 @@ from typing import Sequence
 
 from pydantic import Field
 
-from kaval.discovery.descriptors import LoadedServiceDescriptor
+from kaval.discovery.descriptors import LoadedServiceDescriptor, loaded_descriptor_identifier
 from kaval.integrations import AdapterRegistry
 from kaval.models import KavalModel, Service, ServiceInsightLevel
 
@@ -51,15 +51,10 @@ def build_effectiveness_report(
     adapter_registry: AdapterRegistry,
 ) -> EffectivenessReport:
     """Build the equal-weighted v1 effectiveness score and simple breakdown."""
-    descriptor_ids_with_adapters = {
-        descriptor_id
-        for descriptor_id, loaded_descriptor in _descriptors_by_id(descriptors).items()
-        if _descriptor_has_adapter(
-            descriptor_id=descriptor_id,
-            loaded_descriptor=loaded_descriptor,
-            adapter_registry=adapter_registry,
-        )
-    }
+    descriptor_ids_with_adapters = build_descriptor_ids_with_adapters(
+        descriptors=descriptors,
+        adapter_registry=adapter_registry,
+    )
 
     breakdown_counts: dict[
         tuple[EffectivenessBucket, ServiceInsightLevel],
@@ -140,12 +135,29 @@ def maximum_achievable_insight_level(
     return ServiceInsightLevel.INVESTIGATION_READY
 
 
+def build_descriptor_ids_with_adapters(
+    *,
+    descriptors: Sequence[LoadedServiceDescriptor],
+    adapter_registry: AdapterRegistry,
+) -> set[str]:
+    """Return descriptor identifiers that currently have shipped adapter coverage."""
+    return {
+        descriptor_id
+        for descriptor_id, loaded_descriptor in _descriptors_by_id(descriptors).items()
+        if _descriptor_has_adapter(
+            descriptor_id=descriptor_id,
+            loaded_descriptor=loaded_descriptor,
+            adapter_registry=adapter_registry,
+        )
+    }
+
+
 def _descriptors_by_id(
     descriptors: Sequence[LoadedServiceDescriptor],
 ) -> dict[str, LoadedServiceDescriptor]:
     """Index loaded descriptors by the persisted service descriptor identifier."""
     return {
-        f"{descriptor.path.parent.name}/{descriptor.path.stem}": descriptor
+        loaded_descriptor_identifier(descriptor): descriptor
         for descriptor in descriptors
     }
 

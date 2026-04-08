@@ -74,6 +74,16 @@ export interface GraphEdge {
 export interface GraphResponse {
   services: Service[];
   edges: GraphEdge[];
+  node_meta: Array<{
+    service_id: string;
+    target_insight_level: number;
+    improve_available: boolean;
+  }>;
+}
+
+export interface GraphEdgeMutationResponse {
+  edge: GraphEdge | null;
+  audit_change: Change;
 }
 
 export interface Incident {
@@ -85,6 +95,7 @@ export interface Incident {
   changes_correlated: string[];
   triggering_symptom: string | null;
   suspected_cause: string | null;
+  root_cause_service: string | null;
   investigation_id: string | null;
   approved_actions: string[];
   confidence: number;
@@ -320,6 +331,114 @@ export interface ServiceDetailResponse {
     improve_actions: ServiceDetailImproveAction[];
     fact_summary_available: boolean;
   };
+}
+
+export interface ServiceDescriptorView {
+  descriptor_id: string;
+  file_path: string;
+  write_target_path: string;
+  name: string;
+  category: string;
+  source: "shipped" | "auto_generated" | "user";
+  verified: boolean;
+  generated_at: string | null;
+  project_url: string | null;
+  icon: string | null;
+  match: {
+    image_patterns: string[];
+    container_name_patterns: string[];
+  };
+  endpoints: Array<{
+    name: string;
+    port: number;
+    path: string | null;
+    auth: string | null;
+    auth_header: string | null;
+    healthy_when: string | null;
+  }>;
+  dns_targets: Array<{
+    host: string;
+    record_type: string;
+    expected_values: string[];
+  }>;
+  log_signals: {
+    errors: string[];
+    warnings: string[];
+  };
+  typical_dependency_containers: Array<{
+    name: string;
+    alternatives: string[];
+  }>;
+  typical_dependency_shares: string[];
+  common_failure_modes: Array<{
+    trigger: string;
+    likely_cause: string;
+    check_first: string[];
+  }>;
+  investigation_context: string | null;
+  inspection_surfaces: Array<{
+    id: string;
+    type: string;
+    description: string;
+    endpoint: string | null;
+    auth: string | null;
+    auth_header: string | null;
+    read_only: boolean;
+    facts_provided: string[];
+    confidence_effect: string | null;
+    version_range: string | null;
+  }>;
+  credential_hints: Array<{
+    key: string;
+    description: string;
+    location: string;
+    prompt: string | null;
+  }>;
+  raw_yaml: string;
+}
+
+export interface ServiceDescriptorSaveResponse {
+  descriptor: ServiceDescriptorView;
+  audit_change: Change;
+}
+
+export interface QuarantinedDescriptorQueueItem {
+  descriptor: ServiceDescriptorView;
+  review_state: "pending" | "deferred";
+  review_updated_at: string;
+  matching_services: Service[];
+}
+
+export interface QuarantinedDescriptorActionResponse {
+  descriptor_id: string;
+  action: "edited" | "promoted" | "dismissed" | "deferred";
+  review_state: "pending" | "deferred" | null;
+  descriptor: ServiceDescriptorView | null;
+  audit_change: Change;
+}
+
+export interface ServiceDescriptorValidationResponse {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  preview: {
+    descriptor_id: string;
+    write_target_path: string;
+    match: {
+      current_service_likely_matches: boolean;
+      affected_services: Array<{
+        service_id: string;
+        service_name: string;
+        likely_matches: boolean;
+      }>;
+    };
+    dependency_impact: {
+      added_container_dependencies: string[];
+      removed_container_dependencies: string[];
+      added_share_dependencies: string[];
+      removed_share_dependencies: string[];
+    };
+  } | null;
 }
 
 export interface ServiceAdapterFactsItem {

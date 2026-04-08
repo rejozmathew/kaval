@@ -1,8 +1,18 @@
 {
   "$defs": {
-    "DescriptorContainerDependency": {
+    "DescriptorSource": {
+      "description": "Origins for service descriptors.",
+      "enum": [
+        "shipped",
+        "auto_generated",
+        "user"
+      ],
+      "title": "DescriptorSource",
+      "type": "string"
+    },
+    "DescriptorViewContainerDependencyResponse": {
       "additionalProperties": false,
-      "description": "A named container dependency with optional alternatives.",
+      "description": "One rendered container dependency entry.",
       "properties": {
         "alternatives": {
           "items": {
@@ -19,15 +29,19 @@
       "required": [
         "name"
       ],
-      "title": "DescriptorContainerDependency",
+      "title": "DescriptorViewContainerDependencyResponse",
       "type": "object"
     },
-    "DescriptorCredentialHint": {
+    "DescriptorViewCredentialHintResponse": {
       "additionalProperties": false,
-      "description": "Instructions for locating a service credential.",
+      "description": "One rendered credential-hint entry.",
       "properties": {
         "description": {
           "title": "Description",
+          "type": "string"
+        },
+        "key": {
+          "title": "Key",
           "type": "string"
         },
         "location": {
@@ -48,44 +62,16 @@
         }
       },
       "required": [
+        "key",
         "description",
         "location"
       ],
-      "title": "DescriptorCredentialHint",
+      "title": "DescriptorViewCredentialHintResponse",
       "type": "object"
     },
-    "DescriptorDependencies": {
+    "DescriptorViewEndpointResponse": {
       "additionalProperties": false,
-      "description": "Typical dependencies captured by a service descriptor.",
-      "properties": {
-        "containers": {
-          "items": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "$ref": "#/$defs/DescriptorContainerDependency"
-              }
-            ]
-          },
-          "title": "Containers",
-          "type": "array"
-        },
-        "shares": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Shares",
-          "type": "array"
-        }
-      },
-      "title": "DescriptorDependencies",
-      "type": "object"
-    },
-    "DescriptorEndpoint": {
-      "additionalProperties": false,
-      "description": "A health or UI endpoint defined by a service descriptor.",
+      "description": "One rendered descriptor endpoint.",
       "properties": {
         "auth": {
           "anyOf": [
@@ -123,6 +109,10 @@
           "default": null,
           "title": "Healthy When"
         },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
         "path": {
           "anyOf": [
             {
@@ -136,21 +126,20 @@
           "title": "Path"
         },
         "port": {
-          "maximum": 65535,
-          "minimum": 1,
           "title": "Port",
           "type": "integer"
         }
       },
       "required": [
+        "name",
         "port"
       ],
-      "title": "DescriptorEndpoint",
+      "title": "DescriptorViewEndpointResponse",
       "type": "object"
     },
-    "DescriptorFailureMode": {
+    "DescriptorViewFailureModeResponse": {
       "additionalProperties": false,
-      "description": "A common failure mode captured by a service descriptor.",
+      "description": "One rendered failure-mode entry.",
       "properties": {
         "check_first": {
           "items": {
@@ -172,56 +161,24 @@
         "trigger",
         "likely_cause"
       ],
-      "title": "DescriptorFailureMode",
+      "title": "DescriptorViewFailureModeResponse",
       "type": "object"
     },
-    "DescriptorInspection": {
+    "DescriptorViewInspectionSurfaceResponse": {
       "additionalProperties": false,
-      "description": "Inspection capability declarations for a service descriptor.",
-      "properties": {
-        "surfaces": {
-          "items": {
-            "$ref": "#/$defs/DescriptorInspectionSurface"
-          },
-          "title": "Surfaces",
-          "type": "array"
-        }
-      },
-      "title": "DescriptorInspection",
-      "type": "object"
-    },
-    "DescriptorInspectionAuthMode": {
-      "description": "Supported auth modes for inspection surfaces.",
-      "enum": [
-        "api_key",
-        "token",
-        "basic"
-      ],
-      "title": "DescriptorInspectionAuthMode",
-      "type": "string"
-    },
-    "DescriptorInspectionConfidenceEffect": {
-      "description": "Supported dependency-confidence upgrades from inspection surfaces.",
-      "enum": [
-        "upgrade_to_runtime_observed"
-      ],
-      "title": "DescriptorInspectionConfidenceEffect",
-      "type": "string"
-    },
-    "DescriptorInspectionSurface": {
-      "additionalProperties": false,
-      "description": "One declarative deep-inspection surface exposed by a service descriptor.",
+      "description": "One rendered inspection-surface entry.",
       "properties": {
         "auth": {
           "anyOf": [
             {
-              "$ref": "#/$defs/DescriptorInspectionAuthMode"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Auth"
         },
         "auth_header": {
           "anyOf": [
@@ -238,13 +195,14 @@
         "confidence_effect": {
           "anyOf": [
             {
-              "$ref": "#/$defs/DescriptorInspectionConfidenceEffect"
+              "type": "string"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "title": "Confidence Effect"
         },
         "description": {
           "title": "Description",
@@ -279,7 +237,8 @@
           "type": "boolean"
         },
         "type": {
-          "$ref": "#/$defs/DescriptorInspectionSurfaceType"
+          "title": "Type",
+          "type": "string"
         },
         "version_range": {
           "anyOf": [
@@ -299,22 +258,12 @@
         "type",
         "description"
       ],
-      "title": "DescriptorInspectionSurface",
+      "title": "DescriptorViewInspectionSurfaceResponse",
       "type": "object"
     },
-    "DescriptorInspectionSurfaceType": {
-      "description": "Supported deep-inspection surface types.",
-      "enum": [
-        "api",
-        "config",
-        "database"
-      ],
-      "title": "DescriptorInspectionSurfaceType",
-      "type": "string"
-    },
-    "DescriptorLogSignals": {
+    "DescriptorViewLogSignalsResponse": {
       "additionalProperties": false,
-      "description": "Log signal patterns associated with a service.",
+      "description": "Rendered log-signal section for one descriptor.",
       "properties": {
         "errors": {
           "items": {
@@ -331,12 +280,12 @@
           "type": "array"
         }
       },
-      "title": "DescriptorLogSignals",
+      "title": "DescriptorViewLogSignalsResponse",
       "type": "object"
     },
-    "DescriptorMatchRule": {
+    "DescriptorViewMatchResponse": {
       "additionalProperties": false,
-      "description": "Patterns used to match a discovered service to a descriptor.",
+      "description": "Rendered match rules for one descriptor view.",
       "properties": {
         "container_name_patterns": {
           "items": {
@@ -353,18 +302,8 @@
           "type": "array"
         }
       },
-      "title": "DescriptorMatchRule",
+      "title": "DescriptorViewMatchResponse",
       "type": "object"
-    },
-    "DescriptorSource": {
-      "description": "Origins for service descriptors.",
-      "enum": [
-        "shipped",
-        "auto_generated",
-        "user"
-      ],
-      "title": "DescriptorSource",
-      "type": "string"
     },
     "DnsRecordType": {
       "description": "Supported deterministic DNS record types for Phase 1.",
@@ -403,7 +342,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "A strict YAML-backed service descriptor.",
+  "description": "Rendered descriptor view contract for the admin UI.",
   "properties": {
     "category": {
       "title": "Category",
@@ -411,17 +350,21 @@
     },
     "common_failure_modes": {
       "items": {
-        "$ref": "#/$defs/DescriptorFailureMode"
+        "$ref": "#/$defs/DescriptorViewFailureModeResponse"
       },
       "title": "Common Failure Modes",
       "type": "array"
     },
     "credential_hints": {
-      "additionalProperties": {
-        "$ref": "#/$defs/DescriptorCredentialHint"
+      "items": {
+        "$ref": "#/$defs/DescriptorViewCredentialHintResponse"
       },
       "title": "Credential Hints",
-      "type": "object"
+      "type": "array"
+    },
+    "descriptor_id": {
+      "title": "Descriptor Id",
+      "type": "string"
     },
     "dns_targets": {
       "items": {
@@ -431,11 +374,15 @@
       "type": "array"
     },
     "endpoints": {
-      "additionalProperties": {
-        "$ref": "#/$defs/DescriptorEndpoint"
+      "items": {
+        "$ref": "#/$defs/DescriptorViewEndpointResponse"
       },
       "title": "Endpoints",
-      "type": "object"
+      "type": "array"
+    },
+    "file_path": {
+      "title": "File Path",
+      "type": "string"
     },
     "generated_at": {
       "anyOf": [
@@ -462,12 +409,12 @@
       "default": null,
       "title": "Icon"
     },
-    "id": {
-      "title": "Id",
-      "type": "string"
-    },
-    "inspection": {
-      "$ref": "#/$defs/DescriptorInspection"
+    "inspection_surfaces": {
+      "items": {
+        "$ref": "#/$defs/DescriptorViewInspectionSurfaceResponse"
+      },
+      "title": "Inspection Surfaces",
+      "type": "array"
     },
     "investigation_context": {
       "anyOf": [
@@ -482,10 +429,10 @@
       "title": "Investigation Context"
     },
     "log_signals": {
-      "$ref": "#/$defs/DescriptorLogSignals"
+      "$ref": "#/$defs/DescriptorViewLogSignalsResponse"
     },
     "match": {
-      "$ref": "#/$defs/DescriptorMatchRule"
+      "$ref": "#/$defs/DescriptorViewMatchResponse"
     },
     "name": {
       "title": "Name",
@@ -503,25 +450,47 @@
       "default": null,
       "title": "Project Url"
     },
-    "source": {
-      "$ref": "#/$defs/DescriptorSource",
-      "default": "shipped"
+    "raw_yaml": {
+      "title": "Raw Yaml",
+      "type": "string"
     },
-    "typical_dependencies": {
-      "$ref": "#/$defs/DescriptorDependencies"
+    "source": {
+      "$ref": "#/$defs/DescriptorSource"
+    },
+    "typical_dependency_containers": {
+      "items": {
+        "$ref": "#/$defs/DescriptorViewContainerDependencyResponse"
+      },
+      "title": "Typical Dependency Containers",
+      "type": "array"
+    },
+    "typical_dependency_shares": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Typical Dependency Shares",
+      "type": "array"
     },
     "verified": {
       "default": true,
       "title": "Verified",
       "type": "boolean"
+    },
+    "write_target_path": {
+      "title": "Write Target Path",
+      "type": "string"
     }
   },
   "required": [
-    "id",
+    "descriptor_id",
+    "file_path",
+    "write_target_path",
     "name",
     "category",
-    "match"
+    "source",
+    "match",
+    "raw_yaml"
   ],
-  "title": "ServiceDescriptor",
+  "title": "ServiceDescriptorViewResponse",
   "type": "object"
 }

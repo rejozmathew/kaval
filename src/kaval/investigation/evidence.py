@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from itertools import zip_longest
 from typing import Callable, Iterable, Sequence, cast
 
-from kaval.discovery.descriptors import LoadedServiceDescriptor
+from kaval.discovery.descriptors import LoadedServiceDescriptor, loaded_descriptor_identifier
 from kaval.discovery.docker import (
     DockerContainerSnapshot,
     DockerDiscoverySnapshot,
@@ -401,7 +401,7 @@ def _descriptor_map(
     """Index descriptors by the stable identifier stored on Service records."""
     mapping: dict[str | None, LoadedServiceDescriptor] = {}
     for descriptor in descriptors:
-        mapping[f"{descriptor.path.parent.name}/{descriptor.path.stem}"] = descriptor
+        mapping[loaded_descriptor_identifier(descriptor)] = descriptor
     return mapping
 
 

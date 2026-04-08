@@ -113,11 +113,12 @@ class OpenAICompatibleInvestigationSynthesizer:
     ) -> InvestigationSynthesis:
         """Request structured investigation output from the configured local model."""
         del incident, evidence
-        http_request = self._build_request(prompt_bundle)
-        response_body = self._transport()(http_request, self.config.timeout_seconds)
-        response_payload = self._decode_response_payload(response_body)
-        content = _extract_response_content(response_payload)
-        structured_payload = _extract_json_object(content)
+        structured_payload = request_openai_compatible_json(
+            config=self.config,
+            system_prompt=prompt_bundle.system_prompt,
+            user_prompt=prompt_bundle.user_prompt,
+            transport=self.transport,
+        )
         structured_payload["model_used"] = ModelUsed.LOCAL.value
         structured_payload["cloud_model_calls"] = 0
         return InvestigationSynthesis.model_validate(structured_payload)
@@ -146,18 +147,6 @@ class OpenAICompatibleInvestigationSynthesizer:
     def _transport(self) -> RequestTransport:
         """Return the configured transport or the production default transport."""
         return self.transport or _default_transport
-
-    @staticmethod
-    def _decode_response_payload(response_body: bytes) -> ChatCompletionResponse:
-        """Decode and validate the provider response payload."""
-        try:
-            raw_payload = json.loads(response_body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise LocalModelResponseError("local model returned non-JSON content") from exc
-        try:
-            return ChatCompletionResponse.model_validate(raw_payload)
-        except ValidationError as exc:
-            raise LocalModelResponseError("local model response shape was invalid") from exc
 
 
 def load_local_model_config_from_env(
@@ -188,6 +177,37 @@ def load_local_model_config_from_env(
         api_key=api_key.strip() if api_key else None,
         timeout_seconds=timeout_seconds,
     )
+
+
+def request_openai_compatible_json(
+    *,
+    config: LocalModelConfig,
+    system_prompt: str,
+    user_prompt: str,
+    transport: RequestTransport | None = None,
+) -> dict[str, JsonValue]:
+    """Request one JSON object from the configured local model endpoint."""
+    payload = ChatCompletionRequest(
+        model=config.model,
+        messages=[
+            ChatCompletionMessage(role="system", content=system_prompt),
+            ChatCompletionMessage(role="user", content=user_prompt),
+        ],
+        temperature=0.0,
+    ).model_dump(mode="json")
+    headers = {"Content-Type": "application/json"}
+    if config.api_key:
+        headers["Authorization"] = f"Bearer {config.api_key}"
+    http_request = request.Request(
+        f"{config.base_url}/v1/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    response_body = (transport or _default_transport)(http_request, config.timeout_seconds)
+    response_payload = _decode_response_payload(response_body)
+    content = _extract_response_content(response_payload)
+    return _extract_json_object(content)
 
 
 def _default_transport(http_request: request.Request, timeout_seconds: float) -> bytes:
@@ -228,6 +248,18 @@ def _extract_json_object(content: str) -> dict[str, JsonValue]:
         if isinstance(parsed, dict):
             return cast(dict[str, JsonValue], parsed)
     raise LocalModelResponseError("local model content did not contain a JSON object")
+
+
+def _decode_response_payload(response_body: bytes) -> ChatCompletionResponse:
+    """Decode and validate the provider response payload."""
+    try:
+        raw_payload = json.loads(response_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LocalModelResponseError("local model returned non-JSON content") from exc
+    try:
+        return ChatCompletionResponse.model_validate(raw_payload)
+    except ValidationError as exc:
+        raise LocalModelResponseError("local model response shape was invalid") from exc
 
 
 def _strip_markdown_fences(content: str) -> str:

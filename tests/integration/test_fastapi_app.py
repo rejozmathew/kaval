@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -13,6 +14,11 @@ from kaval.api import create_app
 from kaval.credentials import build_credential_request_callback_id
 from kaval.credentials.models import CredentialRequestMode
 from kaval.database import KavalDatabase
+from kaval.discovery.descriptors import (
+    load_service_descriptors,
+    loaded_descriptor_identifier,
+    write_user_descriptor,
+)
 from kaval.models import (
     ArrayProfile,
     Change,
@@ -53,6 +59,7 @@ from kaval.runtime import (
 
 api_app_module = importlib.import_module("kaval.api.app")
 WEBHOOK_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "webhooks"
+REPO_SERVICES_DIR = Path(__file__).resolve().parents[2] / "services"
 
 
 def ts(hour: int, minute: int = 0) -> datetime:
@@ -164,6 +171,18 @@ def test_fastapi_core_endpoints_expose_phase1_state(
             "description": "Mounted downloads share confirms dependency.",
         }
     ]
+    assert graph_payload["node_meta"] == [
+        {
+            "service_id": "svc-delugevpn",
+            "target_insight_level": 3,
+            "improve_available": True,
+        },
+        {
+            "service_id": "svc-downloads-share",
+            "target_insight_level": 0,
+            "improve_available": False,
+        },
+    ]
 
     widget_payload = widget_response.json()
     assert widget_response.status_code == 200
@@ -233,6 +252,134 @@ def test_fastapi_service_insight_upgrades_when_local_model_is_configured(
 
     assert services_response.status_code == 200
     assert services_response.json()[0]["insight"] == {"level": 3}
+
+
+def test_graph_edge_confirmation_logs_a_config_change(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Confirming an edge should persist a user override and an audit change."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/v1/graph/edges",
+            json={
+                "source_service_id": "svc-delugevpn",
+                "target_service_id": "svc-downloads-share",
+            },
+        )
+        graph_response = client.get("/api/v1/graph")
+        changes_response = client.get("/api/v1/changes")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["edge"] == {
+        "source_service_id": "svc-delugevpn",
+        "target_service_id": "svc-downloads-share",
+        "confidence": "user_confirmed",
+        "source": "user",
+        "description": "Mounted downloads share confirms dependency.",
+    }
+    assert payload["audit_change"]["type"] == "config_change"
+    assert (
+        "Confirmed dependency edge DelugeVPN -> downloads."
+        in payload["audit_change"]["description"]
+    )
+    graph_edges = graph_response.json()["edges"]
+    assert graph_edges == [payload["edge"]]
+    latest_change = changes_response.json()[-1]
+    assert latest_change["id"] == payload["audit_change"]["id"]
+
+
+def test_graph_edge_edit_and_remove_routes_update_the_effective_graph(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Editing and removing an edge should persist effective-graph overrides."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        edit_response = client.put(
+            "/api/v1/graph/edges",
+            json={
+                "previous_source_service_id": "svc-delugevpn",
+                "previous_target_service_id": "svc-downloads-share",
+                "source_service_id": "svc-delugevpn",
+                "target_service_id": "svc-radarr",
+                "description": (
+                    "Admin corrected this edge after reviewing the actual dependency path."
+                ),
+            },
+        )
+        graph_after_edit = client.get("/api/v1/graph")
+        remove_response = client.delete("/api/v1/graph/edges/svc-delugevpn/svc-radarr")
+        graph_after_remove = client.get("/api/v1/graph")
+
+    assert edit_response.status_code == 200
+    assert edit_response.json()["edge"] == {
+        "source_service_id": "svc-delugevpn",
+        "target_service_id": "svc-radarr",
+        "confidence": "user_confirmed",
+        "source": "user",
+        "description": "Admin corrected this edge after reviewing the actual dependency path.",
+    }
+    assert graph_after_edit.status_code == 200
+    assert graph_after_edit.json()["edges"] == [edit_response.json()["edge"]]
+    assert remove_response.status_code == 200
+    assert remove_response.json()["edge"] is None
+    assert (
+        "Removed dependency edge DelugeVPN -> Radarr."
+        in remove_response.json()["audit_change"]["description"]
+    )
+    assert graph_after_remove.status_code == 200
+    assert graph_after_remove.json()["edges"] == []
+
+
+def test_graph_edge_add_route_persists_across_subsequent_graph_reads(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Adding a new edge should survive later graph reloads through the override layer."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/v1/graph/edges",
+            json={
+                "source_service_id": "svc-downloads-share",
+                "target_service_id": "svc-radarr",
+                "description": "Added manually after reviewing the downstream dependency.",
+            },
+        )
+        first_graph = client.get("/api/v1/graph")
+        second_graph = client.get("/api/v1/graph")
+
+    assert response.status_code == 200
+    expected_edge = {
+        "source_service_id": "svc-downloads-share",
+        "target_service_id": "svc-radarr",
+        "confidence": "user_confirmed",
+        "source": "user",
+        "description": "Added manually after reviewing the downstream dependency.",
+    }
+    assert response.json()["edge"] == expected_edge
+    assert expected_edge in first_graph.json()["edges"]
+    assert expected_edge in second_graph.json()["edges"]
 
 
 def test_webhook_receiver_accepts_bearer_auth_for_configured_source(
@@ -467,6 +614,756 @@ def test_service_detail_endpoint_surfaces_unconfigured_configured_and_locked_ada
         },
     ]
     assert "radarr-secret-value" not in locked_detail.text
+
+
+def test_service_descriptor_view_endpoint_returns_rendered_descriptor_sections(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Descriptor view should expose a structured rendered descriptor payload."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/services/svc-radarr/descriptor")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["descriptor_id"] == "arr/radarr"
+    assert payload["file_path"].endswith("services/arr/radarr.yaml")
+    assert payload["source"] == "shipped"
+    assert payload["verified"] is True
+    assert payload["generated_at"] is None
+    assert payload["match"]["image_patterns"][:2] == [
+        "lscr.io/linuxserver/radarr*",
+        "hotio/radarr*",
+    ]
+    assert payload["endpoints"][0]["name"] == "health_api"
+    assert payload["typical_dependency_containers"][0] == {
+        "name": "prowlarr",
+        "alternatives": [],
+    }
+    assert payload["credential_hints"] == [
+        {
+            "key": "api_key",
+            "description": "Radarr API Key",
+            "location": "Radarr Web UI -> Settings -> General -> API Key",
+            "prompt": "Provide the Radarr API key to enable deep inspection.",
+        }
+    ]
+    assert any(
+        surface["id"] == "health_api"
+        and surface["confidence_effect"] == "upgrade_to_runtime_observed"
+        for surface in payload["inspection_surfaces"]
+    )
+
+
+def test_service_descriptor_view_endpoint_returns_404_for_unmatched_service(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Descriptor view should reject services without a matched descriptor."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/services/svc-downloads-share/descriptor")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "descriptor not found"}
+
+
+def test_service_descriptor_save_endpoint_writes_user_override_without_mutating_shipped(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Descriptor saves should land in services/user and immediately become active."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    services_dir = tmp_path / "services"
+    shutil.copytree(REPO_SERVICES_DIR, services_dir)
+    original_shipped_descriptor = (services_dir / "arr" / "radarr.yaml").read_text(
+        encoding="utf-8"
+    )
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path, services_dir=services_dir)
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/v1/services/svc-radarr/descriptor",
+            json={
+                "mode": "form",
+                "match": {
+                    "image_patterns": [
+                        "lscr.io/linuxserver/radarr*",
+                        "hotio/radarr*",
+                        "custom/radarr*",
+                    ],
+                    "container_name_patterns": [],
+                },
+                "endpoints": [
+                    {
+                        "name": "health_api",
+                        "port": 7878,
+                        "path": "/ping",
+                        "auth": "api_key",
+                        "auth_header": "X-Api-Key",
+                        "healthy_when": "status_ok",
+                    }
+                ],
+                "typical_dependency_containers": [
+                    {
+                        "name": "prowlarr",
+                        "alternatives": [],
+                    },
+                    {
+                        "name": "delugevpn",
+                        "alternatives": ["qbittorrent"],
+                    },
+                ],
+                "typical_dependency_shares": ["data", "downloads"],
+            },
+        )
+        detail_response = client.get("/api/v1/services/svc-radarr/detail")
+        descriptor_response = client.get("/api/v1/services/svc-radarr/descriptor")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["descriptor"]["source"] == "user"
+    assert payload["descriptor"]["file_path"].endswith("services/user/arr/radarr.yaml")
+    assert payload["descriptor"]["write_target_path"].endswith("services/user/arr/radarr.yaml")
+    assert payload["descriptor"]["raw_yaml"].find("custom/radarr*") != -1
+    assert payload["audit_change"]["type"] == "config_change"
+    assert payload["audit_change"]["new_value"].endswith("services/user/arr/radarr.yaml")
+
+    assert detail_response.status_code == 200
+    assert detail_response.json()["service"]["descriptor_source"] == "user"
+
+    assert descriptor_response.status_code == 200
+    assert descriptor_response.json()["source"] == "user"
+
+    saved_override = (services_dir / "user" / "arr" / "radarr.yaml").read_text(
+        encoding="utf-8"
+    )
+    shipped_descriptor = (services_dir / "arr" / "radarr.yaml").read_text(encoding="utf-8")
+    assert "source: user" in saved_override
+    assert "custom/radarr*" in saved_override
+    assert shipped_descriptor == original_shipped_descriptor
+
+
+def test_service_descriptor_save_endpoint_rejects_yaml_identity_changes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Advanced YAML edits must stay bound to the current descriptor identity."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    services_dir = tmp_path / "services"
+    shutil.copytree(REPO_SERVICES_DIR, services_dir)
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path, services_dir=services_dir)
+
+    with TestClient(app) as client:
+        initial_descriptor = client.get("/api/v1/services/svc-radarr/descriptor")
+        response = client.put(
+            "/api/v1/services/svc-radarr/descriptor",
+            json={
+                "mode": "yaml",
+                "raw_yaml": initial_descriptor.json()["raw_yaml"].replace(
+                    "id: radarr",
+                    "id: radarr_override",
+                    1,
+                ),
+            },
+        )
+
+    assert initial_descriptor.status_code == 200
+    assert response.status_code == 400
+    assert response.json() == {"detail": "descriptor id cannot change during edit mode"}
+
+
+def test_service_descriptor_validate_endpoint_returns_preview_and_warnings(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Validation should preview bounded match and dependency impact before save."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    services_dir = tmp_path / "services"
+    shutil.copytree(REPO_SERVICES_DIR, services_dir)
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path, services_dir=services_dir)
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/v1/services/svc-radarr/descriptor/validate",
+            json={
+                "mode": "form",
+                "match": {
+                    "image_patterns": ["custom/radarr*"],
+                    "container_name_patterns": [],
+                },
+                "endpoints": [
+                    {
+                        "name": "health_api",
+                        "port": 7878,
+                        "path": "/ping",
+                        "auth": "api_key",
+                        "auth_header": "X-Api-Key",
+                        "healthy_when": "status_ok",
+                    }
+                ],
+                "typical_dependency_containers": [
+                    {
+                        "name": "prowlarr",
+                        "alternatives": [],
+                    }
+                ],
+                "typical_dependency_shares": ["downloads"],
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["valid"] is True
+    assert payload["errors"] == []
+    assert payload["preview"]["descriptor_id"] == "arr/radarr"
+    assert payload["preview"]["write_target_path"].endswith("services/user/arr/radarr.yaml")
+    assert payload["preview"]["match"]["current_service_likely_matches"] is False
+    assert payload["preview"]["dependency_impact"]["removed_container_dependencies"] == [
+        "delugevpn"
+    ]
+    assert payload["preview"]["dependency_impact"]["removed_share_dependencies"] == ["media"]
+    assert any(
+        "leave the shipped descriptor unchanged" in warning
+        for warning in payload["warnings"]
+    )
+    assert any("no longer appears to match" in warning for warning in payload["warnings"])
+
+
+def test_service_descriptor_validate_endpoint_returns_understandable_errors(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Validation should report schema or policy failures without saving."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    services_dir = tmp_path / "services"
+    shutil.copytree(REPO_SERVICES_DIR, services_dir)
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path, services_dir=services_dir)
+
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/v1/services/svc-radarr/descriptor/validate",
+            json={
+                "mode": "form",
+                "match": {
+                    "image_patterns": [],
+                    "container_name_patterns": [],
+                },
+                "endpoints": [],
+                "typical_dependency_containers": [],
+                "typical_dependency_shares": [],
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "valid": False,
+        "errors": [
+            "descriptor validation failed: descriptor match rules require at least one pattern"
+        ],
+        "warnings": [],
+        "preview": None,
+    }
+
+
+def test_auto_generate_service_descriptor_endpoint_writes_quarantined_candidate(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Auto-generation should persist a quarantined candidate without activating it."""
+    monkeypatch.setenv("KAVAL_LOCAL_MODEL_NAME", "qwen3:8b")
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    services_dir = tmp_path / "services"
+    shutil.copytree(REPO_SERVICES_DIR, services_dir)
+    seed_api_database(database_path)
+    add_unmatched_container_service(database_path)
+
+    def transport(http_request, timeout_seconds):
+        del http_request, timeout_seconds
+        return json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "id": "custom_app",
+                                    "name": "Custom App",
+                                    "category": "custom",
+                                    "project_url": "https://example.test/custom-app",
+                                    "icon": "custom-app.svg",
+                                    "match": {
+                                        "image_patterns": ["ghcr.io/example/custom-app*"],
+                                        "container_name_patterns": ["custom-app"],
+                                    },
+                                    "endpoints": {
+                                        "web_ui": {
+                                            "port": 8080,
+                                            "path": "/",
+                                        }
+                                    },
+                                    "dns_targets": [],
+                                    "log_signals": {"errors": [], "warnings": []},
+                                    "typical_dependencies": {
+                                        "containers": ["postgres"],
+                                        "shares": ["media"],
+                                    },
+                                    "common_failure_modes": [],
+                                    "investigation_context": (
+                                        "Custom App exposes a web UI on port 8080."
+                                    ),
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    app = create_app(
+        database_path=database_path,
+        services_dir=services_dir,
+        local_model_transport=transport,
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/services/svc-custom-app/descriptor/auto-generate")
+        services_response = client.get("/api/v1/services")
+        changes_response = client.get("/api/v1/changes")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["service_id"] == "svc-custom-app"
+    assert payload["descriptor"]["descriptor_id"] == "custom/custom_app"
+    assert payload["descriptor"]["source"] == "auto_generated"
+    assert payload["descriptor"]["verified"] is False
+    assert payload["descriptor"]["generated_at"] is not None
+    assert payload["descriptor"]["file_path"].endswith(
+        "services/auto_generated/custom/custom_app.yaml"
+    )
+    assert payload["audit_change"]["type"] == "config_change"
+    assert any(
+        "inactive until review and promotion" in warning
+        for warning in payload["warnings"]
+    )
+
+    descriptor_path = services_dir / "auto_generated" / "custom" / "custom_app.yaml"
+    assert descriptor_path.exists()
+    descriptor_text = descriptor_path.read_text(encoding="utf-8")
+    assert "source: auto_generated" in descriptor_text
+    assert "verified: false" in descriptor_text
+    assert "generated_at:" in descriptor_text
+
+    active_descriptor_ids = {
+        loaded_descriptor_identifier(item)
+        for item in load_service_descriptors([services_dir])
+    }
+    assert "custom/custom_app" not in active_descriptor_ids
+
+    services_payload = services_response.json()
+    generated_service = next(
+        item for item in services_payload if item["id"] == "svc-custom-app"
+    )
+    assert generated_service["descriptor_id"] is None
+    assert generated_service["descriptor_source"] is None
+
+    changes_payload = changes_response.json()
+    assert any(
+        change["description"].startswith(
+            "Generated quarantined descriptor candidate custom/custom_app"
+        )
+        for change in changes_payload
+    )
+
+
+def test_auto_generate_service_descriptor_endpoint_requires_local_model(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Auto-generation should fail cleanly when the local model path is unavailable."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    services_dir = tmp_path / "services"
+    shutil.copytree(REPO_SERVICES_DIR, services_dir)
+    seed_api_database(database_path)
+    add_unmatched_container_service(database_path)
+    app = create_app(database_path=database_path, services_dir=services_dir)
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/services/svc-custom-app/descriptor/auto-generate")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "local model is not configured for descriptor generation"
+    }
+    assert not (services_dir / "auto_generated" / "custom" / "custom_app.yaml").exists()
+
+
+def test_auto_generated_descriptor_queue_supports_defer_edit_and_promote(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """The review queue should expose auditable defer, edit, and promote actions."""
+    monkeypatch.setenv("KAVAL_LOCAL_MODEL_NAME", "qwen3:8b")
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    services_dir = tmp_path / "services"
+    shutil.copytree(REPO_SERVICES_DIR, services_dir)
+    seed_api_database(database_path)
+    add_unmatched_container_service(database_path)
+
+    def transport(http_request, timeout_seconds):
+        del http_request, timeout_seconds
+        return json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "id": "custom_app",
+                                    "name": "Custom App",
+                                    "category": "custom",
+                                    "match": {
+                                        "image_patterns": ["ghcr.io/example/custom-app*"],
+                                        "container_name_patterns": ["custom-app"],
+                                    },
+                                    "endpoints": {
+                                        "web_ui": {
+                                            "port": 8080,
+                                            "path": "/",
+                                        }
+                                    },
+                                    "dns_targets": [],
+                                    "log_signals": {"errors": [], "warnings": []},
+                                    "typical_dependencies": {
+                                        "containers": [],
+                                        "shares": [],
+                                    },
+                                    "common_failure_modes": [],
+                                    "investigation_context": "Custom App candidate",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    app = create_app(
+        database_path=database_path,
+        services_dir=services_dir,
+        local_model_transport=transport,
+    )
+
+    with TestClient(app) as client:
+        generate_response = client.post(
+            "/api/v1/services/svc-custom-app/descriptor/auto-generate"
+        )
+        queue_response = client.get("/api/v1/descriptors/auto-generated")
+        defer_response = client.post(
+            "/api/v1/descriptors/auto-generated/custom/custom_app/defer"
+        )
+        edit_response = client.put(
+            "/api/v1/descriptors/auto-generated/custom/custom_app",
+            json={
+                "mode": "yaml",
+                "raw_yaml": (
+                    "id: custom_app\n"
+                    "name: Custom App Reviewed\n"
+                    "category: custom\n"
+                    "match:\n"
+                    "  image_patterns:\n"
+                    "    - ghcr.io/example/custom-app*\n"
+                    "  container_name_patterns:\n"
+                    "    - custom-app\n"
+                    "endpoints:\n"
+                    "  web_ui:\n"
+                    "    port: 8080\n"
+                    "    path: /\n"
+                    "log_signals:\n"
+                    "  errors: []\n"
+                    "  warnings: []\n"
+                    "typical_dependencies:\n"
+                    "  containers: []\n"
+                    "  shares: []\n"
+                    "source: auto_generated\n"
+                    "verified: false\n"
+                    "generated_at: 2026-04-08T09:30:00Z\n"
+                ),
+            },
+        )
+        promote_response = client.post(
+            "/api/v1/descriptors/auto-generated/custom/custom_app/promote"
+        )
+        final_queue_response = client.get("/api/v1/descriptors/auto-generated")
+        changes_response = client.get("/api/v1/changes")
+
+    assert generate_response.status_code == 200
+
+    assert queue_response.status_code == 200
+    queue_payload = queue_response.json()
+    assert len(queue_payload) == 1
+    assert queue_payload[0]["review_state"] == "pending"
+    assert [service["id"] for service in queue_payload[0]["matching_services"]] == [
+        "svc-custom-app"
+    ]
+
+    assert defer_response.status_code == 200
+    assert defer_response.json()["review_state"] == "deferred"
+
+    assert edit_response.status_code == 200
+    assert edit_response.json()["action"] == "edited"
+    assert edit_response.json()["review_state"] == "pending"
+    assert edit_response.json()["descriptor"]["name"] == "Custom App Reviewed"
+    assert (
+        edit_response.json()["descriptor"]["source"] == "auto_generated"
+    )
+
+    assert promote_response.status_code == 200
+    assert promote_response.json()["action"] == "promoted"
+    assert promote_response.json()["descriptor"]["source"] == "user"
+    assert promote_response.json()["descriptor"]["verified"] is True
+    assert promote_response.json()["descriptor"]["file_path"].endswith(
+        "services/user/custom/custom_app.yaml"
+    )
+
+    assert final_queue_response.status_code == 200
+    assert final_queue_response.json() == []
+    assert not (services_dir / "auto_generated" / "custom" / "custom_app.yaml").exists()
+    assert (services_dir / "user" / "custom" / "custom_app.yaml").exists()
+
+    change_descriptions = [change["description"] for change in changes_response.json()]
+    assert any(
+        description.startswith(
+            "Deferred review for quarantined descriptor candidate custom/custom_app."
+        )
+        for description in change_descriptions
+    )
+    assert any(
+        description.startswith("Edited quarantined descriptor candidate custom/custom_app.")
+        for description in change_descriptions
+    )
+    assert any(
+        description.startswith(
+            "Promoted quarantined descriptor candidate custom/custom_app"
+        )
+        for description in change_descriptions
+    )
+
+
+def test_auto_generated_descriptor_queue_supports_dismiss(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Dismiss should remove the candidate from the queue and leave the service unmatched."""
+    monkeypatch.setenv("KAVAL_LOCAL_MODEL_NAME", "qwen3:8b")
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    services_dir = tmp_path / "services"
+    shutil.copytree(REPO_SERVICES_DIR, services_dir)
+    seed_api_database(database_path)
+    add_unmatched_container_service(database_path)
+
+    def transport(http_request, timeout_seconds):
+        del http_request, timeout_seconds
+        return json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "id": "custom_app",
+                                    "name": "Custom App",
+                                    "category": "custom",
+                                    "match": {
+                                        "image_patterns": ["ghcr.io/example/custom-app*"],
+                                        "container_name_patterns": ["custom-app"],
+                                    },
+                                    "endpoints": {},
+                                    "dns_targets": [],
+                                    "log_signals": {"errors": [], "warnings": []},
+                                    "typical_dependencies": {
+                                        "containers": [],
+                                        "shares": [],
+                                    },
+                                    "common_failure_modes": [],
+                                    "investigation_context": None,
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    app = create_app(
+        database_path=database_path,
+        services_dir=services_dir,
+        local_model_transport=transport,
+    )
+
+    with TestClient(app) as client:
+        client.post("/api/v1/services/svc-custom-app/descriptor/auto-generate")
+        dismiss_response = client.post(
+            "/api/v1/descriptors/auto-generated/custom/custom_app/dismiss"
+        )
+        queue_response = client.get("/api/v1/descriptors/auto-generated")
+        services_response = client.get("/api/v1/services")
+
+    assert dismiss_response.status_code == 200
+    assert dismiss_response.json()["action"] == "dismissed"
+    assert queue_response.status_code == 200
+    assert queue_response.json() == []
+    assert not (services_dir / "auto_generated" / "custom" / "custom_app.yaml").exists()
+    service_payload = next(
+        item for item in services_response.json() if item["id"] == "svc-custom-app"
+    )
+    assert service_payload["descriptor_id"] is None
+    assert service_payload["descriptor_source"] is None
+
+
+def test_promoted_auto_generated_descriptor_supports_community_export(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Community export should sanitize promoted auto-generated descriptor YAML."""
+    monkeypatch.setenv("KAVAL_LOCAL_MODEL_NAME", "qwen3:8b")
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    services_dir = tmp_path / "services"
+    shutil.copytree(REPO_SERVICES_DIR, services_dir)
+    seed_api_database(database_path)
+    add_unmatched_container_service(database_path)
+
+    def transport(http_request, timeout_seconds):
+        del http_request, timeout_seconds
+        return json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "id": "custom_app",
+                                    "name": "Custom App",
+                                    "category": "custom",
+                                    "match": {
+                                        "image_patterns": ["ghcr.io/example/custom-app*"],
+                                        "container_name_patterns": ["custom-app"],
+                                    },
+                                    "endpoints": {
+                                        "web_ui": {
+                                            "port": 8080,
+                                            "path": "/",
+                                        }
+                                    },
+                                    "dns_targets": [],
+                                    "log_signals": {"errors": [], "warnings": []},
+                                    "typical_dependencies": {
+                                        "containers": [],
+                                        "shares": [],
+                                    },
+                                    "common_failure_modes": [],
+                                    "investigation_context": "Custom App candidate",
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    app = create_app(
+        database_path=database_path,
+        services_dir=services_dir,
+        local_model_transport=transport,
+    )
+
+    with TestClient(app) as client:
+        client.post("/api/v1/services/svc-custom-app/descriptor/auto-generate")
+        promote_response = client.post(
+            "/api/v1/descriptors/auto-generated/custom/custom_app/promote"
+        )
+        export_response = client.get(
+            "/api/v1/descriptors/user/custom/custom_app/community-export"
+        )
+
+    assert promote_response.status_code == 200
+    assert export_response.status_code == 200
+    payload = export_response.json()
+    assert payload["descriptor_id"] == "custom/custom_app"
+    assert payload["target_path"] == "services/custom/custom_app.yaml"
+    assert payload["omitted_fields"] == ["source", "verified", "generated_at"]
+    assert "id: custom_app" in payload["yaml_text"]
+    assert "name: Custom App" in payload["yaml_text"]
+    assert "source:" not in payload["yaml_text"]
+    assert "verified:" not in payload["yaml_text"]
+    assert "generated_at:" not in payload["yaml_text"]
+
+
+def test_community_export_rejects_user_descriptors_without_auto_generated_provenance(
+    tmp_path: Path,
+) -> None:
+    """Community export should stay scoped to promoted auto-generated descriptors."""
+    database_path = tmp_path / "kaval.db"
+    services_dir = tmp_path / "services"
+    shutil.copytree(REPO_SERVICES_DIR, services_dir)
+    seed_api_database(database_path)
+    radarr_descriptor = next(
+        item
+        for item in load_service_descriptors([services_dir])
+        if loaded_descriptor_identifier(item) == "arr/radarr"
+    )
+    write_user_descriptor(
+        services_dir=services_dir,
+        descriptor=radarr_descriptor.descriptor.model_copy(
+            update={
+                "source": DescriptorSource.USER,
+                "verified": True,
+            }
+        ),
+    )
+    app = create_app(database_path=database_path, services_dir=services_dir)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/descriptors/user/arr/radarr/community-export")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "only promoted auto-generated descriptors can be exported through this path"
+    )
 
 
 def test_capability_health_endpoint_reports_missing_runtime_layers_as_unavailable(
@@ -724,6 +1621,7 @@ def test_websocket_endpoint_streams_initial_snapshot(tmp_path: Path) -> None:
     assert payload["kind"] == "snapshot"
     assert payload["widget"]["total_services"] == 2
     assert len(payload["graph"]["services"]) == 2
+    assert len(payload["graph"]["node_meta"]) == 2
     assert len(payload["incidents"]) == 1
     assert len(payload["investigations"]) == 1
 
@@ -826,6 +1724,47 @@ def add_radarr_service(database_path: Path) -> None:
                 last_check=ts(12, 1),
                 active_findings=1,
                 active_incidents=1,
+            )
+        )
+    finally:
+        database.close()
+
+
+def add_unmatched_container_service(database_path: Path) -> None:
+    """Add one unmatched container service for auto-generated descriptor tests."""
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+    try:
+        database.upsert_service(
+            Service(
+                id="svc-custom-app",
+                name="custom-app",
+                type=ServiceType.CONTAINER,
+                category="container",
+                status=ServiceStatus.HEALTHY,
+                descriptor_id=None,
+                descriptor_source=None,
+                container_id="container-custom-app",
+                vm_id=None,
+                image="ghcr.io/example/custom-app:1.0.0",
+                endpoints=[
+                    Endpoint(
+                        name="port_8080_tcp",
+                        protocol=EndpointProtocol.TCP,
+                        host="custom-app",
+                        port=8080,
+                        path=None,
+                        url=None,
+                        auth_required=False,
+                        expected_status=None,
+                    )
+                ],
+                dns_targets=[],
+                dependencies=[],
+                dependents=[],
+                last_check=ts(12, 2),
+                active_findings=0,
+                active_incidents=0,
             )
         )
     finally:

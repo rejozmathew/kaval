@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from fnmatch import fnmatch
 from typing import Iterable
 
-from kaval.discovery.descriptors import LoadedServiceDescriptor
+from kaval.discovery.descriptors import LoadedServiceDescriptor, loaded_descriptor_identifier
 from kaval.discovery.docker import DockerContainerSnapshot
 from kaval.models import (
     DnsTarget,
@@ -123,7 +123,7 @@ def _descriptor_id(descriptor: LoadedServiceDescriptor | None) -> str | None:
     """Return a stable descriptor identifier for a matched file."""
     if descriptor is None:
         return None
-    return f"{descriptor.path.parent.name}/{descriptor.path.stem}"
+    return loaded_descriptor_identifier(descriptor)
 
 
 def _build_endpoints(

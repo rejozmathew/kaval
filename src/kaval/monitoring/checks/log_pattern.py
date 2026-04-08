@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Iterable
 
-from kaval.discovery.descriptors import DescriptorLogSignals, LoadedServiceDescriptor
+from kaval.discovery.descriptors import (
+    DescriptorLogSignals,
+    LoadedServiceDescriptor,
+    loaded_descriptor_identifier,
+)
 from kaval.discovery.docker import DockerTransportError
 from kaval.models import Evidence, EvidenceKind, Finding, Service, ServiceType, Severity
 from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
@@ -214,4 +218,4 @@ def _log_evidence(
 
 def _descriptor_id(descriptor: LoadedServiceDescriptor) -> str:
     """Return the stable descriptor identifier used on Service records."""
-    return f"{descriptor.path.parent.name}/{descriptor.path.stem}"
+    return loaded_descriptor_identifier(descriptor)

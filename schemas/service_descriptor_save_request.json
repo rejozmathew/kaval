@@ -1,0 +1,207 @@
+{
+  "$defs": {
+    "DescriptorEditContainerDependencyRequest": {
+      "additionalProperties": false,
+      "description": "Editable container dependency entry for descriptor form mode.",
+      "properties": {
+        "alternatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Alternatives",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "DescriptorEditContainerDependencyRequest",
+      "type": "object"
+    },
+    "DescriptorEditEndpointRequest": {
+      "additionalProperties": false,
+      "description": "Editable endpoint fields supported by the descriptor form mode.",
+      "properties": {
+        "auth": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth"
+        },
+        "auth_header": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Auth Header"
+        },
+        "healthy_when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Healthy When"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "port"
+      ],
+      "title": "DescriptorEditEndpointRequest",
+      "type": "object"
+    },
+    "DescriptorEditMatchRequest": {
+      "additionalProperties": false,
+      "description": "Editable match patterns for the descriptor form mode.",
+      "properties": {
+        "container_name_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Container Name Patterns",
+          "type": "array"
+        },
+        "image_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Image Patterns",
+          "type": "array"
+        }
+      },
+      "title": "DescriptorEditMatchRequest",
+      "type": "object"
+    },
+    "DescriptorEditMode": {
+      "description": "Supported save modes for the descriptor editor.",
+      "enum": [
+        "form",
+        "yaml"
+      ],
+      "title": "DescriptorEditMode",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Mutation payload for the bounded Phase 3C descriptor editor.",
+  "properties": {
+    "endpoints": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/DescriptorEditEndpointRequest"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Endpoints"
+    },
+    "match": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DescriptorEditMatchRequest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "mode": {
+      "$ref": "#/$defs/DescriptorEditMode"
+    },
+    "raw_yaml": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Raw Yaml"
+    },
+    "typical_dependency_containers": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/DescriptorEditContainerDependencyRequest"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Typical Dependency Containers"
+    },
+    "typical_dependency_shares": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Typical Dependency Shares"
+    }
+  },
+  "required": [
+    "mode"
+  ],
+  "title": "ServiceDescriptorSaveRequest",
+  "type": "object"
+}

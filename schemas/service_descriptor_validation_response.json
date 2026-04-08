@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "DescriptorValidationAffectedServiceResponse": {
+      "additionalProperties": false,
+      "description": "One currently bound service and its likely post-edit match status.",
+      "properties": {
+        "likely_matches": {
+          "title": "Likely Matches",
+          "type": "boolean"
+        },
+        "service_id": {
+          "title": "Service Id",
+          "type": "string"
+        },
+        "service_name": {
+          "title": "Service Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "service_id",
+        "service_name",
+        "likely_matches"
+      ],
+      "title": "DescriptorValidationAffectedServiceResponse",
+      "type": "object"
+    },
+    "DescriptorValidationDependencyImpactResponse": {
+      "additionalProperties": false,
+      "description": "Declared dependency changes inferred from the edited descriptor.",
+      "properties": {
+        "added_container_dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added Container Dependencies",
+          "type": "array"
+        },
+        "added_share_dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Added Share Dependencies",
+          "type": "array"
+        },
+        "removed_container_dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed Container Dependencies",
+          "type": "array"
+        },
+        "removed_share_dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Removed Share Dependencies",
+          "type": "array"
+        }
+      },
+      "title": "DescriptorValidationDependencyImpactResponse",
+      "type": "object"
+    },
+    "DescriptorValidationMatchPreviewResponse": {
+      "additionalProperties": false,
+      "description": "Likely descriptor-match impact preview for the current environment.",
+      "properties": {
+        "affected_services": {
+          "items": {
+            "$ref": "#/$defs/DescriptorValidationAffectedServiceResponse"
+          },
+          "title": "Affected Services",
+          "type": "array"
+        },
+        "current_service_likely_matches": {
+          "title": "Current Service Likely Matches",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "current_service_likely_matches"
+      ],
+      "title": "DescriptorValidationMatchPreviewResponse",
+      "type": "object"
+    },
+    "ServiceDescriptorValidationPreviewResponse": {
+      "additionalProperties": false,
+      "description": "Bounded descriptor preview assembled before a reviewed save.",
+      "properties": {
+        "dependency_impact": {
+          "$ref": "#/$defs/DescriptorValidationDependencyImpactResponse"
+        },
+        "descriptor_id": {
+          "title": "Descriptor Id",
+          "type": "string"
+        },
+        "match": {
+          "$ref": "#/$defs/DescriptorValidationMatchPreviewResponse"
+        },
+        "write_target_path": {
+          "title": "Write Target Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "descriptor_id",
+        "write_target_path",
+        "match",
+        "dependency_impact"
+      ],
+      "title": "ServiceDescriptorValidationPreviewResponse",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Validation and preview result for one pending descriptor edit.",
+  "properties": {
+    "errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Errors",
+      "type": "array"
+    },
+    "preview": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ServiceDescriptorValidationPreviewResponse"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "valid": {
+      "title": "Valid",
+      "type": "boolean"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "valid"
+  ],
+  "title": "ServiceDescriptorValidationResponse",
+  "type": "object"
+}

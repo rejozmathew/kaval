@@ -21,6 +21,11 @@ from kaval.models import (
     ArrayProfile,
     Change,
     ChangeType,
+    DependencyConfidence,
+    DependencyEdge,
+    DependencyOverride,
+    DependencyOverrideState,
+    DependencySource,
     DescriptorSource,
     DnsRecordType,
     DnsTarget,
@@ -391,6 +396,7 @@ def test_bootstrap_applies_baseline_migration(tmp_path: Path) -> None:
             "0005_phase3b_webhook_payloads",
             "0006_phase3b_webhook_event_states",
             "0007_phase3b_user_note_versions",
+            "0008_phase3c_dependency_overrides",
         ]
         assert database.migrations_current() is True
     finally:
@@ -584,6 +590,113 @@ def test_database_lists_changes_in_timestamp_order(tmp_path: Path) -> None:
         database.upsert_change(later)
         database.upsert_change(earlier)
         assert [stored.id for stored in database.list_changes()] == ["chg-1", "chg-2"]
+    finally:
+        database.close()
+
+
+def test_database_applies_present_dependency_overrides_to_effective_services(
+    tmp_path: Path,
+) -> None:
+    """Present overrides should surface as user-confirmed edges on effective reads."""
+    database = build_database(tmp_path)
+    source_service = build_service()
+    target_service = build_service().model_copy(
+        update={
+            "id": "svc-radarr",
+            "name": "Radarr",
+            "category": "arr",
+            "descriptor_id": "arr/radarr",
+            "container_id": "container-radarr",
+            "image": "lscr.io/linuxserver/radarr:latest",
+            "dependencies": [],
+            "dependents": [],
+            "active_findings": 0,
+            "active_incidents": 0,
+        }
+    )
+    try:
+        database.upsert_service(source_service)
+        database.upsert_service(target_service)
+        database.upsert_dependency_override(
+            DependencyOverride(
+                source_service_id=source_service.id,
+                target_service_id=target_service.id,
+                state=DependencyOverrideState.PRESENT,
+                description="Confirmed by the local admin after reviewing the service path.",
+                updated_at=ts(18, 0),
+            )
+        )
+
+        stored_source = database.get_service(source_service.id)
+        stored_target = database.get_service(target_service.id)
+
+        assert stored_source is not None
+        assert stored_source.dependencies[-1] == DependencyEdge(
+            target_service_id=target_service.id,
+            confidence=DependencyConfidence.USER_CONFIRMED,
+            source=DependencySource.USER,
+            description="Confirmed by the local admin after reviewing the service path.",
+        )
+        assert stored_target is not None
+        assert stored_target.dependents == [source_service.id]
+    finally:
+        database.close()
+
+
+def test_database_applies_absent_dependency_overrides_after_service_refresh(
+    tmp_path: Path,
+) -> None:
+    """Absent overrides should continue hiding discovered edges after later upserts."""
+    database = build_database(tmp_path)
+    source_service = build_service().model_copy(
+        update={
+            "dependencies": [
+                DependencyEdge(
+                    target_service_id="svc-radarr",
+                    confidence=DependencyConfidence.CONFIGURED,
+                    source=DependencySource.DESCRIPTOR,
+                    description="Descriptor declares the dependency.",
+                )
+            ],
+            "dependents": [],
+        }
+    )
+    target_service = build_service().model_copy(
+        update={
+            "id": "svc-radarr",
+            "name": "Radarr",
+            "category": "arr",
+            "descriptor_id": "arr/radarr",
+            "container_id": "container-radarr",
+            "image": "lscr.io/linuxserver/radarr:latest",
+            "dependencies": [],
+            "dependents": [source_service.id],
+            "active_findings": 0,
+            "active_incidents": 0,
+        }
+    )
+    try:
+        database.upsert_service(source_service)
+        database.upsert_service(target_service)
+        database.upsert_dependency_override(
+            DependencyOverride(
+                source_service_id=source_service.id,
+                target_service_id=target_service.id,
+                state=DependencyOverrideState.ABSENT,
+                description=None,
+                updated_at=ts(18, 5),
+            )
+        )
+
+        database.upsert_service(source_service)
+
+        stored_source = database.get_service(source_service.id)
+        stored_target = database.get_service(target_service.id)
+
+        assert stored_source is not None
+        assert stored_source.dependencies == []
+        assert stored_target is not None
+        assert stored_target.dependents == []
     finally:
         database.close()
 

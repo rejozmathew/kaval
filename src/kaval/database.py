@@ -19,6 +19,12 @@ from kaval.memory.note_models import UserNoteVersion
 from kaval.models import (
     ApprovalToken,
     Change,
+    DependencyConfidence,
+    DependencyEdge,
+    DependencyOverride,
+    DependencyOverrideState,
+    DependencySource,
+    DescriptorSource,
     Finding,
     Incident,
     Investigation,
@@ -208,15 +214,115 @@ class KavalDatabase:
 
     def get_service(self, service_id: str) -> Service | None:
         """Fetch a service by identifier."""
-        return self._get_record("services", "id", service_id, Service)
+        return next(
+            (service for service in self.list_services() if service.id == service_id),
+            None,
+        )
 
     def list_services(self) -> list[Service]:
         """List services ordered by type and identifier."""
-        return self._list_records("services", "type, id", Service)
+        services = self._list_records("services", "type, id", Service)
+        return _apply_dependency_overrides(
+            services,
+            self.list_dependency_overrides(),
+        )
 
     def delete_service(self, service_id: str) -> None:
         """Delete a service by identifier."""
         self._delete_record("services", "id", service_id)
+
+    def update_descriptor_source_for_services(
+        self,
+        *,
+        descriptor_id: str,
+        descriptor_source: DescriptorSource,
+    ) -> None:
+        """Persist a new descriptor source for all services using one descriptor."""
+        rows = self.connection().execute("SELECT payload FROM services").fetchall()
+        for row in rows:
+            service = Service.model_validate_json(str(row["payload"]))
+            if (
+                service.descriptor_id != descriptor_id
+                or service.descriptor_source == descriptor_source
+            ):
+                continue
+            self.upsert_service(
+                service.model_copy(update={"descriptor_source": descriptor_source})
+            )
+
+    def upsert_dependency_override(self, override: DependencyOverride) -> None:
+        """Insert or update one persisted dependency override."""
+        with self.connection():
+            self.connection().execute(
+                """
+                INSERT INTO dependency_overrides (
+                    source_service_id,
+                    target_service_id,
+                    state,
+                    updated_at,
+                    payload
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(source_service_id, target_service_id) DO UPDATE SET
+                    state = excluded.state,
+                    updated_at = excluded.updated_at,
+                    payload = excluded.payload
+                """,
+                (
+                    override.source_service_id,
+                    override.target_service_id,
+                    override.state.value,
+                    override.updated_at.isoformat(),
+                    override.model_dump_json(),
+                ),
+            )
+
+    def get_dependency_override(
+        self,
+        source_service_id: str,
+        target_service_id: str,
+    ) -> DependencyOverride | None:
+        """Fetch one dependency override by its source and target pair."""
+        row = self.connection().execute(
+            """
+            SELECT payload
+            FROM dependency_overrides
+            WHERE source_service_id = ? AND target_service_id = ?
+            """,
+            (source_service_id, target_service_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return DependencyOverride.model_validate_json(str(row["payload"]))
+
+    def list_dependency_overrides(self) -> list[DependencyOverride]:
+        """List dependency overrides ordered by update time and edge key."""
+        rows = self.connection().execute(
+            """
+            SELECT payload
+            FROM dependency_overrides
+            ORDER BY updated_at, source_service_id, target_service_id
+            """
+        ).fetchall()
+        return [
+            DependencyOverride.model_validate_json(str(row["payload"]))
+            for row in rows
+        ]
+
+    def delete_dependency_override(
+        self,
+        source_service_id: str,
+        target_service_id: str,
+    ) -> None:
+        """Delete one persisted dependency override."""
+        with self.connection():
+            self.connection().execute(
+                """
+                DELETE FROM dependency_overrides
+                WHERE source_service_id = ? AND target_service_id = ?
+                """,
+                (source_service_id, target_service_id),
+            )
 
     def upsert_change(self, change: Change) -> None:
         """Insert or update a change record."""
@@ -708,3 +814,75 @@ class KavalDatabase:
     def _now_iso() -> str:
         """Return the current UTC timestamp in ISO 8601 format."""
         return datetime.now(tz=UTC).isoformat()
+
+
+def _apply_dependency_overrides(
+    services: list[Service],
+    overrides: list[DependencyOverride],
+) -> list[Service]:
+    """Return services with persisted dependency overrides merged into the graph."""
+    services_by_id = {
+        service.id: service.model_copy(
+            deep=True,
+            update={
+                "dependencies": list(service.dependencies),
+                "dependents": [],
+            },
+        )
+        for service in services
+    }
+
+    for override in overrides:
+        source = services_by_id.get(override.source_service_id)
+        if source is None or override.target_service_id not in services_by_id:
+            continue
+
+        edges_by_target = {
+            edge.target_service_id: edge
+            for edge in source.dependencies
+        }
+        if override.state is DependencyOverrideState.ABSENT:
+            edges_by_target.pop(override.target_service_id, None)
+        else:
+            existing_edge = edges_by_target.get(override.target_service_id)
+            edges_by_target[override.target_service_id] = DependencyEdge(
+                target_service_id=override.target_service_id,
+                confidence=DependencyConfidence.USER_CONFIRMED,
+                source=DependencySource.USER,
+                description=(
+                    override.description
+                    if override.description is not None
+                    else existing_edge.description
+                    if existing_edge is not None
+                    else "Dependency confirmed by the local admin."
+                ),
+            )
+        services_by_id[source.id] = source.model_copy(
+            update={
+                "dependencies": sorted(
+                    edges_by_target.values(),
+                    key=lambda edge: edge.target_service_id,
+                )
+            }
+        )
+
+    dependents_by_id = {
+        service.id: {
+            dependent
+            for dependent in service.dependents
+            if dependent not in services_by_id
+        }
+        for service in services
+    }
+    for service in services_by_id.values():
+        for edge in service.dependencies:
+            dependents = dependents_by_id.get(edge.target_service_id)
+            if dependents is not None:
+                dependents.add(service.id)
+
+    return [
+        services_by_id[service.id].model_copy(
+            update={"dependents": sorted(dependents_by_id[service.id])}
+        )
+        for service in services
+    ]

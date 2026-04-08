@@ -6,19 +6,23 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from kaval.credentials.models import CredentialRequestMode
 from kaval.integrations.adapter_fallback import AdapterFactFreshness
 from kaval.integrations.service_adapters import AdapterStatus
 from kaval.memory.note_models import UserNoteCreate, UserNoteUpdate
 from kaval.models import (
+    Change,
     DependencyConfidence,
     DependencySource,
+    DescriptorSource,
+    DnsTarget,
     Incident,
     Investigation,
     JsonValue,
     KavalModel,
+    PortNumber,
     RedactionLevel,
     Service,
 )
@@ -41,11 +45,37 @@ class ServiceGraphEdge(KavalModel):
     description: str | None
 
 
+class ServiceGraphNodeMeta(KavalModel):
+    """Additional graph-only insight metadata for one service node."""
+
+    service_id: str
+    target_insight_level: int = Field(ge=0, le=5)
+    improve_available: bool = False
+
+
 class ServiceGraphResponse(KavalModel):
     """Read-only graph view built from persisted services."""
 
     services: list[Service]
     edges: list[ServiceGraphEdge]
+    node_meta: list[ServiceGraphNodeMeta] = Field(default_factory=list)
+
+
+class GraphEdgeUpsertRequest(KavalModel):
+    """Admin mutation payload for confirming or editing one graph edge."""
+
+    source_service_id: str
+    target_service_id: str
+    previous_source_service_id: str | None = None
+    previous_target_service_id: str | None = None
+    description: str | None = None
+
+
+class GraphEdgeMutationResponse(KavalModel):
+    """Mutation result for one graph-edge admin operation."""
+
+    edge: ServiceGraphEdge | None = None
+    audit_change: Change
 
 
 class WidgetOverallStatus(StrEnum):
@@ -152,6 +182,268 @@ class ServiceDetailResponse(KavalModel):
 
     service: Service
     insight_section: ServiceDetailInsightSectionResponse
+
+
+class DescriptorViewMatchResponse(KavalModel):
+    """Rendered match rules for one descriptor view."""
+
+    image_patterns: list[str] = Field(default_factory=list)
+    container_name_patterns: list[str] = Field(default_factory=list)
+
+
+class DescriptorViewEndpointResponse(KavalModel):
+    """One rendered descriptor endpoint."""
+
+    name: str
+    port: int
+    path: str | None = None
+    auth: str | None = None
+    auth_header: str | None = None
+    healthy_when: str | None = None
+
+
+class DescriptorViewLogSignalsResponse(KavalModel):
+    """Rendered log-signal section for one descriptor."""
+
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class DescriptorViewContainerDependencyResponse(KavalModel):
+    """One rendered container dependency entry."""
+
+    name: str
+    alternatives: list[str] = Field(default_factory=list)
+
+
+class DescriptorViewFailureModeResponse(KavalModel):
+    """One rendered failure-mode entry."""
+
+    trigger: str
+    likely_cause: str
+    check_first: list[str] = Field(default_factory=list)
+
+
+class DescriptorViewInspectionSurfaceResponse(KavalModel):
+    """One rendered inspection-surface entry."""
+
+    id: str
+    type: str
+    description: str
+    endpoint: str | None = None
+    auth: str | None = None
+    auth_header: str | None = None
+    read_only: bool = True
+    facts_provided: list[str] = Field(default_factory=list)
+    confidence_effect: str | None = None
+    version_range: str | None = None
+
+
+class DescriptorViewCredentialHintResponse(KavalModel):
+    """One rendered credential-hint entry."""
+
+    key: str
+    description: str
+    location: str
+    prompt: str | None = None
+
+
+class ServiceDescriptorViewResponse(KavalModel):
+    """Rendered descriptor view contract for the admin UI."""
+
+    descriptor_id: str
+    file_path: str
+    write_target_path: str
+    name: str
+    category: str
+    source: DescriptorSource
+    verified: bool = True
+    generated_at: datetime | None = None
+    project_url: str | None = None
+    icon: str | None = None
+    match: DescriptorViewMatchResponse
+    endpoints: list[DescriptorViewEndpointResponse] = Field(default_factory=list)
+    dns_targets: list[DnsTarget] = Field(default_factory=list)
+    log_signals: DescriptorViewLogSignalsResponse = Field(
+        default_factory=DescriptorViewLogSignalsResponse
+    )
+    typical_dependency_containers: list[DescriptorViewContainerDependencyResponse] = Field(
+        default_factory=list
+    )
+    typical_dependency_shares: list[str] = Field(default_factory=list)
+    common_failure_modes: list[DescriptorViewFailureModeResponse] = Field(
+        default_factory=list
+    )
+    investigation_context: str | None = None
+    inspection_surfaces: list[DescriptorViewInspectionSurfaceResponse] = Field(
+        default_factory=list
+    )
+    credential_hints: list[DescriptorViewCredentialHintResponse] = Field(
+        default_factory=list
+    )
+    raw_yaml: str
+
+
+class DescriptorEditMode(StrEnum):
+    """Supported save modes for the descriptor editor."""
+
+    FORM = "form"
+    YAML = "yaml"
+
+
+class DescriptorEditMatchRequest(KavalModel):
+    """Editable match patterns for the descriptor form mode."""
+
+    image_patterns: list[str] = Field(default_factory=list)
+    container_name_patterns: list[str] = Field(default_factory=list)
+
+
+class DescriptorEditEndpointRequest(KavalModel):
+    """Editable endpoint fields supported by the descriptor form mode."""
+
+    name: str
+    port: int = PortNumber
+    path: str | None = None
+    auth: str | None = None
+    auth_header: str | None = None
+    healthy_when: str | None = None
+
+
+class DescriptorEditContainerDependencyRequest(KavalModel):
+    """Editable container dependency entry for descriptor form mode."""
+
+    name: str
+    alternatives: list[str] = Field(default_factory=list)
+
+
+class ServiceDescriptorSaveRequest(KavalModel):
+    """Mutation payload for the bounded Phase 3C descriptor editor."""
+
+    mode: DescriptorEditMode
+    match: DescriptorEditMatchRequest | None = None
+    endpoints: list[DescriptorEditEndpointRequest] | None = None
+    typical_dependency_containers: list[DescriptorEditContainerDependencyRequest] | None = None
+    typical_dependency_shares: list[str] | None = None
+    raw_yaml: str | None = None
+
+    @model_validator(mode="after")
+    def validate_edit_payload(self) -> ServiceDescriptorSaveRequest:
+        """Require exactly the fields supported by the selected edit mode."""
+        if self.mode == DescriptorEditMode.FORM:
+            if (
+                self.match is None
+                or self.endpoints is None
+                or self.typical_dependency_containers is None
+                or self.typical_dependency_shares is None
+            ):
+                msg = "form mode requires match, endpoints, and dependency fields"
+                raise ValueError(msg)
+            if self.raw_yaml is not None:
+                msg = "form mode does not accept raw_yaml"
+                raise ValueError(msg)
+            return self
+
+        if self.raw_yaml is None or not self.raw_yaml.strip():
+            msg = "yaml mode requires raw_yaml"
+            raise ValueError(msg)
+        if (
+            self.match is not None
+            or self.endpoints is not None
+            or self.typical_dependency_containers is not None
+            or self.typical_dependency_shares is not None
+        ):
+            msg = "yaml mode only accepts raw_yaml"
+            raise ValueError(msg)
+        return self
+
+
+class ServiceDescriptorSaveResponse(KavalModel):
+    """Mutation response for one descriptor editor save action."""
+
+    descriptor: ServiceDescriptorViewResponse
+    audit_change: Change
+
+
+class ServiceDescriptorGenerateResponse(KavalModel):
+    """Mutation response for one quarantined auto-generated descriptor trigger."""
+
+    service_id: str
+    service_name: str
+    descriptor: ServiceDescriptorViewResponse
+    audit_change: Change
+    warnings: list[str] = Field(default_factory=list)
+
+
+class QuarantinedDescriptorQueueItemResponse(KavalModel):
+    """One quarantined descriptor candidate shown in the review queue."""
+
+    descriptor: ServiceDescriptorViewResponse
+    review_state: str
+    review_updated_at: datetime
+    matching_services: list[Service] = Field(default_factory=list)
+
+
+class QuarantinedDescriptorActionResponse(KavalModel):
+    """Mutation result for one quarantined descriptor review action."""
+
+    descriptor_id: str
+    action: str
+    review_state: str | None = None
+    descriptor: ServiceDescriptorViewResponse | None = None
+    audit_change: Change
+
+
+class DescriptorCommunityExportResponse(KavalModel):
+    """Read-only export payload for a reviewed community descriptor candidate."""
+
+    descriptor_id: str
+    target_path: str
+    yaml_text: str
+    omitted_fields: list[str] = Field(default_factory=list)
+
+
+class DescriptorValidationAffectedServiceResponse(KavalModel):
+    """One currently bound service and its likely post-edit match status."""
+
+    service_id: str
+    service_name: str
+    likely_matches: bool
+
+
+class DescriptorValidationMatchPreviewResponse(KavalModel):
+    """Likely descriptor-match impact preview for the current environment."""
+
+    current_service_likely_matches: bool
+    affected_services: list[DescriptorValidationAffectedServiceResponse] = Field(
+        default_factory=list
+    )
+
+
+class DescriptorValidationDependencyImpactResponse(KavalModel):
+    """Declared dependency changes inferred from the edited descriptor."""
+
+    added_container_dependencies: list[str] = Field(default_factory=list)
+    removed_container_dependencies: list[str] = Field(default_factory=list)
+    added_share_dependencies: list[str] = Field(default_factory=list)
+    removed_share_dependencies: list[str] = Field(default_factory=list)
+
+
+class ServiceDescriptorValidationPreviewResponse(KavalModel):
+    """Bounded descriptor preview assembled before a reviewed save."""
+
+    descriptor_id: str
+    write_target_path: str
+    match: DescriptorValidationMatchPreviewResponse
+    dependency_impact: DescriptorValidationDependencyImpactResponse
+
+
+class ServiceDescriptorValidationResponse(KavalModel):
+    """Validation and preview result for one pending descriptor edit."""
+
+    valid: bool
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    preview: ServiceDescriptorValidationPreviewResponse | None = None
 
 
 class AdapterFactSourceType(StrEnum):

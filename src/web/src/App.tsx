@@ -6,15 +6,22 @@ import type {
   CredentialRequest,
   EffectivenessReport,
   GraphEdge,
+  GraphEdgeMutationResponse,
   GraphResponse,
   Incident,
   Investigation,
   JournalEntry,
   JsonValue,
+  QuarantinedDescriptorActionResponse,
+  QuarantinedDescriptorQueueItem,
   RealtimeSnapshot,
   ServiceAdapterFactsItem,
   ServiceAdapterFactsResponse,
   Service,
+  ServiceDescriptorSaveResponse,
+  ServiceDescriptorValidationResponse,
+  ServiceDescriptorView,
+  ServiceStatus,
   ServiceDetailResponse,
   SystemProfile,
   UserNote,
@@ -55,6 +62,72 @@ interface ServiceAdapterFactsState {
   loading: boolean;
 }
 
+interface ServiceDescriptorState {
+  detail: ServiceDescriptorView | null;
+  error: string | null;
+  loading: boolean;
+}
+
+interface QuarantinedDescriptorQueueState {
+  items: QuarantinedDescriptorQueueItem[];
+  error: string | null;
+  loading: boolean;
+}
+
+interface QuarantinedDescriptorEditorState {
+  descriptorId: string | null;
+  rawYaml: string;
+  open: boolean;
+}
+
+interface QuarantinedDescriptorMutationState {
+  submitting: boolean;
+  descriptorId: string | null;
+  action: "refresh" | "save" | "promote" | "dismiss" | "defer" | null;
+  error: string | null;
+  auditChangeId: string | null;
+}
+
+type DescriptorEditorMode = "form" | "yaml";
+
+interface DescriptorEditorEndpointState {
+  clientId: string;
+  name: string;
+  port: string;
+  path: string;
+  auth: string;
+  authHeader: string;
+  healthyWhen: string;
+}
+
+interface DescriptorEditorDependencyState {
+  clientId: string;
+  name: string;
+  alternatives: string;
+}
+
+interface DescriptorEditorState {
+  mode: DescriptorEditorMode;
+  imagePatterns: string;
+  containerNamePatterns: string;
+  shareDependencies: string;
+  endpoints: DescriptorEditorEndpointState[];
+  containerDependencies: DescriptorEditorDependencyState[];
+  rawYaml: string;
+}
+
+interface DescriptorMutationState {
+  saving: boolean;
+  error: string | null;
+  auditChangeId: string | null;
+}
+
+interface DescriptorValidationState {
+  validating: boolean;
+  error: string | null;
+  result: ServiceDescriptorValidationResponse | null;
+}
+
 type MemoryTabId = "journal" | "notes" | "system" | "recurrence" | "facts";
 
 interface NoteEditorState {
@@ -69,6 +142,34 @@ interface NoteMutationState {
   saving: boolean;
   targetNoteId: string | null;
   error: string | null;
+}
+
+interface EdgeMutationState {
+  saving: boolean;
+  error: string | null;
+  auditChangeId: string | null;
+}
+
+interface EdgeEditorState {
+  sourceServiceId: string;
+  targetServiceId: string;
+  previousSourceServiceId: string | null;
+  previousTargetServiceId: string | null;
+  description: string;
+}
+
+interface GraphFilterState {
+  categories: string[];
+  confidences: GraphEdge["confidence"][];
+  insightLevels: number[];
+  statuses: ServiceStatus[];
+}
+
+interface IncidentGraphFocus {
+  rootServiceId: string | null;
+  serviceIds: string[];
+  edgeKeys: string[];
+  evidenceServiceIds: string[];
 }
 
 interface UserNoteGroup {
@@ -127,6 +228,38 @@ const insightLabel = {
   5: "Enriched",
 } as const;
 
+const graphConfidenceLegend: Array<{
+  confidence: GraphEdge["confidence"];
+  label: string;
+  detail: string;
+}> = [
+  {
+    confidence: "user_confirmed",
+    label: "Confirmed edge",
+    detail: "Explicitly confirmed in the admin graph.",
+  },
+  {
+    confidence: "runtime_observed",
+    label: "Runtime observed edge",
+    detail: "Backed by live service facts or adapter output.",
+  },
+  {
+    confidence: "configured",
+    label: "Configured edge",
+    detail: "Declared by known configuration or mounted resources.",
+  },
+  {
+    confidence: "inferred",
+    label: "Inferred edge",
+    detail: "Derived from topology or descriptor matching only.",
+  },
+  {
+    confidence: "auto_generated",
+    label: "Auto-generated edge",
+    detail: "Suggested automatically and still awaiting review.",
+  },
+];
+
 export default function App() {
   const [state, setState] = useState<LoadState>({
     graph: null,
@@ -151,6 +284,48 @@ export default function App() {
       error: null,
       loading: false,
     });
+  const [serviceDescriptorState, setServiceDescriptorState] = useState<ServiceDescriptorState>({
+    detail: null,
+    error: null,
+    loading: false,
+  });
+  const [quarantinedDescriptorQueueState, setQuarantinedDescriptorQueueState] =
+    useState<QuarantinedDescriptorQueueState>({
+      items: [],
+      error: null,
+      loading: true,
+    });
+  const [selectedQuarantinedDescriptorId, setSelectedQuarantinedDescriptorId] =
+    useState<string | null>(null);
+  const [quarantinedDescriptorEditorState, setQuarantinedDescriptorEditorState] =
+    useState<QuarantinedDescriptorEditorState>({
+      descriptorId: null,
+      rawYaml: "",
+      open: false,
+    });
+  const [quarantinedDescriptorMutationState, setQuarantinedDescriptorMutationState] =
+    useState<QuarantinedDescriptorMutationState>({
+      submitting: false,
+      descriptorId: null,
+      action: null,
+      error: null,
+      auditChangeId: null,
+    });
+  const [descriptorEditorOpen, setDescriptorEditorOpen] = useState(false);
+  const [descriptorEditorState, setDescriptorEditorState] =
+    useState<DescriptorEditorState | null>(null);
+  const [descriptorMutationState, setDescriptorMutationState] =
+    useState<DescriptorMutationState>({
+      saving: false,
+      error: null,
+      auditChangeId: null,
+    });
+  const [descriptorValidationState, setDescriptorValidationState] =
+    useState<DescriptorValidationState>({
+      validating: false,
+      error: null,
+      result: null,
+    });
   const [activeMemoryTab, setActiveMemoryTab] = useState<MemoryTabId>("journal");
   const [noteSearch, setNoteSearch] = useState("");
   const deferredNoteSearch = useDeferredValue(noteSearch);
@@ -167,6 +342,27 @@ export default function App() {
     targetNoteId: null,
     error: null,
   });
+  const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
+  const [hoveredEdgeKey, setHoveredEdgeKey] = useState<string | null>(null);
+  const [edgeEditorState, setEdgeEditorState] = useState<EdgeEditorState | null>(null);
+  const [edgeMutationState, setEdgeMutationState] = useState<EdgeMutationState>({
+    saving: false,
+    error: null,
+    auditChangeId: null,
+  });
+  const [graphFilters, setGraphFilters] = useState<GraphFilterState>({
+    categories: [],
+    confidences: [],
+    insightLevels: [],
+    statuses: [],
+  });
+  const [incidentModeEnabled, setIncidentModeEnabled] = useState(false);
+  const selectedQuarantinedDescriptor =
+    quarantinedDescriptorQueueState.items.find(
+      (item) => item.descriptor.descriptor_id === selectedQuarantinedDescriptorId,
+    ) ??
+    quarantinedDescriptorQueueState.items[0] ??
+    null;
 
   useEffect(() => {
     let cancelled = false;
@@ -352,6 +548,52 @@ export default function App() {
   }, [state.graph, state.incidents, selectedIncidentId, selectedServiceId]);
 
   useEffect(() => {
+    void loadQuarantinedDescriptorQueue();
+  }, []);
+
+  useEffect(() => {
+    startTransition(() => {
+      setSelectedQuarantinedDescriptorId((current) =>
+        chooseQuarantinedDescriptorId(
+          quarantinedDescriptorQueueState.items,
+          current,
+          selectedServiceId,
+        ),
+      );
+    });
+  }, [quarantinedDescriptorQueueState.items, selectedServiceId]);
+
+  useEffect(() => {
+    if (selectedQuarantinedDescriptor === null) {
+      startTransition(() => {
+        setQuarantinedDescriptorEditorState({
+          descriptorId: null,
+          rawYaml: "",
+          open: false,
+        });
+        setQuarantinedDescriptorMutationState({
+          submitting: false,
+          descriptorId: null,
+          action: null,
+          error: null,
+          auditChangeId: null,
+        });
+      });
+      return;
+    }
+    startTransition(() => {
+      setQuarantinedDescriptorEditorState({
+        descriptorId: selectedQuarantinedDescriptor.descriptor.descriptor_id,
+        rawYaml: selectedQuarantinedDescriptor.descriptor.raw_yaml,
+        open: false,
+      });
+    });
+  }, [
+    selectedQuarantinedDescriptor?.descriptor.descriptor_id,
+    selectedQuarantinedDescriptor?.descriptor.raw_yaml,
+  ]);
+
+  useEffect(() => {
     let cancelled = false;
 
     if (selectedServiceId === null || state.graph === null) {
@@ -477,12 +719,196 @@ export default function App() {
     };
   }, [activeMemoryTab, selectedServiceId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (
+      selectedServiceId === null ||
+      serviceDetailState.detail?.service.id !== selectedServiceId ||
+      serviceDetailState.detail.service.descriptor_id === null
+    ) {
+      startTransition(() => {
+        setServiceDescriptorState({
+          detail: null,
+          error: null,
+          loading: false,
+        });
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    startTransition(() => {
+      setServiceDescriptorState((current) => ({
+        detail:
+          current.detail?.descriptor_id === serviceDetailState.detail?.service.descriptor_id
+            ? current.detail
+            : null,
+        error: null,
+        loading: true,
+      }));
+    });
+
+    void fetchJson<ServiceDescriptorView>(
+      `/api/v1/services/${encodeURIComponent(selectedServiceId)}/descriptor`,
+    )
+      .then((detail) => {
+        if (cancelled) {
+          return;
+        }
+        startTransition(() => {
+          setServiceDescriptorState({
+            detail,
+            error: null,
+            loading: false,
+          });
+        });
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        const message =
+          error instanceof Error ? error.message : "Unknown descriptor view load failure.";
+        startTransition(() => {
+          setServiceDescriptorState({
+            detail: null,
+            error: message,
+            loading: false,
+          });
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedServiceId, serviceDetailState.detail?.service.descriptor_id, serviceDetailState.detail?.service.id]);
+
+  useEffect(() => {
+    if (serviceDescriptorState.detail === null) {
+      startTransition(() => {
+        setDescriptorEditorOpen(false);
+        setDescriptorEditorState(null);
+        setDescriptorMutationState({
+          saving: false,
+          error: null,
+          auditChangeId: null,
+        });
+        setDescriptorValidationState({
+          validating: false,
+          error: null,
+          result: null,
+        });
+      });
+      return;
+    }
+    const descriptorDetail = serviceDescriptorState.detail;
+
+    startTransition(() => {
+      setDescriptorEditorState((current) =>
+        createDescriptorEditorState(
+          descriptorDetail,
+          current?.mode ?? "form",
+        ),
+      );
+      setDescriptorValidationState({
+        validating: false,
+        error: null,
+        result: null,
+      });
+    });
+  }, [
+    serviceDescriptorState.detail?.descriptor_id,
+    serviceDescriptorState.detail?.file_path,
+    serviceDescriptorState.detail?.raw_yaml,
+  ]);
+
   const services = state.graph?.services ?? [];
   const edges = state.graph?.edges ?? [];
+  const nodeMetaByServiceId = new Map(
+    (state.graph?.node_meta ?? []).map((item) => [item.service_id, item]),
+  );
+  const serviceById = new Map(services.map((service) => [service.id, service]));
   const serviceNames = new Map(services.map((service) => [service.id, service.name]));
+  const selectedQuarantinedMatchingServices =
+    selectedQuarantinedDescriptor?.matching_services.map(
+      (service) => serviceById.get(service.id) ?? service,
+    ) ?? [];
+  const descriptorReviewQueueCount = quarantinedDescriptorQueueState.items.length;
+  const pendingDescriptorReviewCount = quarantinedDescriptorQueueState.items.filter(
+    (item) => item.review_state === "pending",
+  ).length;
+  const deferredDescriptorReviewCount = quarantinedDescriptorQueueState.items.filter(
+    (item) => item.review_state === "deferred",
+  ).length;
+  const selectedQuarantinedDraftDirty =
+    selectedQuarantinedDescriptor !== null &&
+    quarantinedDescriptorEditorState.descriptorId ===
+      selectedQuarantinedDescriptor.descriptor.descriptor_id &&
+    quarantinedDescriptorEditorState.rawYaml !==
+      selectedQuarantinedDescriptor.descriptor.raw_yaml;
+  const serviceReferenceMap = buildServiceReferenceMap(services);
   const categories = groupServicesByCategory(services);
   const layouts = buildLayouts(categories);
   const layoutById = new Map(layouts.map((layout) => [layout.service.id, layout]));
+  const matchingServiceIds = new Set(
+    services
+      .filter((service) => {
+        const insightLevel = service.insight?.level ?? 0;
+        return (
+          (graphFilters.categories.length === 0 ||
+            graphFilters.categories.includes(service.category)) &&
+          (graphFilters.statuses.length === 0 || graphFilters.statuses.includes(service.status)) &&
+          (graphFilters.insightLevels.length === 0 ||
+            graphFilters.insightLevels.includes(insightLevel))
+        );
+      })
+      .map((service) => service.id),
+  );
+  const matchingConfidenceEdges = edges.filter(
+    (edge) =>
+      graphFilters.confidences.length === 0 ||
+      graphFilters.confidences.includes(edge.confidence),
+  );
+  const confidenceMatchedServiceIds = new Set(
+    matchingConfidenceEdges.flatMap((edge) => [
+      edge.source_service_id,
+      edge.target_service_id,
+    ]),
+  );
+  const filterHighlightedServiceIds = new Set(
+    services
+      .filter(
+        (service) =>
+          matchingServiceIds.has(service.id) &&
+          (graphFilters.confidences.length === 0 ||
+            confidenceMatchedServiceIds.has(service.id)),
+      )
+      .map((service) => service.id),
+  );
+  const filterHighlightedEdgeKeys = new Set(
+    matchingConfidenceEdges
+      .filter(
+        (edge) =>
+          filterHighlightedServiceIds.has(edge.source_service_id) &&
+          filterHighlightedServiceIds.has(edge.target_service_id),
+      )
+      .map(edgeKey),
+  );
+  const selectedEdge =
+    selectedEdgeKey === null ? null : edges.find((edge) => edgeKey(edge) === selectedEdgeKey) ?? null;
+  const hoveredEdge =
+    hoveredEdgeKey === null ? null : edges.find((edge) => edgeKey(edge) === hoveredEdgeKey) ?? null;
+  const activeEdge = selectedEdge ?? hoveredEdge;
+  const activeEdgeSourceName =
+    activeEdge === null
+      ? null
+      : serviceNames.get(activeEdge.source_service_id) ?? activeEdge.source_service_id;
+  const activeEdgeTargetName =
+    activeEdge === null
+      ? null
+      : serviceNames.get(activeEdge.target_service_id) ?? activeEdge.target_service_id;
   const selectedService =
     services.find((service) => service.id === selectedServiceId) ?? layouts[0]?.service ?? null;
   const selectedServiceDetail =
@@ -509,6 +935,36 @@ export default function App() {
           }
           return investigation.incident_id === selectedIncident.id;
         }) ?? null;
+  const incidentGraphFocus =
+    selectedIncident === null
+      ? null
+      : buildIncidentGraphFocus(
+          selectedIncident,
+          selectedInvestigation,
+          services,
+          edges,
+          serviceReferenceMap,
+        );
+  const incidentModeActive = incidentModeEnabled && incidentGraphFocus !== null;
+  const incidentFocusServiceIds = new Set(incidentGraphFocus?.serviceIds ?? []);
+  const incidentFocusEdgeKeys = new Set(incidentGraphFocus?.edgeKeys ?? []);
+  const incidentEvidenceServiceIds = new Set(incidentGraphFocus?.evidenceServiceIds ?? []);
+  const highlightedServiceIds = incidentModeActive
+    ? new Set(
+        [...filterHighlightedServiceIds].filter((serviceId) =>
+          incidentFocusServiceIds.has(serviceId),
+        ),
+      )
+    : filterHighlightedServiceIds;
+  const highlightedEdgeKeys = incidentModeActive
+    ? new Set(
+        [...filterHighlightedEdgeKeys].filter((key) => incidentFocusEdgeKeys.has(key)),
+      )
+    : filterHighlightedEdgeKeys;
+  const incidentRootServiceName =
+    incidentGraphFocus?.rootServiceId === null || incidentGraphFocus?.rootServiceId === undefined
+      ? null
+      : serviceNames.get(incidentGraphFocus.rootServiceId) ?? incidentGraphFocus.rootServiceId;
   const investigationByIncidentId = new Map(
     state.investigations.map((investigation) => [investigation.incident_id, investigation]),
   );
@@ -567,6 +1023,37 @@ export default function App() {
           pattern.activeEntry.services.includes(selectedService.id),
         ).length;
   const selectedServiceFactAdapters = selectedServiceFacts?.adapters ?? [];
+  const selectedServiceIncidents =
+    selectedService === null
+      ? []
+      : sortedIncidents.filter((incident) =>
+          incident.affected_services.includes(selectedService.id),
+        );
+  const selectedServiceCredentialRequests =
+    selectedService === null
+      ? []
+      : sortedCredentialRequests.filter((request) => request.service_id === selectedService.id);
+  const selectedServiceJournalEntries =
+    selectedService === null
+      ? []
+      : sortedJournalEntries.filter((entry) => entry.services.includes(selectedService.id));
+  const selectedServiceNotes =
+    selectedService === null
+      ? []
+      : sortedUserNotes.filter((note) => note.service_id === selectedService.id);
+  const selectedServiceRecurrencePatterns =
+    selectedService === null
+      ? []
+      : recurrencePatterns.filter((pattern) =>
+          pattern.activeEntry.services.includes(selectedService.id),
+        );
+  const notificationHealthLayer =
+    state.capabilityHealth?.layers.find((layer) => layer.layer === "notification_channels") ??
+    null;
+  const notificationChannelCount =
+    typeof notificationHealthLayer?.metadata["configured_channels"] === "number"
+      ? notificationHealthLayer.metadata["configured_channels"]
+      : 0;
   const currentFactsCount = selectedServiceFactAdapters.filter(
     (adapter) => adapter.facts_available && adapter.freshness === "current",
   ).length;
@@ -627,7 +1114,7 @@ export default function App() {
   const surfaceHeight =
     Math.max(...layouts.map((layout) => layout.y), 0) + CARD_HEIGHT + HEADER_HEIGHT + 96;
 
-  async function submitNoteEditor() {
+  async function submitNoteEditor(serviceIdOverride: string | null = null) {
     const trimmedNote = noteEditorState.note.trim();
     if (!trimmedNote) {
       setNoteMutationState({
@@ -645,7 +1132,7 @@ export default function App() {
     });
 
     const payload = {
-      service_id: noteEditorState.serviceId || null,
+      service_id: (serviceIdOverride ?? noteEditorState.serviceId) || null,
       note: trimmedNote,
       safe_for_model: noteEditorState.safeForModel,
       stale: noteEditorState.stale,
@@ -774,6 +1261,631 @@ export default function App() {
     }
   }
 
+  async function refreshGraphPanels() {
+    const [graph, changes] = await Promise.all([
+      fetchJson<GraphResponse>("/api/v1/graph"),
+      fetchJson<Change[]>("/api/v1/changes"),
+    ]);
+    startTransition(() => {
+      setState((current) => ({
+        ...current,
+        graph,
+        changes,
+      }));
+    });
+    return graph;
+  }
+
+  async function loadQuarantinedDescriptorQueue() {
+    setQuarantinedDescriptorQueueState((current) => ({
+      ...current,
+      error: null,
+      loading: true,
+    }));
+    try {
+      const items = await fetchJson<QuarantinedDescriptorQueueItem[]>(
+        "/api/v1/descriptors/auto-generated",
+      );
+      startTransition(() => {
+        setQuarantinedDescriptorQueueState({
+          items,
+          error: null,
+          loading: false,
+        });
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown descriptor review queue failure.";
+      startTransition(() => {
+        setQuarantinedDescriptorQueueState((current) => ({
+          ...current,
+          error: message,
+          loading: false,
+        }));
+      });
+    }
+  }
+
+  function updateDescriptorEditor(
+    updater: (current: DescriptorEditorState) => DescriptorEditorState,
+  ) {
+    setDescriptorEditorState((current) => {
+      if (current === null) {
+        return current;
+      }
+      return updater(current);
+    });
+    setDescriptorMutationState((current) => ({
+      ...current,
+      error: null,
+      auditChangeId: null,
+    }));
+    setDescriptorValidationState({
+      validating: false,
+      error: null,
+      result: null,
+    });
+  }
+
+  function beginDescriptorEdit(mode: DescriptorEditorMode) {
+    if (serviceDescriptorState.detail === null) {
+      return;
+    }
+    const descriptorDetail = serviceDescriptorState.detail;
+    setDescriptorEditorOpen(true);
+    setDescriptorEditorState((current) =>
+      current === null
+        ? createDescriptorEditorState(descriptorDetail, mode)
+        : {
+            ...current,
+            mode,
+          },
+    );
+    setDescriptorMutationState({
+      saving: false,
+      error: null,
+      auditChangeId: null,
+    });
+    setDescriptorValidationState({
+      validating: false,
+      error: null,
+      result: null,
+    });
+  }
+
+  function cancelDescriptorEdit() {
+    if (serviceDescriptorState.detail === null) {
+      return;
+    }
+    setDescriptorEditorOpen(false);
+    setDescriptorEditorState(createDescriptorEditorState(serviceDescriptorState.detail));
+    setDescriptorMutationState({
+      saving: false,
+      error: null,
+      auditChangeId: null,
+    });
+    setDescriptorValidationState({
+      validating: false,
+      error: null,
+      result: null,
+    });
+  }
+
+  function updateDescriptorEndpoint(
+    clientId: string,
+    field: keyof Omit<DescriptorEditorEndpointState, "clientId">,
+    value: string,
+  ) {
+    updateDescriptorEditor((current) => ({
+      ...current,
+      endpoints: current.endpoints.map((endpoint) =>
+        endpoint.clientId === clientId
+          ? {
+              ...endpoint,
+              [field]: value,
+            }
+          : endpoint,
+      ),
+    }));
+  }
+
+  function addDescriptorEndpoint() {
+    updateDescriptorEditor((current) => ({
+      ...current,
+      endpoints: [...current.endpoints, createEmptyDescriptorEndpointState()],
+    }));
+  }
+
+  function removeDescriptorEndpoint(clientId: string) {
+    updateDescriptorEditor((current) => ({
+      ...current,
+      endpoints: current.endpoints.filter((endpoint) => endpoint.clientId !== clientId),
+    }));
+  }
+
+  function updateDescriptorDependency(
+    clientId: string,
+    field: keyof Omit<DescriptorEditorDependencyState, "clientId">,
+    value: string,
+  ) {
+    updateDescriptorEditor((current) => ({
+      ...current,
+      containerDependencies: current.containerDependencies.map((dependency) =>
+        dependency.clientId === clientId
+          ? {
+              ...dependency,
+              [field]: value,
+            }
+          : dependency,
+      ),
+    }));
+  }
+
+  function addDescriptorDependency() {
+    updateDescriptorEditor((current) => ({
+      ...current,
+      containerDependencies: [
+        ...current.containerDependencies,
+        createEmptyDescriptorDependencyState(),
+      ],
+    }));
+  }
+
+  function removeDescriptorDependency(clientId: string) {
+    updateDescriptorEditor((current) => ({
+      ...current,
+      containerDependencies: current.containerDependencies.filter(
+        (dependency) => dependency.clientId !== clientId,
+      ),
+    }));
+  }
+
+  async function validateDescriptorEdit() {
+    if (selectedServiceId === null || descriptorEditorState === null) {
+      return;
+    }
+    setDescriptorValidationState({
+      validating: true,
+      error: null,
+      result: null,
+    });
+    try {
+      const response = await fetch(
+        `/api/v1/services/${encodeURIComponent(selectedServiceId)}/descriptor/validate`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildDescriptorSavePayload(descriptorEditorState)),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(
+          await readApiError(
+            response,
+            "Kaval UI could not validate the descriptor.",
+          ),
+        );
+      }
+      const result = (await response.json()) as ServiceDescriptorValidationResponse;
+      setDescriptorValidationState({
+        validating: false,
+        error: null,
+        result,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown descriptor validation failure.";
+      setDescriptorValidationState({
+        validating: false,
+        error: message,
+        result: null,
+      });
+    }
+  }
+
+  async function saveDescriptorEdit() {
+    if (selectedServiceId === null || descriptorEditorState === null) {
+      return;
+    }
+    if (!descriptorValidationState.result?.valid) {
+      setDescriptorMutationState({
+        saving: false,
+        error: "Run validation and preview before saving the descriptor.",
+        auditChangeId: null,
+      });
+      return;
+    }
+    setDescriptorMutationState({
+      saving: true,
+      error: null,
+      auditChangeId: null,
+    });
+    try {
+      const response = await fetch(
+        `/api/v1/services/${encodeURIComponent(selectedServiceId)}/descriptor`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildDescriptorSavePayload(descriptorEditorState)),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(
+          await readApiError(
+            response,
+            "Kaval UI could not save the descriptor.",
+          ),
+        );
+      }
+      const payload = (await response.json()) as ServiceDescriptorSaveResponse;
+      const [, refreshedDetail] = await Promise.all([
+        refreshGraphPanels(),
+        fetchJson<ServiceDetailResponse>(
+          `/api/v1/services/${encodeURIComponent(selectedServiceId)}/detail`,
+        ),
+      ]);
+      startTransition(() => {
+        setServiceDetailState({
+          detail: refreshedDetail,
+          error: null,
+          loading: false,
+        });
+        setServiceDescriptorState({
+          detail: payload.descriptor,
+          error: null,
+          loading: false,
+        });
+        setDescriptorMutationState({
+          saving: false,
+          error: null,
+          auditChangeId: payload.audit_change.id,
+        });
+        setDescriptorValidationState({
+          validating: false,
+          error: null,
+          result: null,
+        });
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown descriptor save failure.";
+      setDescriptorMutationState({
+        saving: false,
+        error: message,
+        auditChangeId: null,
+      });
+    }
+  }
+
+  async function saveQuarantinedDescriptorDraft() {
+    if (selectedQuarantinedDescriptor === null) {
+      return;
+    }
+    const descriptor = selectedQuarantinedDescriptor.descriptor;
+    const localDescriptorId = descriptorIdSegment(descriptor);
+    setQuarantinedDescriptorMutationState({
+      submitting: true,
+      descriptorId: descriptor.descriptor_id,
+      action: "save",
+      error: null,
+      auditChangeId: null,
+    });
+    try {
+      const response = await fetch(
+        `/api/v1/descriptors/auto-generated/${encodeURIComponent(
+          descriptor.category,
+        )}/${encodeURIComponent(localDescriptorId)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "yaml",
+            raw_yaml: quarantinedDescriptorEditorState.rawYaml,
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(
+          await readApiError(
+            response,
+            "Kaval UI could not save the quarantined descriptor draft.",
+          ),
+        );
+      }
+      const payload = (await response.json()) as QuarantinedDescriptorActionResponse;
+      await Promise.all([refreshGraphPanels(), loadQuarantinedDescriptorQueue()]);
+      startTransition(() => {
+        setQuarantinedDescriptorMutationState({
+          submitting: false,
+          descriptorId: null,
+          action: null,
+          error: null,
+          auditChangeId: payload.audit_change.id,
+        });
+        setSelectedQuarantinedDescriptorId(payload.descriptor_id);
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown quarantined descriptor save failure.";
+      startTransition(() => {
+        setQuarantinedDescriptorMutationState({
+          submitting: false,
+          descriptorId: descriptor.descriptor_id,
+          action: "save",
+          error: message,
+          auditChangeId: null,
+        });
+      });
+    }
+  }
+
+  async function runQuarantinedDescriptorAction(
+    action: "promote" | "dismiss" | "defer",
+  ) {
+    if (selectedQuarantinedDescriptor === null) {
+      return;
+    }
+    const descriptor = selectedQuarantinedDescriptor.descriptor;
+    const localDescriptorId = descriptorIdSegment(descriptor);
+    setQuarantinedDescriptorMutationState({
+      submitting: true,
+      descriptorId: descriptor.descriptor_id,
+      action,
+      error: null,
+      auditChangeId: null,
+    });
+    try {
+      const response = await fetch(
+        `/api/v1/descriptors/auto-generated/${encodeURIComponent(
+          descriptor.category,
+        )}/${encodeURIComponent(localDescriptorId)}/${action}`,
+        {
+          method: "POST",
+        },
+      );
+      if (!response.ok) {
+        throw new Error(
+          await readApiError(
+            response,
+            `Kaval UI could not ${action} the quarantined descriptor.`,
+          ),
+        );
+      }
+      const payload = (await response.json()) as QuarantinedDescriptorActionResponse;
+      await Promise.all([refreshGraphPanels(), loadQuarantinedDescriptorQueue()]);
+      startTransition(() => {
+        setQuarantinedDescriptorMutationState({
+          submitting: false,
+          descriptorId: null,
+          action: null,
+          error: null,
+          auditChangeId: payload.audit_change.id,
+        });
+        if (payload.action === "promoted" || payload.action === "dismissed") {
+          setQuarantinedDescriptorEditorState({
+            descriptorId: null,
+            rawYaml: "",
+            open: false,
+          });
+        }
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : `Unknown quarantined descriptor ${action} failure.`;
+      startTransition(() => {
+        setQuarantinedDescriptorMutationState({
+          submitting: false,
+          descriptorId: descriptor.descriptor_id,
+          action,
+          error: message,
+          auditChangeId: null,
+        });
+      });
+    }
+  }
+
+  async function confirmEdge(edge: GraphEdge) {
+    setEdgeMutationState({
+      saving: true,
+      error: null,
+      auditChangeId: null,
+    });
+    try {
+      const response = await fetch("/api/v1/graph/edges", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_service_id: edge.source_service_id,
+          target_service_id: edge.target_service_id,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error("Kaval UI could not confirm the edge.");
+      }
+      const payload = (await response.json()) as GraphEdgeMutationResponse;
+      await refreshGraphPanels();
+      startTransition(() => {
+        setSelectedEdgeKey(payload.edge ? edgeKey(payload.edge) : null);
+        setEdgeEditorState(null);
+        setEdgeMutationState({
+          saving: false,
+          error: null,
+          auditChangeId: payload.audit_change.id,
+        });
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown edge confirmation failure.";
+      setEdgeMutationState({
+        saving: false,
+        error: message,
+        auditChangeId: null,
+      });
+    }
+  }
+
+  function beginEdgeEdit(edge: GraphEdge) {
+    setSelectedEdgeKey(edgeKey(edge));
+    setEdgeEditorState({
+      sourceServiceId: edge.source_service_id,
+      targetServiceId: edge.target_service_id,
+      previousSourceServiceId: edge.source_service_id,
+      previousTargetServiceId: edge.target_service_id,
+      description: edge.description ?? "",
+    });
+    setEdgeMutationState({
+      saving: false,
+      error: null,
+      auditChangeId: null,
+    });
+  }
+
+  function beginEdgeAdd() {
+    const sourceServiceId = selectedService?.id ?? services[0]?.id ?? "";
+    const targetServiceId =
+      services.find((service) => service.id !== sourceServiceId)?.id ?? "";
+    setSelectedEdgeKey(null);
+    setHoveredEdgeKey(null);
+    setEdgeEditorState({
+      sourceServiceId,
+      targetServiceId,
+      previousSourceServiceId: null,
+      previousTargetServiceId: null,
+      description: "",
+    });
+    setEdgeMutationState({
+      saving: false,
+      error: null,
+      auditChangeId: null,
+    });
+  }
+
+  async function saveEdgeEdit() {
+    if (edgeEditorState === null) {
+      return;
+    }
+    setEdgeMutationState({
+      saving: true,
+      error: null,
+      auditChangeId: null,
+    });
+    try {
+      const response = await fetch("/api/v1/graph/edges", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          previous_source_service_id: edgeEditorState.previousSourceServiceId,
+          previous_target_service_id: edgeEditorState.previousTargetServiceId,
+          source_service_id: edgeEditorState.sourceServiceId,
+          target_service_id: edgeEditorState.targetServiceId,
+          description: edgeEditorState.description.trim() || null,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error("Kaval UI could not save the edge edit.");
+      }
+      const payload = (await response.json()) as GraphEdgeMutationResponse;
+      await refreshGraphPanels();
+      startTransition(() => {
+        setSelectedEdgeKey(payload.edge ? edgeKey(payload.edge) : null);
+        setEdgeEditorState(
+          payload.edge
+            ? {
+                sourceServiceId: payload.edge.source_service_id,
+                targetServiceId: payload.edge.target_service_id,
+                previousSourceServiceId: payload.edge.source_service_id,
+                previousTargetServiceId: payload.edge.target_service_id,
+                description: payload.edge.description ?? "",
+              }
+            : null,
+        );
+        setEdgeMutationState({
+          saving: false,
+          error: null,
+          auditChangeId: payload.audit_change.id,
+        });
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown edge edit failure.";
+      setEdgeMutationState({
+        saving: false,
+        error: message,
+        auditChangeId: null,
+      });
+    }
+  }
+
+  async function removeEdge(edge: GraphEdge) {
+    setEdgeMutationState({
+      saving: true,
+      error: null,
+      auditChangeId: null,
+    });
+    try {
+      const response = await fetch(
+        `/api/v1/graph/edges/${encodeURIComponent(edge.source_service_id)}/${encodeURIComponent(edge.target_service_id)}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        throw new Error("Kaval UI could not remove the edge.");
+      }
+      const payload = (await response.json()) as GraphEdgeMutationResponse;
+      await refreshGraphPanels();
+      startTransition(() => {
+        setSelectedEdgeKey(null);
+        setHoveredEdgeKey(null);
+        setEdgeEditorState(null);
+        setEdgeMutationState({
+          saving: false,
+          error: null,
+          auditChangeId: payload.audit_change.id,
+        });
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown edge removal failure.";
+      setEdgeMutationState({
+        saving: false,
+        error: message,
+        auditChangeId: null,
+      });
+    }
+  }
+
+  function toggleGraphFilter<K extends keyof GraphFilterState>(
+    key: K,
+    value: GraphFilterState[K][number],
+  ) {
+    setGraphFilters((current) => {
+      const values = current[key] as Array<GraphFilterState[K][number]>;
+      const nextValues = values.includes(value)
+        ? values.filter((item) => item !== value)
+        : [...values, value];
+      return {
+        ...current,
+        [key]: nextValues,
+      };
+    });
+  }
+
+  function clearGraphFilters() {
+    setGraphFilters({
+      categories: [],
+      confidences: [],
+      insightLevels: [],
+      statuses: [],
+    });
+  }
+
+  function pinGraphEdge(sourceServiceId: string, targetServiceId: string) {
+    setSelectedEdgeKey(`${sourceServiceId}::${targetServiceId}`);
+    setEdgeEditorState(null);
+    setEdgeMutationState((current) => ({
+      ...current,
+      error: null,
+      auditChangeId: null,
+    }));
+  }
+
   return (
     <div className="shell">
       <div className="ambient ambient-a" />
@@ -877,6 +1989,115 @@ export default function App() {
               </div>
             </div>
 
+            <div className="graph-filter-panel">
+              <div className="graph-filter-summary">
+                <p className="detail-label">View filters</p>
+                <p className="muted">
+                  {incidentModeActive ? "Incident mode active. " : ""}
+                  Highlighting {highlightedServiceIds.size} of {services.length} services and{" "}
+                  {highlightedEdgeKeys.size} of {edges.length} edges.
+                </p>
+              </div>
+              <div className="graph-filter-groups">
+                <div className="graph-filter-group">
+                  <span>Category</span>
+                  <div className="filter-chip-row">
+                    {categories.map(([category]) => (
+                      <button
+                        key={category}
+                        className={`filter-chip ${graphFilters.categories.includes(category) ? "active" : ""}`}
+                        onClick={() => toggleGraphFilter("categories", category)}
+                        type="button"
+                      >
+                        {category}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="graph-filter-group">
+                  <span>Health</span>
+                  <div className="filter-chip-row">
+                    {Object.entries(statusLabel).map(([status, label]) => (
+                      <button
+                        key={status}
+                        className={`filter-chip ${graphFilters.statuses.includes(status as ServiceStatus) ? "active" : ""}`}
+                        onClick={() => toggleGraphFilter("statuses", status as ServiceStatus)}
+                        type="button"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="graph-filter-group">
+                  <span>Insight</span>
+                  <div className="filter-chip-row">
+                    {Object.entries(insightLabel).map(([level, label]) => (
+                      <button
+                        key={level}
+                        className={`filter-chip ${graphFilters.insightLevels.includes(Number(level)) ? "active" : ""}`}
+                        onClick={() => toggleGraphFilter("insightLevels", Number(level))}
+                        type="button"
+                      >
+                        L{level} · {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="graph-filter-group">
+                  <span>Confidence</span>
+                  <div className="filter-chip-row">
+                    {graphConfidenceLegend.map((item) => (
+                      <button
+                        key={item.confidence}
+                        className={`filter-chip ${graphFilters.confidences.includes(item.confidence) ? "active" : ""}`}
+                        onClick={() => toggleGraphFilter("confidences", item.confidence)}
+                        type="button"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="graph-filter-group">
+                  <span>Incident mode</span>
+                  {selectedIncident && incidentGraphFocus ? (
+                    <>
+                      <p className="muted graph-incident-summary">
+                        {incidentModeActive
+                          ? `Focusing ${incidentGraphFocus.serviceIds.length} services and ${incidentGraphFocus.edgeKeys.length} path edges for ${selectedIncident.title}.`
+                          : `Selected incident ${selectedIncident.title} is ready for graph focus.`}{" "}
+                        {incidentRootServiceName
+                          ? `Graph anchor: ${incidentRootServiceName}.`
+                          : "No graph anchor is currently persisted for this incident."}
+                      </p>
+                      <div className="filter-chip-row">
+                        <button
+                          className={`filter-chip ${incidentModeActive ? "active" : ""}`}
+                          onClick={() => setIncidentModeEnabled((current) => !current)}
+                          type="button"
+                        >
+                          {incidentModeActive
+                            ? "Disable incident mode"
+                            : "Focus selected incident"}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="muted graph-incident-summary">
+                      Select an incident to highlight its likely failure path without removing the
+                      rest of the graph.
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="action-strip">
+                <button className="note-button" onClick={clearGraphFilters} type="button">
+                  Clear filters
+                </button>
+              </div>
+            </div>
+
             <div className="map-frame">
               <svg
                 className="map-canvas"
@@ -908,12 +2129,61 @@ export default function App() {
                   if (!source || !target) {
                     return null;
                   }
+                  const key = edgeKey(edge);
                   return (
                     <path
                       key={`${edge.source_service_id}-${edge.target_service_id}`}
-                      className={`edge edge-${edge.confidence}`}
+                      className={`edge edge-${edge.confidence} ${selectedEdgeKey === key ? "selected" : ""} ${incidentModeActive && incidentFocusEdgeKeys.has(key) ? "incident-path" : ""} ${highlightedEdgeKeys.has(key) ? "" : "filtered-out"}`}
                       d={edgePath(source, target)}
-                    />
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedEdgeKey(key);
+                        setEdgeEditorState(null);
+                        setEdgeMutationState((current) => ({
+                          ...current,
+                          error: null,
+                          auditChangeId: null,
+                        }));
+                      }}
+                      onMouseEnter={() => setHoveredEdgeKey(key)}
+                      onMouseLeave={() =>
+                        setHoveredEdgeKey((current) =>
+                          current === key ? null : current,
+                        )
+                      }
+                    >
+                      <title>{buildEdgeTitle(edge, source.service.name, target.service.name)}</title>
+                    </path>
+                  );
+                })}
+
+                {edges.map((edge) => {
+                  if (!edgeNeedsConfirmation(edge)) {
+                    return null;
+                  }
+                  const source = layoutById.get(edge.source_service_id);
+                  const target = layoutById.get(edge.target_service_id);
+                  if (!source || !target) {
+                    return null;
+                  }
+                  const marker = edgeMarkerPosition(source, target);
+                  return (
+                    <g
+                      key={`${edgeKey(edge)}-review`}
+                      className={`edge-review-marker ${highlightedEdgeKeys.has(edgeKey(edge)) ? "" : "filtered-out"}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedEdgeKey(edgeKey(edge));
+                        setEdgeEditorState(null);
+                      }}
+                      transform={`translate(${marker.x} ${marker.y})`}
+                    >
+                      <circle r={11} />
+                      <text textAnchor="middle" y={4}>
+                        ?
+                      </text>
+                      <title>Low-confidence edge. Click to review or confirm it.</title>
+                    </g>
                   );
                 })}
 
@@ -921,6 +2191,13 @@ export default function App() {
                   <ServiceNode
                     key={layout.service.id}
                     layout={layout}
+                    nodeMeta={nodeMetaByServiceId.get(layout.service.id) ?? null}
+                    filteredOut={!highlightedServiceIds.has(layout.service.id)}
+                    incidentFocused={incidentModeActive && incidentFocusServiceIds.has(layout.service.id)}
+                    incidentRoot={incidentModeActive && incidentGraphFocus?.rootServiceId === layout.service.id}
+                    incidentEvidence={
+                      incidentModeActive && incidentEvidenceServiceIds.has(layout.service.id)
+                    }
                     selected={layout.service.id === selectedService?.id}
                     onSelect={setSelectedServiceId}
                   />
@@ -928,10 +2205,330 @@ export default function App() {
               </svg>
             </div>
 
+            <p className="legend-caption">
+              Edge styling reflects dependency confidence. Stronger evidence reads brighter and
+              more solid; weaker or quarantined relationships become more patterned or faint.
+            </p>
             <div className="legend">
-              <LegendSwatch tone="configured" label="Configured edge" />
-              <LegendSwatch tone="inferred" label="Inferred edge" />
-              <LegendSwatch tone="runtime_observed" label="Runtime observed edge" />
+              {graphConfidenceLegend.map((item) => (
+                <LegendSwatch
+                  key={item.confidence}
+                  tone={item.confidence}
+                  label={item.label}
+                  detail={item.detail}
+                />
+              ))}
+            </div>
+            <div className="edge-detail-card">
+              {activeEdge && activeEdgeSourceName && activeEdgeTargetName ? (
+                <>
+                  <div className="timeline-topline">
+                    <div>
+                      <p className="timeline-service">
+                        {activeEdgeSourceName} → {activeEdgeTargetName}
+                      </p>
+                      <p className="muted edge-detail-meta">
+                        {selectedEdge ? "Pinned edge detail" : "Hover detail"}
+                      </p>
+                    </div>
+                    <span
+                      className={`status-pill edge-confidence-pill confidence-${activeEdge.confidence}`}
+                    >
+                      {formatLabel(activeEdge.confidence)}
+                    </span>
+                  </div>
+                  <div className="detail-grid edge-detail-grid">
+                    <div>
+                      <p className="detail-label">Source of truth</p>
+                      <p className="service-detail-lead">
+                        {buildGraphEdgeSourceSummary(activeEdge)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="detail-label">Investigation impact</p>
+                      <p className="service-detail-lead">
+                        {graphEdgeConfidenceDetail(activeEdge.confidence)}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="muted edge-description">
+                    {activeEdge.description ?? "No additional dependency note is recorded yet."}
+                  </p>
+                  {selectedEdge ? (
+                    <>
+                      <div className="action-strip">
+                        <button
+                          className="note-button"
+                          onClick={() => void confirmEdge(selectedEdge)}
+                          type="button"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          className="note-button"
+                          onClick={() => beginEdgeEdit(selectedEdge)}
+                          type="button"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="note-button"
+                          onClick={() => void removeEdge(selectedEdge)}
+                          type="button"
+                        >
+                          Remove
+                        </button>
+                        <button
+                          className="note-button"
+                          onClick={() => {
+                            setSelectedEdgeKey(null);
+                            setEdgeEditorState(null);
+                          }}
+                          type="button"
+                        >
+                          Close
+                        </button>
+                      </div>
+                      {edgeEditorState ? (
+                        <div className="edge-editor">
+                          <label className="note-field">
+                            <span>Source service</span>
+                            <select
+                              onChange={(event) =>
+                                setEdgeEditorState((current) =>
+                                  current === null
+                                    ? null
+                                    : {
+                                        ...current,
+                                        sourceServiceId: event.target.value,
+                                      },
+                                )
+                              }
+                              value={edgeEditorState.sourceServiceId}
+                            >
+                              {services.map((service) => (
+                                <option key={service.id} value={service.id}>
+                                  {service.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="note-field">
+                            <span>Target service</span>
+                            <select
+                              onChange={(event) =>
+                                setEdgeEditorState((current) =>
+                                  current === null
+                                    ? null
+                                    : {
+                                        ...current,
+                                        targetServiceId: event.target.value,
+                                      },
+                                )
+                              }
+                              value={edgeEditorState.targetServiceId}
+                            >
+                              {services
+                                .filter(
+                                  (service) =>
+                                    service.id !== edgeEditorState.sourceServiceId,
+                                )
+                                .map((service) => (
+                                  <option key={service.id} value={service.id}>
+                                    {service.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                          <label className="note-field note-field-wide">
+                            <span>Admin note</span>
+                            <textarea
+                              onChange={(event) =>
+                                setEdgeEditorState((current) =>
+                                  current === null
+                                    ? null
+                                    : {
+                                        ...current,
+                                        description: event.target.value,
+                                      },
+                                )
+                              }
+                              rows={3}
+                              value={edgeEditorState.description}
+                            />
+                          </label>
+                          <div className="action-strip">
+                            <button
+                              className="note-button"
+                              onClick={() => void saveEdgeEdit()}
+                              type="button"
+                            >
+                              Save edge
+                            </button>
+                            <button
+                              className="note-button"
+                              onClick={() => setEdgeEditorState(null)}
+                              type="button"
+                            >
+                              Cancel edit
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="muted edge-detail-meta">
+                      Click the edge to pin it and apply confirm, edit, or remove actions.
+                    </p>
+                  )}
+                  {edgeMutationState.saving ? (
+                    <p className="muted edge-detail-meta">Saving edge change…</p>
+                  ) : null}
+                  {edgeMutationState.auditChangeId ? (
+                    <p className="muted edge-detail-meta">
+                      Logged in the change timeline as {edgeMutationState.auditChangeId}.
+                    </p>
+                  ) : null}
+                  {edgeMutationState.error ? (
+                    <p className="message-inline error">{edgeMutationState.error}</p>
+                  ) : null}
+                </>
+              ) : edgeEditorState ? (
+                <>
+                  <div className="timeline-topline">
+                    <div>
+                      <p className="timeline-service">Add dependency edge</p>
+                      <p className="muted edge-detail-meta">
+                        Review the source, target, and note before saving.
+                      </p>
+                    </div>
+                    <span className="status-pill edge-confidence-pill confidence-user_confirmed">
+                      User Confirmed
+                    </span>
+                  </div>
+                  <div className="edge-editor">
+                    <label className="note-field">
+                      <span>Source service</span>
+                      <select
+                        onChange={(event) =>
+                          setEdgeEditorState((current) =>
+                            current === null
+                              ? null
+                              : {
+                                  ...current,
+                                  sourceServiceId: event.target.value,
+                                  targetServiceId:
+                                    current.targetServiceId === event.target.value
+                                      ? services.find(
+                                          (service) =>
+                                            service.id !== event.target.value,
+                                        )?.id ?? ""
+                                      : current.targetServiceId,
+                                },
+                          )
+                        }
+                        value={edgeEditorState.sourceServiceId}
+                      >
+                        {services.map((service) => (
+                          <option key={service.id} value={service.id}>
+                            {service.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="note-field">
+                      <span>Target service</span>
+                      <select
+                        onChange={(event) =>
+                          setEdgeEditorState((current) =>
+                            current === null
+                              ? null
+                              : {
+                                  ...current,
+                                  targetServiceId: event.target.value,
+                                },
+                          )
+                        }
+                        value={edgeEditorState.targetServiceId}
+                      >
+                        {services
+                          .filter((service) => service.id !== edgeEditorState.sourceServiceId)
+                          .map((service) => (
+                            <option key={service.id} value={service.id}>
+                              {service.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label className="note-field note-field-wide">
+                      <span>Admin note</span>
+                      <textarea
+                        onChange={(event) =>
+                          setEdgeEditorState((current) =>
+                            current === null
+                              ? null
+                              : {
+                                  ...current,
+                                  description: event.target.value,
+                                },
+                          )
+                        }
+                        rows={3}
+                        value={edgeEditorState.description}
+                      />
+                    </label>
+                    <div className="action-strip">
+                      <button
+                        className="note-button"
+                        disabled={
+                          edgeMutationState.saving ||
+                          !edgeEditorState.sourceServiceId ||
+                          !edgeEditorState.targetServiceId
+                        }
+                        onClick={() => void saveEdgeEdit()}
+                        type="button"
+                      >
+                        Save edge
+                      </button>
+                      <button
+                        className="note-button"
+                        onClick={() => setEdgeEditorState(null)}
+                        type="button"
+                      >
+                        Cancel add
+                      </button>
+                    </div>
+                  </div>
+                  {edgeMutationState.saving ? (
+                    <p className="muted edge-detail-meta">Saving edge change…</p>
+                  ) : null}
+                  {edgeMutationState.auditChangeId ? (
+                    <p className="muted edge-detail-meta">
+                      Logged in the change timeline as {edgeMutationState.auditChangeId}.
+                    </p>
+                  ) : null}
+                  {edgeMutationState.error ? (
+                    <p className="message-inline error">{edgeMutationState.error}</p>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <p className="muted edge-detail-meta">
+                    Hover or click an edge to inspect its provenance, confidence, and admin
+                    controls.
+                  </p>
+                  <div className="action-strip">
+                    <button
+                      className="note-button"
+                      disabled={services.length < 2}
+                      onClick={beginEdgeAdd}
+                      type="button"
+                    >
+                      Add dependency
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </section>
 
@@ -1028,85 +2625,1482 @@ export default function App() {
                   </div>
 
                   <div className="detail-block">
-                    <p className="detail-label">Insight Level</p>
-                    <p className="service-detail-lead">
-                      Level {selectedServiceDetail.insight_section.current_level}:{" "}
-                      {labelForInsight(selectedServiceDetail.insight_section.current_level)}
-                    </p>
-                    <p className="muted">
-                      Current insight reflects the shipped Phase 3A capability chain already
-                      active for this service.
-                    </p>
+                    <p className="detail-label">Identity</p>
+                    <div className="detail-grid">
+                      <article className="system-profile-card">
+                        <p className="timeline-service">Matched identity</p>
+                        <ul className="system-profile-list compact">
+                          <li>
+                            <span>Descriptor</span>
+                            <strong>
+                              {formatOptionalValue(selectedServiceDetail.service.descriptor_id)}
+                            </strong>
+                          </li>
+                          <li>
+                            <span>Descriptor source</span>
+                            <strong>
+                              {formatOptionalLabel(
+                                selectedServiceDetail.service.descriptor_source,
+                              )}
+                            </strong>
+                          </li>
+                          <li>
+                            <span>Docker image</span>
+                            <strong>{formatOptionalValue(selectedServiceDetail.service.image)}</strong>
+                          </li>
+                          <li>
+                            <span>Container ID</span>
+                            <strong>
+                              {formatOptionalValue(selectedServiceDetail.service.container_id)}
+                            </strong>
+                          </li>
+                          <li>
+                            <span>VM ID</span>
+                            <strong>{formatOptionalValue(selectedServiceDetail.service.vm_id)}</strong>
+                          </li>
+                        </ul>
+                      </article>
+                      <article className="system-profile-card">
+                        <p className="timeline-service">Observed runtime identity</p>
+                        <ul className="system-profile-list compact">
+                          <li>
+                            <span>Lifecycle</span>
+                            <strong>
+                              {formatLabel(selectedServiceDetail.service.lifecycle.state)}
+                            </strong>
+                          </li>
+                          <li>
+                            <span>Last event</span>
+                            <strong>
+                              {formatOptionalValue(selectedServiceDetail.service.lifecycle.last_event)}
+                            </strong>
+                          </li>
+                          <li>
+                            <span>Changed at</span>
+                            <strong>
+                              {formatOptionalTimestamp(
+                                selectedServiceDetail.service.lifecycle.changed_at,
+                              )}
+                            </strong>
+                          </li>
+                        </ul>
+                        {selectedServiceDetail.service.lifecycle.previous_names.length > 0 ? (
+                          <ul className="chip-list service-inline-chip-list">
+                            {selectedServiceDetail.service.lifecycle.previous_names.map((name) => (
+                              <li key={name}>
+                                <span className="chip ghost">{name}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            No prior service names have been recorded for this service.
+                          </p>
+                        )}
+                        {selectedServiceDetail.service.endpoints.length > 0 ? (
+                          <ul className="endpoint-list">
+                            {selectedServiceDetail.service.endpoints.map((endpoint) => (
+                              <li key={`${endpoint.name}-${endpoint.url ?? endpoint.port ?? endpoint.protocol}`}>
+                                {endpoint.name}: {endpoint.url ?? endpoint.host ?? "local"}{" "}
+                                {endpoint.port ? `:${endpoint.port}` : ""}{" "}
+                                {endpoint.auth_required ? "· auth" : "· open"}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </article>
+                    </div>
                   </div>
 
                   <div className="detail-block">
-                    <p className="detail-label">Deep Inspection</p>
-                    {selectedServiceDetail.insight_section.adapter_available ? (
-                      <div className="adapter-list">
-                        {selectedServiceDetail.insight_section.adapters.map((adapter) => (
-                          <article key={adapter.adapter_id} className="adapter-card">
+                    <p className="detail-label">Health</p>
+                    <div className="detail-grid">
+                      <article className="system-profile-card">
+                        <p className="timeline-service">Current service status</p>
+                        <ul className="system-profile-list compact">
+                          <li>
+                            <span>Status</span>
+                            <strong>{statusLabel[selectedServiceDetail.service.status]}</strong>
+                          </li>
+                          <li>
+                            <span>Active findings</span>
+                            <strong>{selectedServiceDetail.service.active_findings}</strong>
+                          </li>
+                          <li>
+                            <span>Active incidents</span>
+                            <strong>{selectedServiceDetail.service.active_incidents}</strong>
+                          </li>
+                          <li>
+                            <span>Last check</span>
+                            <strong>
+                              {formatOptionalTimestamp(selectedServiceDetail.service.last_check)}
+                            </strong>
+                          </li>
+                        </ul>
+                      </article>
+                      <article className="system-profile-card">
+                        <div className="timeline-topline">
+                          <p className="timeline-service">Recent incidents</p>
+                          {selectedServiceIncidents[0] ? (
+                            <button
+                              className="note-button"
+                              onClick={() => setSelectedIncidentId(selectedServiceIncidents[0].id)}
+                              type="button"
+                            >
+                              Open latest
+                            </button>
+                          ) : null}
+                        </div>
+                        {selectedServiceIncidents.length > 0 ? (
+                          <div className="service-inline-list">
+                            {selectedServiceIncidents.slice(0, 3).map((incident) => (
+                              <article className="service-inline-item" key={incident.id}>
+                                <div className="timeline-topline">
+                                  <p className="timeline-service">{incident.title}</p>
+                                  <div className="adapter-state-strip">
+                                    <span className={`severity severity-${incident.severity}`}>
+                                      {incident.severity}
+                                    </span>
+                                    <span className="chip ghost">
+                                      {formatLabel(incident.status)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <p className="muted service-inline-copy">
+                                  {incident.triggering_symptom ??
+                                    incident.suspected_cause ??
+                                    "No persisted symptom summary."}
+                                </p>
+                                <p className="step-meta">
+                                  Updated {formatTimestamp(incident.updated_at)}
+                                </p>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            No persisted incidents currently affect this service.
+                          </p>
+                        )}
+                      </article>
+                    </div>
+                  </div>
+
+                  <div className="detail-block">
+                    <p className="detail-label">Insight</p>
+                    <div className="detail-grid">
+                      <article className="system-profile-card">
+                        <p className="service-detail-lead">
+                          Level {selectedServiceDetail.insight_section.current_level}:{" "}
+                          {labelForInsight(selectedServiceDetail.insight_section.current_level)}
+                        </p>
+                        <p className="muted service-inline-copy">
+                          Current insight reflects the existing descriptor, monitoring, model, and
+                          deep-inspection chain already active for this service.
+                        </p>
+                        {selectedServiceDetail.insight_section.improve_actions.length > 0 ? (
+                          <div className="improve-list service-inline-stack">
+                            {selectedServiceDetail.insight_section.improve_actions.map((action) => (
+                              <article
+                                key={`${action.kind}-${action.title}`}
+                                className="improve-card"
+                              >
+                                <p className="improve-title">{action.title}</p>
+                                <p className="muted">{action.detail}</p>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            No immediate improvement action is available from the current Phase 3A
+                            foundations.
+                          </p>
+                        )}
+                      </article>
+                      <article className="system-profile-card">
+                        <p className="timeline-service">Deep inspection surfaces</p>
+                        {selectedServiceDetail.insight_section.adapter_available ? (
+                          <div className="adapter-list service-inline-stack">
+                            {selectedServiceDetail.insight_section.adapters.map((adapter) => (
+                              <article key={adapter.adapter_id} className="adapter-card">
+                                <div className="timeline-topline">
+                                  <p className="timeline-service">{adapter.display_name}</p>
+                                  <div className="adapter-state-strip">
+                                    <span className="chip ghost">
+                                      {formatLabel(adapter.configuration_state)}
+                                    </span>
+                                    <span className="chip ghost">
+                                      {formatLabel(adapter.health_state)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <p className="muted">{adapter.configuration_summary}</p>
+                                <p className="muted">{adapter.health_summary}</p>
+                                {adapter.missing_credentials.length > 0 ? (
+                                  <p className="muted">
+                                    Missing:{" "}
+                                    {adapter.missing_credentials
+                                      .map((credential) => formatLabel(credential))
+                                      .join(", ")}
+                                  </p>
+                                ) : null}
+                                {adapter.supported_fact_names.length > 0 ? (
+                                  <ul className="chip-list adapter-capability-list">
+                                    {adapter.supported_fact_names.map((factName) => (
+                                      <li key={factName}>
+                                        <span className="chip">
+                                          {formatLabel(factName)}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            No shipped deep-inspection adapter is currently available for this
+                            service.
+                          </p>
+                        )}
+                      </article>
+                      <article className="system-profile-card system-profile-card-wide">
+                        <div className="timeline-topline">
+                          <p className="timeline-service">Imported facts</p>
+                          {selectedServiceFacts ? (
+                            <span className="step-meta">
+                              Checked {formatTimestamp(selectedServiceFacts.checked_at)}
+                            </span>
+                          ) : null}
+                        </div>
+                        {serviceAdapterFactsState.loading ? (
+                          <p className="muted service-inline-copy">
+                            Loading prompt-safe imported facts for this service…
+                          </p>
+                        ) : serviceAdapterFactsState.error ? (
+                          <p className="muted service-inline-copy">
+                            {serviceAdapterFactsState.error}
+                          </p>
+                        ) : selectedServiceFacts && selectedServiceFactAdapters.length > 0 ? (
+                          <div className="service-inline-list">
+                            {selectedServiceFactAdapters.map((adapter) => (
+                              <article className="service-inline-item" key={adapter.adapter_id}>
+                                <div className="timeline-topline">
+                                  <p className="timeline-service">{adapter.display_name}</p>
+                                  <div className="adapter-state-strip">
+                                    <span
+                                      className={`status-pill fact-freshness fact-freshness-${adapter.freshness}`}
+                                    >
+                                      {formatLabel(adapter.freshness)}
+                                    </span>
+                                    <span className="chip ghost">
+                                      {formatLabel(adapter.health_state)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <p className="muted">{adapter.configuration_summary}</p>
+                                <p className="muted">{adapter.health_summary}</p>
+                                <p className="step-meta">
+                                  {adapter.facts_observed_at
+                                    ? `Observed ${formatTimestamp(adapter.facts_observed_at)}`
+                                    : `Checked ${formatTimestamp(selectedServiceFacts.checked_at)}`}
+                                  {" · "}
+                                  Next refresh {formatOptionalTimestamp(adapter.next_refresh_at)}
+                                </p>
+                                {adapter.facts_available ? (
+                                  <div className="fact-value-grid">
+                                    {Object.entries(adapter.facts).map(([factName, value]) => (
+                                      <article
+                                        className="fact-value-card"
+                                        key={`${adapter.adapter_id}-${factName}`}
+                                      >
+                                        <p className="detail-label">
+                                          {formatLabel(factName)}
+                                        </p>
+                                        <pre className="fact-json-block">
+                                          {formatFactValue(value)}
+                                        </pre>
+                                      </article>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="muted service-inline-copy">
+                                    No prompt-safe fact values are currently available for this
+                                    adapter.
+                                  </p>
+                                )}
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            Prompt-safe imported facts are not currently available for this
+                            service.
+                          </p>
+                        )}
+                      </article>
+                    </div>
+                  </div>
+
+                  <div className="detail-block">
+                    <p className="detail-label">Dependencies</p>
+                    <div className="detail-grid">
+                      <article className="system-profile-card">
+                        <div className="timeline-topline">
+                          <p className="timeline-service">Upstream dependencies</p>
+                          <button className="note-button" onClick={beginEdgeAdd} type="button">
+                            Add dependency
+                          </button>
+                        </div>
+                        {selectedServiceDetail.service.dependencies.length > 0 ? (
+                          <div className="service-inline-list">
+                            {selectedServiceDetail.service.dependencies.map((dependency) => (
+                              <article
+                                className="service-inline-item"
+                                key={`${selectedServiceDetail.service.id}-${dependency.target_service_id}`}
+                              >
+                                <div className="timeline-topline">
+                                  <p className="timeline-service">
+                                    {serviceNames.get(dependency.target_service_id) ??
+                                      dependency.target_service_id}
+                                  </p>
+                                  <span
+                                    className={`status-pill edge-confidence-pill confidence-${dependency.confidence}`}
+                                  >
+                                    {formatLabel(dependency.confidence)}
+                                  </span>
+                                </div>
+                                <p className="muted service-inline-copy">
+                                  {formatLabel(dependency.source)}
+                                  {dependency.description
+                                    ? ` · ${dependency.description}`
+                                    : " · No admin note recorded yet."}
+                                </p>
+                                <div className="action-strip">
+                                  <button
+                                    className="note-button"
+                                    onClick={() =>
+                                      pinGraphEdge(
+                                        selectedServiceDetail.service.id,
+                                        dependency.target_service_id,
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    Review edge
+                                  </button>
+                                  <button
+                                    className="note-button"
+                                    onClick={() => setSelectedServiceId(dependency.target_service_id)}
+                                    type="button"
+                                  >
+                                    Open service
+                                  </button>
+                                </div>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            No upstream dependencies are currently recorded for this service.
+                          </p>
+                        )}
+                      </article>
+                      <article className="system-profile-card">
+                        <p className="timeline-service">Downstream impact</p>
+                        {selectedServiceDetail.service.dependents.length > 0 ? (
+                          <div className="service-inline-list">
+                            {selectedServiceDetail.service.dependents.map((dependentId) => {
+                              const dependentService = serviceById.get(dependentId) ?? null;
+                              return (
+                                <article className="service-inline-item" key={dependentId}>
+                                  <div className="timeline-topline">
+                                    <p className="timeline-service">
+                                      {serviceNames.get(dependentId) ?? dependentId}
+                                    </p>
+                                    {dependentService ? (
+                                      <span
+                                        className={`status-pill status-${dependentService.status}`}
+                                      >
+                                        {statusLabel[dependentService.status]}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  {dependentService ? (
+                                    <p className="muted service-inline-copy">
+                                      {dependentService.active_findings} findings ·{" "}
+                                      {dependentService.active_incidents} incidents
+                                    </p>
+                                  ) : null}
+                                  <div className="action-strip">
+                                    <button
+                                      className="note-button"
+                                      onClick={() => pinGraphEdge(dependentId, selectedServiceDetail.service.id)}
+                                      type="button"
+                                    >
+                                      Review edge
+                                    </button>
+                                    <button
+                                      className="note-button"
+                                      onClick={() => setSelectedServiceId(dependentId)}
+                                      type="button"
+                                    >
+                                      Open service
+                                    </button>
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            No downstream dependents are currently recorded for this service.
+                          </p>
+                        )}
+                      </article>
+                    </div>
+                  </div>
+
+                  <div className="detail-block">
+                    <p className="detail-label">Credentials</p>
+                    <div className="detail-grid">
+                      <article className="system-profile-card">
+                        <p className="timeline-service">Adapter credential state</p>
+                        {selectedServiceDetail.insight_section.adapters.length > 0 ? (
+                          <div className="service-inline-list">
+                            {selectedServiceDetail.insight_section.adapters.map((adapter) => (
+                              <article className="service-inline-item" key={adapter.adapter_id}>
+                                <div className="timeline-topline">
+                                  <p className="timeline-service">{adapter.display_name}</p>
+                                  <span className="chip ghost">
+                                    {formatLabel(adapter.configuration_state)}
+                                  </span>
+                                </div>
+                                <p className="muted service-inline-copy">
+                                  {adapter.configuration_summary}
+                                </p>
+                                {adapter.missing_credentials.length > 0 ? (
+                                  <p className="step-meta">
+                                    Missing credentials:{" "}
+                                    {adapter.missing_credentials
+                                      .map((credential) => formatLabel(credential))
+                                      .join(", ")}
+                                  </p>
+                                ) : (
+                                  <p className="step-meta">
+                                    Credentials currently satisfy the descriptor-backed adapter
+                                    requirements.
+                                  </p>
+                                )}
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            No descriptor-backed credential requirements are currently defined for
+                            this service.
+                          </p>
+                        )}
+                      </article>
+                      <article className="system-profile-card">
+                        <p className="timeline-service">Credential request activity</p>
+                        {selectedServiceCredentialRequests.length > 0 ? (
+                          <div className="service-inline-list">
+                            {selectedServiceCredentialRequests.slice(0, 3).map((request) => (
+                              <article className="service-inline-item" key={request.id}>
+                                <div className="timeline-topline">
+                                  <p className="timeline-service">
+                                    {formatLabel(request.credential_key)}
+                                  </p>
+                                  <span className="chip ghost">
+                                    {formatLabel(request.status)}
+                                  </span>
+                                </div>
+                                <p className="muted service-inline-copy">{request.reason}</p>
+                                <p className="step-meta">
+                                  Requested {formatTimestamp(request.requested_at)}
+                                </p>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            No credential requests have been recorded for this service yet.
+                          </p>
+                        )}
+                      </article>
+                    </div>
+                  </div>
+
+                  <div className="detail-block">
+                    <p className="detail-label">Memory</p>
+                    <div className="detail-grid">
+                      <article className="system-profile-card">
+                        <div className="timeline-topline">
+                          <p className="timeline-service">User notes</p>
+                          <button
+                            className="note-button"
+                            onClick={() => {
+                              setActiveMemoryTab("notes");
+                              setEditingNoteId(null);
+                              setNoteEditorState(createEmptyNoteEditorState(selectedServiceDetail.service.id));
+                            }}
+                            type="button"
+                          >
+                            Open notes workspace
+                          </button>
+                        </div>
+                        {selectedServiceNotes.length > 0 ? (
+                          <div className="service-inline-list">
+                            {selectedServiceNotes.slice(0, 3).map((note) => (
+                              <article className="service-inline-item" key={note.id}>
+                                <div className="timeline-topline">
+                                  <p className="timeline-service">
+                                    {note.safe_for_model ? "Model-safe note" : "Excluded note"}
+                                  </p>
+                                  <div className="adapter-state-strip">
+                                    <span className="chip ghost">
+                                      {note.stale ? "Needs review" : "Current"}
+                                    </span>
+                                    <span className="chip ghost">
+                                      {formatOptionalTimestamp(note.last_verified_at)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <p className="muted service-inline-copy">{note.note}</p>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            No user notes are currently attached to this service.
+                          </p>
+                        )}
+                        <div className="note-editor service-inline-note-editor">
+                          <div className="timeline-topline">
+                            <p className="timeline-service">Quick note</p>
+                            <span className="chip ghost">{selectedServiceDetail.service.name}</span>
+                          </div>
+                          <div className="note-field">
+                            <span>Note</span>
+                            <textarea
+                              onChange={(event) =>
+                                setNoteEditorState((current) => ({
+                                  ...current,
+                                  serviceId: selectedServiceDetail.service.id,
+                                  note: event.target.value,
+                                }))
+                              }
+                              rows={3}
+                              value={
+                                noteEditorState.serviceId === selectedServiceDetail.service.id ||
+                                noteEditorState.serviceId === ""
+                                  ? noteEditorState.note
+                                  : ""
+                              }
+                            />
+                          </div>
+                          <div className="action-strip">
+                            <button
+                              className="note-button"
+                              disabled={noteMutationState.saving}
+                              onClick={() => void submitNoteEditor(selectedServiceDetail.service.id)}
+                              type="button"
+                            >
+                              {noteMutationState.saving ? "Saving…" : "Save note"}
+                            </button>
+                          </div>
+                          {noteMutationState.error ? (
+                            <p className="message-inline error">{noteMutationState.error}</p>
+                          ) : null}
+                        </div>
+                      </article>
+                      <article className="system-profile-card">
+                        <div className="timeline-topline">
+                          <p className="timeline-service">Journal and recurrence</p>
+                          <div className="action-strip">
+                            <button
+                              className="note-button"
+                              onClick={() => setActiveMemoryTab("journal")}
+                              type="button"
+                            >
+                              Open journal
+                            </button>
+                            <button
+                              className="note-button"
+                              onClick={() => setActiveMemoryTab("recurrence")}
+                              type="button"
+                            >
+                              Open recurrence
+                            </button>
+                          </div>
+                        </div>
+                        {selectedServiceJournalEntries.length > 0 ? (
+                          <div className="service-inline-list">
+                            {selectedServiceJournalEntries.slice(0, 3).map((entry) => (
+                              <article className="service-inline-item" key={entry.id}>
+                                <div className="timeline-topline">
+                                  <p className="timeline-service">{entry.summary}</p>
+                                  <span className="chip ghost">
+                                    {formatLabel(entry.confidence)}
+                                  </span>
+                                </div>
+                                <p className="muted service-inline-copy">{entry.root_cause}</p>
+                                <p className="step-meta">
+                                  {entry.date} · recurrence {entry.recurrence_count}
+                                </p>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            No journal entries currently reference this service.
+                          </p>
+                        )}
+                        {selectedServiceRecurrencePatterns.length > 0 ? (
+                          <p className="step-meta">
+                            {selectedServiceRecurrencePatterns.length} active recurrence pattern(s)
+                            currently include this service.
+                          </p>
+                        ) : null}
+                      </article>
+                    </div>
+                  </div>
+
+                  <div className="detail-block">
+                    <p className="detail-label">Notifications</p>
+                    <div className="detail-grid">
+                      <article className="system-profile-card">
+                        <div className="timeline-topline">
+                          <p className="timeline-service">Notification channel health</p>
+                          {notificationHealthLayer ? (
+                            <span
+                              className={`status-pill capability-state state-${notificationHealthLayer.display_state}`}
+                            >
+                              {formatLabel(notificationHealthLayer.display_state)}
+                            </span>
+                          ) : null}
+                        </div>
+                        {notificationHealthLayer ? (
+                          <>
+                            <p className="muted service-inline-copy">
+                              {notificationHealthLayer.summary}
+                            </p>
+                            <p className="muted service-inline-copy">
+                              {notificationHealthLayer.detail}
+                            </p>
+                            <p className="step-meta">
+                              {notificationChannelCount} configured channel
+                              {notificationChannelCount === 1 ? "" : "s"} ·{" "}
+                              {notificationHealthLayer.user_impact}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            Notification channel health has not been loaded yet.
+                          </p>
+                        )}
+                      </article>
+                      <article className="system-profile-card">
+                        <p className="timeline-service">Service alert context</p>
+                        <p className="muted service-inline-copy">
+                          Incident-centered routing currently applies to this service through the
+                          shared Phase 3B notification policy. Per-service overrides land in later
+                          Phase 3C settings and noise-control tasks.
+                        </p>
+                        {selectedServiceIncidents.length > 0 ? (
+                          <div className="service-inline-list">
+                            {selectedServiceIncidents.slice(0, 2).map((incident) => (
+                              <article className="service-inline-item" key={`${incident.id}-notify`}>
+                                <div className="timeline-topline">
+                                  <p className="timeline-service">{incident.title}</p>
+                                  <span className={`severity severity-${incident.severity}`}>
+                                    {incident.severity}
+                                  </span>
+                                </div>
+                                <p className="muted service-inline-copy">
+                                  {formatLabel(incident.status)} · confidence{" "}
+                                  {incident.confidence.toFixed(2)}
+                                </p>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted service-inline-copy">
+                            This service is not part of any persisted incident notification context
+                            right now.
+                          </p>
+                        )}
+                      </article>
+                    </div>
+                  </div>
+
+                  <div className="detail-block">
+                    <p className="detail-label">Descriptor</p>
+                    {selectedServiceDetail.service.descriptor_id === null ? (
+                      <p className="muted service-inline-copy">
+                        No matched descriptor is currently attached to this service, so rendered
+                        descriptor view mode is unavailable until the service is identified.
+                      </p>
+                    ) : serviceDescriptorState.loading ? (
+                      <p className="muted service-inline-copy">
+                        Loading rendered descriptor view…
+                      </p>
+                    ) : serviceDescriptorState.error ? (
+                      <p className="muted service-inline-copy">
+                        {serviceDescriptorState.error}
+                      </p>
+                    ) : serviceDescriptorState.detail ? (
+                      <>
+                        <div className="descriptor-editor-toolbar">
+                          <div>
+                            <p className="step-meta descriptor-editor-meta">
+                              Active descriptor file: {serviceDescriptorState.detail.file_path}
+                            </p>
+                            <p className="step-meta descriptor-editor-meta">
+                              Deterministic saves write to{" "}
+                              {serviceDescriptorState.detail.write_target_path}. Shipped
+                              descriptors stay immutable.
+                            </p>
+                          </div>
+                          <div className="action-strip">
+                            <button
+                              className={`note-button ${
+                                descriptorEditorOpen && descriptorEditorState?.mode === "form"
+                                  ? "note-button-primary"
+                                  : "note-button-ghost"
+                              }`}
+                              disabled={descriptorMutationState.saving}
+                              onClick={() => beginDescriptorEdit("form")}
+                              type="button"
+                            >
+                              Edit common fields
+                            </button>
+                            <button
+                              className={`note-button ${
+                                descriptorEditorOpen && descriptorEditorState?.mode === "yaml"
+                                  ? "note-button-primary"
+                                  : "note-button-ghost"
+                              }`}
+                              disabled={descriptorMutationState.saving}
+                              onClick={() => beginDescriptorEdit("yaml")}
+                              type="button"
+                            >
+                              Advanced YAML
+                            </button>
+                          </div>
+                        </div>
+                        {descriptorMutationState.auditChangeId ? (
+                          <p className="message-inline">
+                            Logged in the change timeline as{" "}
+                            {descriptorMutationState.auditChangeId}.
+                          </p>
+                        ) : null}
+                        {descriptorMutationState.error ? (
+                          <p className="message-inline error">
+                            {descriptorMutationState.error}
+                          </p>
+                        ) : null}
+                        {descriptorEditorOpen && descriptorEditorState ? (
+                          <div className="note-editor descriptor-editor">
+                            <div className="memory-section-header">
+                              <div>
+                                <p className="detail-label">Edit mode</p>
+                                <p className="timeline-service">
+                                  {descriptorEditorState.mode === "form"
+                                    ? "Common field editor"
+                                    : "Advanced YAML editor"}
+                                </p>
+                              </div>
+                              <p className="step-meta">
+                                {descriptorEditorState.mode === "form"
+                                  ? "Match patterns, endpoints, and dependencies only."
+                                  : "Raw YAML saves still preserve descriptor id and category."}
+                              </p>
+                            </div>
+                            {descriptorEditorState.mode === "form" ? (
+                              <div className="note-editor-grid">
+                                <label className="note-field">
+                                  <span>Image patterns</span>
+                                  <textarea
+                                    onChange={(event) =>
+                                      updateDescriptorEditor((current) => ({
+                                        ...current,
+                                        imagePatterns: event.target.value,
+                                      }))
+                                    }
+                                    rows={5}
+                                    value={descriptorEditorState.imagePatterns}
+                                  />
+                                  <span className="step-meta">One pattern per line.</span>
+                                </label>
+                                <label className="note-field">
+                                  <span>Container name patterns</span>
+                                  <textarea
+                                    onChange={(event) =>
+                                      updateDescriptorEditor((current) => ({
+                                        ...current,
+                                        containerNamePatterns: event.target.value,
+                                      }))
+                                    }
+                                    rows={5}
+                                    value={descriptorEditorState.containerNamePatterns}
+                                  />
+                                  <span className="step-meta">One pattern per line.</span>
+                                </label>
+                                <label className="note-field note-field-wide">
+                                  <span>Share dependencies</span>
+                                  <textarea
+                                    onChange={(event) =>
+                                      updateDescriptorEditor((current) => ({
+                                        ...current,
+                                        shareDependencies: event.target.value,
+                                      }))
+                                    }
+                                    rows={3}
+                                    value={descriptorEditorState.shareDependencies}
+                                  />
+                                  <span className="step-meta">One share name per line.</span>
+                                </label>
+                                <div className="note-field note-field-wide">
+                                  <span>Container dependencies</span>
+                                  <div className="descriptor-editor-list">
+                                    {descriptorEditorState.containerDependencies.map(
+                                      (dependency) => (
+                                        <article
+                                          className="descriptor-editor-row"
+                                          key={dependency.clientId}
+                                        >
+                                          <div className="note-editor-grid">
+                                            <label className="note-field">
+                                              <span>Name</span>
+                                              <input
+                                                onChange={(event) =>
+                                                  updateDescriptorDependency(
+                                                    dependency.clientId,
+                                                    "name",
+                                                    event.target.value,
+                                                  )
+                                                }
+                                                type="text"
+                                                value={dependency.name}
+                                              />
+                                            </label>
+                                            <label className="note-field">
+                                              <span>Alternatives</span>
+                                              <input
+                                                onChange={(event) =>
+                                                  updateDescriptorDependency(
+                                                    dependency.clientId,
+                                                    "alternatives",
+                                                    event.target.value,
+                                                  )
+                                                }
+                                                placeholder="Comma-separated"
+                                                type="text"
+                                                value={dependency.alternatives}
+                                              />
+                                            </label>
+                                          </div>
+                                          <div className="descriptor-editor-actions">
+                                            <span className="step-meta">
+                                              Leave alternatives blank when there is no fallback.
+                                            </span>
+                                            <button
+                                              className="note-button note-button-danger"
+                                              onClick={() =>
+                                                removeDescriptorDependency(dependency.clientId)
+                                              }
+                                              type="button"
+                                            >
+                                              Remove dependency
+                                            </button>
+                                          </div>
+                                        </article>
+                                      ),
+                                    )}
+                                  </div>
+                                  <div className="descriptor-editor-actions">
+                                    <span className="step-meta">
+                                      Dependencies are saved as deterministic descriptor entries.
+                                    </span>
+                                    <button
+                                      className="note-button note-button-ghost"
+                                      onClick={addDescriptorDependency}
+                                      type="button"
+                                    >
+                                      Add dependency
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="note-field note-field-wide">
+                                  <span>Endpoints</span>
+                                  <div className="descriptor-editor-list">
+                                    {descriptorEditorState.endpoints.map((endpoint) => (
+                                      <article
+                                        className="descriptor-editor-row"
+                                        key={endpoint.clientId}
+                                      >
+                                        <div className="note-editor-grid">
+                                          <label className="note-field">
+                                            <span>Name</span>
+                                            <input
+                                              onChange={(event) =>
+                                                updateDescriptorEndpoint(
+                                                  endpoint.clientId,
+                                                  "name",
+                                                  event.target.value,
+                                                )
+                                              }
+                                              type="text"
+                                              value={endpoint.name}
+                                            />
+                                          </label>
+                                          <label className="note-field">
+                                            <span>Port</span>
+                                            <input
+                                              onChange={(event) =>
+                                                updateDescriptorEndpoint(
+                                                  endpoint.clientId,
+                                                  "port",
+                                                  event.target.value,
+                                                )
+                                              }
+                                              min="1"
+                                              step="1"
+                                              type="number"
+                                              value={endpoint.port}
+                                            />
+                                          </label>
+                                          <label className="note-field">
+                                            <span>Path</span>
+                                            <input
+                                              onChange={(event) =>
+                                                updateDescriptorEndpoint(
+                                                  endpoint.clientId,
+                                                  "path",
+                                                  event.target.value,
+                                                )
+                                              }
+                                              type="text"
+                                              value={endpoint.path}
+                                            />
+                                          </label>
+                                          <label className="note-field">
+                                            <span>Auth</span>
+                                            <input
+                                              onChange={(event) =>
+                                                updateDescriptorEndpoint(
+                                                  endpoint.clientId,
+                                                  "auth",
+                                                  event.target.value,
+                                                )
+                                              }
+                                              type="text"
+                                              value={endpoint.auth}
+                                            />
+                                          </label>
+                                          <label className="note-field">
+                                            <span>Auth header</span>
+                                            <input
+                                              onChange={(event) =>
+                                                updateDescriptorEndpoint(
+                                                  endpoint.clientId,
+                                                  "authHeader",
+                                                  event.target.value,
+                                                )
+                                              }
+                                              type="text"
+                                              value={endpoint.authHeader}
+                                            />
+                                          </label>
+                                          <label className="note-field">
+                                            <span>Healthy when</span>
+                                            <input
+                                              onChange={(event) =>
+                                                updateDescriptorEndpoint(
+                                                  endpoint.clientId,
+                                                  "healthyWhen",
+                                                  event.target.value,
+                                                )
+                                              }
+                                              type="text"
+                                              value={endpoint.healthyWhen}
+                                            />
+                                          </label>
+                                        </div>
+                                        <div className="descriptor-editor-actions">
+                                          <span className="step-meta">
+                                            Ports must remain valid integer values.
+                                          </span>
+                                          <button
+                                            className="note-button note-button-danger"
+                                            onClick={() =>
+                                              removeDescriptorEndpoint(endpoint.clientId)
+                                            }
+                                            type="button"
+                                          >
+                                            Remove endpoint
+                                          </button>
+                                        </div>
+                                      </article>
+                                    ))}
+                                  </div>
+                                  <div className="descriptor-editor-actions">
+                                    <span className="step-meta">
+                                      Endpoint names remain deterministic keys in the saved
+                                      descriptor.
+                                    </span>
+                                    <button
+                                      className="note-button note-button-ghost"
+                                      onClick={addDescriptorEndpoint}
+                                      type="button"
+                                    >
+                                      Add endpoint
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <label className="note-field note-field-wide">
+                                <span>Descriptor YAML</span>
+                                <textarea
+                                  className="descriptor-editor-textarea"
+                                  onChange={(event) =>
+                                    updateDescriptorEditor((current) => ({
+                                      ...current,
+                                      rawYaml: event.target.value,
+                                    }))
+                                  }
+                                  rows={18}
+                                  value={descriptorEditorState.rawYaml}
+                                />
+                              </label>
+                            )}
+                            {descriptorValidationState.error ? (
+                              <p className="message-inline error">
+                                {descriptorValidationState.error}
+                              </p>
+                            ) : null}
+                            {descriptorValidationState.result ? (
+                              <div className="descriptor-preview">
+                                <div className="memory-section-header">
+                                  <div>
+                                    <p className="detail-label">Validation preview</p>
+                                    <p className="timeline-service">
+                                      {descriptorValidationState.result.valid
+                                        ? "Descriptor edits are valid"
+                                        : "Descriptor edits need attention"}
+                                    </p>
+                                  </div>
+                                  {descriptorValidationState.result.preview ? (
+                                    <p className="step-meta">
+                                      Save target:{" "}
+                                      {
+                                        descriptorValidationState.result.preview
+                                          .write_target_path
+                                      }
+                                    </p>
+                                  ) : null}
+                                </div>
+                                {descriptorValidationState.result.errors.length > 0 ? (
+                                  <ul className="warning-list descriptor-preview-list">
+                                    {descriptorValidationState.result.errors.map((error) => (
+                                      <li key={`descriptor-error-${error}`}>{error}</li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                                {descriptorValidationState.result.warnings.length > 0 ? (
+                                  <ul className="warning-list descriptor-preview-list">
+                                    {descriptorValidationState.result.warnings.map((warning) => (
+                                      <li key={`descriptor-warning-${warning}`}>{warning}</li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                                {descriptorValidationState.result.preview ? (
+                                  <div className="detail-grid descriptor-preview-grid">
+                                    <article className="service-inline-item">
+                                      <p className="detail-label">Match impact</p>
+                                      <p className="muted service-inline-copy">
+                                        Current service likely{" "}
+                                        {descriptorValidationState.result.preview.match
+                                          .current_service_likely_matches
+                                          ? "still matches"
+                                          : "no longer matches"}{" "}
+                                        the edited descriptor.
+                                      </p>
+                                      {descriptorValidationState.result.preview.match
+                                        .affected_services.length > 0 ? (
+                                        <ul className="endpoint-list">
+                                          {descriptorValidationState.result.preview.match.affected_services.map(
+                                            (affectedService) => (
+                                              <li key={affectedService.service_id}>
+                                                {affectedService.service_name} ·{" "}
+                                                {affectedService.likely_matches
+                                                  ? "likely matches"
+                                                  : "review rematch"}
+                                              </li>
+                                            ),
+                                          )}
+                                        </ul>
+                                      ) : null}
+                                    </article>
+                                    <article className="service-inline-item">
+                                      <p className="detail-label">Dependency impact</p>
+                                      <ul className="endpoint-list">
+                                        <li>
+                                          Added containers:{" "}
+                                          {formatListPreview(
+                                            descriptorValidationState.result.preview
+                                              .dependency_impact
+                                              .added_container_dependencies,
+                                          )}
+                                        </li>
+                                        <li>
+                                          Removed containers:{" "}
+                                          {formatListPreview(
+                                            descriptorValidationState.result.preview
+                                              .dependency_impact
+                                              .removed_container_dependencies,
+                                          )}
+                                        </li>
+                                        <li>
+                                          Added shares:{" "}
+                                          {formatListPreview(
+                                            descriptorValidationState.result.preview
+                                              .dependency_impact.added_share_dependencies,
+                                          )}
+                                        </li>
+                                        <li>
+                                          Removed shares:{" "}
+                                          {formatListPreview(
+                                            descriptorValidationState.result.preview
+                                              .dependency_impact
+                                              .removed_share_dependencies,
+                                          )}
+                                        </li>
+                                      </ul>
+                                    </article>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            <div className="note-action-row">
+                              <button
+                                className="note-button note-button-ghost"
+                                disabled={
+                                  descriptorMutationState.saving ||
+                                  descriptorValidationState.validating
+                                }
+                                onClick={cancelDescriptorEdit}
+                                type="button"
+                              >
+                                Close editor
+                              </button>
+                              <button
+                                className="note-button note-button-ghost"
+                                disabled={
+                                  descriptorMutationState.saving ||
+                                  descriptorValidationState.validating
+                                }
+                                onClick={() => {
+                                  void validateDescriptorEdit();
+                                }}
+                                type="button"
+                              >
+                                {descriptorValidationState.validating
+                                  ? "Validating…"
+                                  : "Validate and preview"}
+                              </button>
+                              <button
+                                className="note-button note-button-primary"
+                                disabled={
+                                  descriptorMutationState.saving ||
+                                  descriptorValidationState.validating ||
+                                  !descriptorValidationState.result?.valid
+                                }
+                                onClick={() => {
+                                  void saveDescriptorEdit();
+                                }}
+                                type="button"
+                              >
+                                {descriptorMutationState.saving
+                                  ? "Saving…"
+                                  : "Save descriptor"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                        <div className="detail-grid">
+                          <article className="system-profile-card">
                             <div className="timeline-topline">
-                              <p className="timeline-service">{adapter.display_name}</p>
+                              <div>
+                                <p className="timeline-service">
+                                  {serviceDescriptorState.detail.name}
+                                </p>
+                                <p className="step-meta">
+                                  {serviceDescriptorState.detail.descriptor_id}
+                                </p>
+                              </div>
                               <div className="adapter-state-strip">
                                 <span className="chip ghost">
-                                  {formatLabel(adapter.configuration_state)}
+                                  {formatLabel(serviceDescriptorState.detail.source)}
                                 </span>
                                 <span className="chip ghost">
-                                  {formatLabel(adapter.health_state)}
+                                  {serviceDescriptorState.detail.verified
+                                    ? "Verified"
+                                    : "Needs review"}
                                 </span>
                               </div>
                             </div>
-                            <p className="muted">{adapter.configuration_summary}</p>
-                            <p className="muted">{adapter.health_summary}</p>
-                            {adapter.missing_credentials.length > 0 ? (
-                              <p className="muted">
-                                Missing:{" "}
-                                {adapter.missing_credentials
-                                  .map((credential) => formatLabel(credential))
-                                  .join(", ")}
+                            <ul className="system-profile-list compact">
+                              <li>
+                                <span>Category</span>
+                                <strong>{serviceDescriptorState.detail.category}</strong>
+                              </li>
+                              <li>
+                                <span>Path</span>
+                                <strong>{serviceDescriptorState.detail.file_path}</strong>
+                              </li>
+                              <li>
+                                <span>Project URL</span>
+                                <strong>
+                                  {formatOptionalValue(serviceDescriptorState.detail.project_url)}
+                                </strong>
+                              </li>
+                              <li>
+                                <span>Icon</span>
+                                <strong>
+                                  {formatOptionalValue(serviceDescriptorState.detail.icon)}
+                                </strong>
+                              </li>
+                            </ul>
+                            <div className="service-inline-list">
+                              <article className="service-inline-item">
+                                <p className="detail-label">Match rules</p>
+                                <ul className="chip-list service-inline-chip-list">
+                                  {serviceDescriptorState.detail.match.image_patterns.map(
+                                    (pattern) => (
+                                      <li key={`image-${pattern}`}>
+                                        <span className="chip ghost">{pattern}</span>
+                                      </li>
+                                    ),
+                                  )}
+                                  {serviceDescriptorState.detail.match.container_name_patterns.map(
+                                    (pattern) => (
+                                      <li key={`name-${pattern}`}>
+                                        <span className="chip ghost">{pattern}</span>
+                                      </li>
+                                    ),
+                                  )}
+                                </ul>
+                              </article>
+                            </div>
+                          </article>
+                          <article className="system-profile-card">
+                            <p className="timeline-service">Endpoints and DNS</p>
+                            {serviceDescriptorState.detail.endpoints.length > 0 ? (
+                              <div className="service-inline-list">
+                                {serviceDescriptorState.detail.endpoints.map((endpoint) => (
+                                  <article className="service-inline-item" key={endpoint.name}>
+                                    <div className="timeline-topline">
+                                      <p className="timeline-service">{endpoint.name}</p>
+                                      <span className="chip ghost">{endpoint.port}</span>
+                                    </div>
+                                    <p className="muted service-inline-copy">
+                                      {formatOptionalValue(endpoint.path)}
+                                      {endpoint.healthy_when
+                                        ? ` · healthy when ${formatLabel(endpoint.healthy_when)}`
+                                        : ""}
+                                    </p>
+                                    <p className="step-meta">
+                                      Auth {formatOptionalLabel(endpoint.auth)} · header{" "}
+                                      {formatOptionalValue(endpoint.auth_header)}
+                                    </p>
+                                  </article>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="muted service-inline-copy">
+                                No explicit descriptor endpoints are defined.
                               </p>
-                            ) : null}
-                            {adapter.supported_fact_names.length > 0 ? (
-                              <ul className="chip-list adapter-capability-list">
-                                {adapter.supported_fact_names.map((factName) => (
-                                  <li key={factName}>
-                                    <span className="chip">{formatLabel(factName)}</span>
+                            )}
+                            {serviceDescriptorState.detail.dns_targets.length > 0 ? (
+                              <ul className="endpoint-list">
+                                {serviceDescriptorState.detail.dns_targets.map((target) => (
+                                  <li key={`${target.host}-${target.record_type}`}>
+                                    {target.host} · {target.record_type} ·{" "}
+                                    {target.expected_values.join(", ")}
                                   </li>
                                 ))}
                               </ul>
                             ) : null}
                           </article>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="muted">
-                        No shipped deep-inspection adapter is currently available for this
-                        service.
-                      </p>
-                    )}
-                    {!selectedServiceDetail.insight_section.fact_summary_available ? (
-                      <p className="muted">
-                        Imported adapter fact summaries are not available yet in this Phase 3A
-                        surface.
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="detail-block">
-                    <p className="detail-label">Improve</p>
-                    {selectedServiceDetail.insight_section.improve_actions.length > 0 ? (
-                      <div className="improve-list">
-                        {selectedServiceDetail.insight_section.improve_actions.map((action) => (
-                          <article key={`${action.kind}-${action.title}`} className="improve-card">
-                            <p className="improve-title">{action.title}</p>
-                            <p className="muted">{action.detail}</p>
+                          <article className="system-profile-card">
+                            <p className="timeline-service">Dependencies and failure modes</p>
+                            {serviceDescriptorState.detail.typical_dependency_containers.length >
+                              0 ||
+                            serviceDescriptorState.detail.typical_dependency_shares.length > 0 ? (
+                              <div className="service-inline-list">
+                                {serviceDescriptorState.detail.typical_dependency_containers.map(
+                                  (dependency) => (
+                                    <article
+                                      className="service-inline-item"
+                                      key={`dep-${dependency.name}`}
+                                    >
+                                      <p className="timeline-service">{dependency.name}</p>
+                                      <p className="muted service-inline-copy">
+                                        Alternatives:{" "}
+                                        {dependency.alternatives.length > 0
+                                          ? dependency.alternatives.join(", ")
+                                          : "None"}
+                                      </p>
+                                    </article>
+                                  ),
+                                )}
+                                {serviceDescriptorState.detail.typical_dependency_shares.length >
+                                0 ? (
+                                  <article className="service-inline-item">
+                                    <p className="timeline-service">Share dependencies</p>
+                                    <ul className="chip-list service-inline-chip-list">
+                                      {serviceDescriptorState.detail.typical_dependency_shares.map(
+                                        (share) => (
+                                          <li key={share}>
+                                            <span className="chip ghost">{share}</span>
+                                          </li>
+                                        ),
+                                      )}
+                                    </ul>
+                                  </article>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <p className="muted service-inline-copy">
+                                No typical dependencies are declared in this descriptor.
+                              </p>
+                            )}
+                            {serviceDescriptorState.detail.common_failure_modes.length > 0 ? (
+                              <div className="service-inline-list">
+                                {serviceDescriptorState.detail.common_failure_modes.map((mode) => (
+                                  <article
+                                    className="service-inline-item"
+                                    key={`${mode.trigger}-${mode.likely_cause}`}
+                                  >
+                                    <p className="timeline-service">{mode.trigger}</p>
+                                    <p className="muted service-inline-copy">{mode.likely_cause}</p>
+                                    {mode.check_first.length > 0 ? (
+                                      <p className="step-meta">
+                                        Check first: {mode.check_first.join(", ")}
+                                      </p>
+                                    ) : null}
+                                  </article>
+                                ))}
+                              </div>
+                            ) : null}
                           </article>
-                        ))}
-                      </div>
+                          <article className="system-profile-card">
+                            <p className="timeline-service">Inspection and credentials</p>
+                            {serviceDescriptorState.detail.inspection_surfaces.length > 0 ? (
+                              <div className="service-inline-list">
+                                {serviceDescriptorState.detail.inspection_surfaces.map((surface) => (
+                                  <article className="service-inline-item" key={surface.id}>
+                                    <div className="timeline-topline">
+                                      <p className="timeline-service">{surface.id}</p>
+                                      <div className="adapter-state-strip">
+                                        <span className="chip ghost">
+                                          {formatLabel(surface.type)}
+                                        </span>
+                                        <span className="chip ghost">
+                                          {surface.read_only ? "Read-only" : "Writable"}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    <p className="muted service-inline-copy">
+                                      {surface.description}
+                                    </p>
+                                    <p className="step-meta">
+                                      Endpoint {formatOptionalValue(surface.endpoint)} · auth{" "}
+                                      {formatOptionalLabel(surface.auth)} · confidence{" "}
+                                      {formatOptionalLabel(surface.confidence_effect)}
+                                    </p>
+                                    {surface.facts_provided.length > 0 ? (
+                                      <ul className="chip-list service-inline-chip-list">
+                                        {surface.facts_provided.map((factName) => (
+                                          <li key={`${surface.id}-${factName}`}>
+                                            <span className="chip ghost">
+                                              {formatLabel(factName)}
+                                            </span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : null}
+                                  </article>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="muted service-inline-copy">
+                                No deep-inspection surfaces are declared in this descriptor.
+                              </p>
+                            )}
+                            {serviceDescriptorState.detail.credential_hints.length > 0 ? (
+                              <div className="service-inline-list">
+                                {serviceDescriptorState.detail.credential_hints.map((hint) => (
+                                  <article className="service-inline-item" key={hint.key}>
+                                    <div className="timeline-topline">
+                                      <p className="timeline-service">{hint.description}</p>
+                                      <span className="chip ghost">{hint.key}</span>
+                                    </div>
+                                    <p className="muted service-inline-copy">{hint.location}</p>
+                                    {hint.prompt ? (
+                                      <p className="step-meta">{hint.prompt}</p>
+                                    ) : null}
+                                  </article>
+                                ))}
+                              </div>
+                            ) : null}
+                          </article>
+                          <article className="system-profile-card system-profile-card-wide">
+                            <p className="timeline-service">Investigation context</p>
+                            <p className="muted service-inline-copy">
+                              {serviceDescriptorState.detail.investigation_context ??
+                                "No additional investigation context is documented in this descriptor."}
+                            </p>
+                            {(serviceDescriptorState.detail.log_signals.errors.length > 0 ||
+                              serviceDescriptorState.detail.log_signals.warnings.length > 0) ? (
+                              <div className="detail-grid">
+                                <article className="service-inline-item">
+                                  <p className="detail-label">Error signals</p>
+                                  <ul className="chip-list service-inline-chip-list">
+                                    {serviceDescriptorState.detail.log_signals.errors.map(
+                                      (signal) => (
+                                        <li key={`error-${signal}`}>
+                                          <span className="chip ghost">{signal}</span>
+                                        </li>
+                                      ),
+                                    )}
+                                  </ul>
+                                </article>
+                                <article className="service-inline-item">
+                                  <p className="detail-label">Warning signals</p>
+                                  <ul className="chip-list service-inline-chip-list">
+                                    {serviceDescriptorState.detail.log_signals.warnings.map(
+                                      (signal) => (
+                                        <li key={`warning-${signal}`}>
+                                          <span className="chip ghost">{signal}</span>
+                                        </li>
+                                      ),
+                                    )}
+                                  </ul>
+                                </article>
+                              </div>
+                            ) : null}
+                          </article>
+                        </div>
+                      </>
                     ) : (
-                      <p className="muted">
-                        No immediate improvement action is available from the current Phase 3A
-                        foundations.
+                      <p className="muted service-inline-copy">
+                        Rendered descriptor view is not currently available for this service.
                       </p>
                     )}
                   </div>
@@ -1417,6 +4411,527 @@ export default function App() {
                 </div>
               ) : (
                 <p className="muted">No credential requests are currently waiting.</p>
+              )}
+            </div>
+          </section>
+
+          <section className="panel phase-two-panel">
+            <div className="panel-header">
+              <div>
+                <p className="section-label">Descriptor Review Queue</p>
+                <h2>Auto-generated descriptors</h2>
+              </div>
+              <p className="panel-meta">
+                {quarantinedDescriptorQueueState.loading && descriptorReviewQueueCount === 0
+                  ? "Refreshing…"
+                  : `${descriptorReviewQueueCount} queued`}
+              </p>
+            </div>
+
+            <div className="action-strip">
+              <span className="action-pill">{pendingDescriptorReviewCount} pending</span>
+              <span className="action-pill">{deferredDescriptorReviewCount} deferred</span>
+              <span className="action-pill">Quarantined until promotion</span>
+              <button
+                className="note-button note-button-ghost"
+                disabled={
+                  quarantinedDescriptorMutationState.submitting ||
+                  quarantinedDescriptorQueueState.loading
+                }
+                onClick={() => {
+                  void loadQuarantinedDescriptorQueue();
+                }}
+                type="button"
+              >
+                {quarantinedDescriptorQueueState.loading ? "Refreshing…" : "Refresh queue"}
+              </button>
+            </div>
+
+            <div className="queue-section">
+              <div className="memory-section-header">
+                <div>
+                  <p className="detail-label">Review contract</p>
+                  <p className="muted">
+                    These descriptors stay inactive for matching, incident grouping, and action
+                    recommendations until an explicit promotion writes a reviewed copy into
+                    `services/user/...`.
+                  </p>
+                </div>
+                {selectedQuarantinedDescriptor ? (
+                  <span className="chip ghost">
+                    {selectedQuarantinedMatchingServices.length} likely matches
+                  </span>
+                ) : null}
+              </div>
+
+              {quarantinedDescriptorMutationState.auditChangeId ? (
+                <p className="message-inline">
+                  Last review action logged as {quarantinedDescriptorMutationState.auditChangeId}.
+                </p>
+              ) : null}
+              {quarantinedDescriptorQueueState.error ? (
+                <p className="message-inline error">
+                  {quarantinedDescriptorQueueState.error}
+                </p>
+              ) : null}
+              {quarantinedDescriptorMutationState.error ? (
+                <p className="message-inline error">
+                  {quarantinedDescriptorMutationState.error}
+                </p>
+              ) : null}
+
+              {quarantinedDescriptorQueueState.loading && descriptorReviewQueueCount === 0 ? (
+                <p className="muted">Loading quarantined descriptor queue…</p>
+              ) : descriptorReviewQueueCount === 0 ? (
+                <p className="muted">
+                  No auto-generated descriptors are currently waiting for review.
+                </p>
+              ) : (
+                <div className="descriptor-review-layout">
+                  <div className="queue-list descriptor-review-queue-list">
+                    {quarantinedDescriptorQueueState.items.map((item) => {
+                      const isSelected =
+                        item.descriptor.descriptor_id ===
+                        selectedQuarantinedDescriptor?.descriptor.descriptor_id;
+                      const matchesSelectedService =
+                        selectedServiceId !== null &&
+                        item.matching_services.some((service) => service.id === selectedServiceId);
+                      return (
+                        <button
+                          className={`queue-item descriptor-review-queue-item ${
+                            isSelected ? "selected" : ""
+                          } ${item.review_state === "pending" ? "review" : ""} ${
+                            matchesSelectedService ? "relevant" : ""
+                          }`}
+                          key={item.descriptor.descriptor_id}
+                          onClick={() =>
+                            setSelectedQuarantinedDescriptorId(item.descriptor.descriptor_id)
+                          }
+                          type="button"
+                        >
+                          <div className="timeline-topline">
+                            <span
+                              className={
+                                item.review_state === "pending" ? "chip" : "chip ghost"
+                              }
+                            >
+                              {formatLabel(item.review_state)}
+                            </span>
+                            <span className="step-meta">
+                              {formatTimestamp(item.review_updated_at)}
+                            </span>
+                          </div>
+                          <p className="timeline-service">{item.descriptor.name}</p>
+                          <p className="muted">{item.descriptor.descriptor_id}</p>
+                          <div className="memory-badge-strip">
+                            <span className="chip ghost">{item.descriptor.category}</span>
+                            <span className="chip ghost">
+                              {item.matching_services.length} likely matches
+                            </span>
+                            {matchesSelectedService ? (
+                              <span className="chip">Selected service</span>
+                            ) : null}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {selectedQuarantinedDescriptor ? (
+                    <div className="descriptor-review-detail">
+                      <div className="detail-grid">
+                        <article className="system-profile-card">
+                          <div className="timeline-topline">
+                            <div>
+                              <p className="timeline-service">
+                                {selectedQuarantinedDescriptor.descriptor.name}
+                              </p>
+                              <p className="step-meta">
+                                {selectedQuarantinedDescriptor.descriptor.descriptor_id}
+                              </p>
+                            </div>
+                            <div className="adapter-state-strip">
+                              <span className="chip ghost">Auto-generated</span>
+                              <span
+                                className={
+                                  selectedQuarantinedDescriptor.review_state === "pending"
+                                    ? "chip"
+                                    : "chip ghost"
+                                }
+                              >
+                                {formatLabel(selectedQuarantinedDescriptor.review_state)}
+                              </span>
+                            </div>
+                          </div>
+                          <ul className="system-profile-list compact">
+                            <li>
+                              <span>Queue path</span>
+                              <strong>{selectedQuarantinedDescriptor.descriptor.file_path}</strong>
+                            </li>
+                            <li>
+                              <span>Promotion target</span>
+                              <strong>
+                                {selectedQuarantinedDescriptor.descriptor.write_target_path}
+                              </strong>
+                            </li>
+                            <li>
+                              <span>Generated</span>
+                              <strong>
+                                {selectedQuarantinedDescriptor.descriptor.generated_at
+                                  ? formatTimestamp(
+                                      selectedQuarantinedDescriptor.descriptor.generated_at,
+                                    )
+                                  : "Unknown"}
+                              </strong>
+                            </li>
+                            <li>
+                              <span>Last review</span>
+                              <strong>
+                                {formatTimestamp(selectedQuarantinedDescriptor.review_updated_at)}
+                              </strong>
+                            </li>
+                          </ul>
+                          <div className="service-inline-list">
+                            <article className="service-inline-item">
+                              <p className="detail-label">Match rules</p>
+                              <ul className="chip-list service-inline-chip-list">
+                                {selectedQuarantinedDescriptor.descriptor.match.image_patterns.map(
+                                  (pattern) => (
+                                    <li key={`queue-image-${pattern}`}>
+                                      <span className="chip ghost">{pattern}</span>
+                                    </li>
+                                  ),
+                                )}
+                                {selectedQuarantinedDescriptor.descriptor.match.container_name_patterns.map(
+                                  (pattern) => (
+                                    <li key={`queue-name-${pattern}`}>
+                                      <span className="chip ghost">{pattern}</span>
+                                    </li>
+                                  ),
+                                )}
+                              </ul>
+                            </article>
+                            <article className="service-inline-item">
+                              <p className="detail-label">Rendered candidate</p>
+                              <p className="muted service-inline-copy">
+                                {selectedQuarantinedDescriptor.descriptor.investigation_context ??
+                                  "No investigation context was generated for this candidate."}
+                              </p>
+                              <p className="step-meta">
+                                Endpoints{" "}
+                                {selectedQuarantinedDescriptor.descriptor.endpoints.length} ·
+                                container dependencies{" "}
+                                {
+                                  selectedQuarantinedDescriptor.descriptor
+                                    .typical_dependency_containers.length
+                                }{" "}
+                                · share dependencies{" "}
+                                {
+                                  selectedQuarantinedDescriptor.descriptor
+                                    .typical_dependency_shares.length
+                                }
+                              </p>
+                            </article>
+                          </div>
+                        </article>
+
+                        <article className="system-profile-card">
+                          <p className="timeline-service">Container metadata</p>
+                          {selectedQuarantinedMatchingServices.length > 0 ? (
+                            <div className="service-inline-list">
+                              {selectedQuarantinedMatchingServices.map((service) => (
+                                <article className="service-inline-item" key={service.id}>
+                                  <div className="timeline-topline">
+                                    <div>
+                                      <p className="timeline-service">{service.name}</p>
+                                      <p className="step-meta">{service.id}</p>
+                                    </div>
+                                    <div className="adapter-state-strip">
+                                      <span className={`status-pill status-${service.status}`}>
+                                        {statusLabel[service.status]}
+                                      </span>
+                                      <button
+                                        className="note-button note-button-ghost"
+                                        onClick={() => setSelectedServiceId(service.id)}
+                                        type="button"
+                                      >
+                                        Open service
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <ul className="system-profile-list compact">
+                                    <li>
+                                      <span>Image</span>
+                                      <strong>{formatOptionalValue(service.image)}</strong>
+                                    </li>
+                                    <li>
+                                      <span>Container ID</span>
+                                      <strong>
+                                        {formatOptionalValue(service.container_id)}
+                                      </strong>
+                                    </li>
+                                    <li>
+                                      <span>Current descriptor</span>
+                                      <strong>
+                                        {formatOptionalValue(service.descriptor_id)}
+                                      </strong>
+                                    </li>
+                                    <li>
+                                      <span>Findings / incidents</span>
+                                      <strong>
+                                        {service.active_findings} / {service.active_incidents}
+                                      </strong>
+                                    </li>
+                                  </ul>
+                                  {service.endpoints.length > 0 ? (
+                                    <ul className="endpoint-list">
+                                      {service.endpoints.slice(0, 3).map((endpoint) => (
+                                        <li
+                                          key={`${service.id}-${endpoint.name}-${endpoint.port ?? "none"}`}
+                                        >
+                                          {endpoint.name} ·{" "}
+                                          {endpoint.url ??
+                                            `${endpoint.host ?? "host"}:${
+                                              endpoint.port ?? "?"
+                                            }${endpoint.path ?? ""}`}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <p className="step-meta">
+                                      No explicit endpoints have been discovered for this
+                                      container yet.
+                                    </p>
+                                  )}
+                                </article>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="muted service-inline-copy">
+                              No current unmatched container metadata aligns with this candidate.
+                            </p>
+                          )}
+                        </article>
+
+                        <article className="system-profile-card system-profile-card-wide">
+                          <div className="memory-section-header">
+                            <div>
+                              <p className="detail-label">Review actions</p>
+                              <p className="muted">
+                                Promote writes a reviewed descriptor to `services/user/...`.
+                                Defer and dismiss remain quarantine-only actions.
+                              </p>
+                            </div>
+                            <div className="action-strip">
+                              <button
+                                className={`note-button ${
+                                  quarantinedDescriptorEditorState.open
+                                    ? "note-button-primary"
+                                    : "note-button-ghost"
+                                }`}
+                                disabled={quarantinedDescriptorMutationState.submitting}
+                                onClick={() =>
+                                  setQuarantinedDescriptorEditorState((current) => ({
+                                    ...current,
+                                    open: !current.open,
+                                  }))
+                                }
+                                type="button"
+                              >
+                                {quarantinedDescriptorEditorState.open
+                                  ? "Close YAML draft"
+                                  : "Edit YAML draft"}
+                              </button>
+                              <button
+                                className="note-button note-button-ghost"
+                                disabled={
+                                  quarantinedDescriptorMutationState.submitting ||
+                                  quarantinedDescriptorEditorState.open
+                                }
+                                onClick={() => {
+                                  void runQuarantinedDescriptorAction("defer");
+                                }}
+                                type="button"
+                              >
+                                {quarantinedDescriptorMutationState.submitting &&
+                                quarantinedDescriptorMutationState.action === "defer"
+                                  ? "Deferring…"
+                                  : "Defer"}
+                              </button>
+                              <button
+                                className="note-button note-button-danger"
+                                disabled={
+                                  quarantinedDescriptorMutationState.submitting ||
+                                  quarantinedDescriptorEditorState.open
+                                }
+                                onClick={() => {
+                                  void runQuarantinedDescriptorAction("dismiss");
+                                }}
+                                type="button"
+                              >
+                                {quarantinedDescriptorMutationState.submitting &&
+                                quarantinedDescriptorMutationState.action === "dismiss"
+                                  ? "Dismissing…"
+                                  : "Dismiss"}
+                              </button>
+                              <button
+                                className="note-button note-button-primary"
+                                disabled={
+                                  quarantinedDescriptorMutationState.submitting ||
+                                  quarantinedDescriptorEditorState.open
+                                }
+                                onClick={() => {
+                                  void runQuarantinedDescriptorAction("promote");
+                                }}
+                                type="button"
+                              >
+                                {quarantinedDescriptorMutationState.submitting &&
+                                quarantinedDescriptorMutationState.action === "promote"
+                                  ? "Promoting…"
+                                  : "Promote"}
+                              </button>
+                            </div>
+                          </div>
+
+                          {quarantinedDescriptorEditorState.open ? (
+                            <div className="note-editor descriptor-editor descriptor-review-editor">
+                              <label className="note-field note-field-wide">
+                                <span>Quarantined descriptor YAML</span>
+                                <textarea
+                                  className="descriptor-editor-textarea"
+                                  onChange={(event) =>
+                                    setQuarantinedDescriptorEditorState((current) => ({
+                                      ...current,
+                                      rawYaml: event.target.value,
+                                    }))
+                                  }
+                                  rows={18}
+                                  value={quarantinedDescriptorEditorState.rawYaml}
+                                />
+                              </label>
+                              <p className="step-meta">
+                                Saving here updates only the quarantined draft. Promotion remains
+                                a separate explicit action.
+                              </p>
+                              <div className="note-action-row">
+                                <button
+                                  className="note-button note-button-ghost"
+                                  disabled={quarantinedDescriptorMutationState.submitting}
+                                  onClick={() =>
+                                    setQuarantinedDescriptorEditorState((current) => ({
+                                      ...current,
+                                      rawYaml:
+                                        selectedQuarantinedDescriptor.descriptor.raw_yaml,
+                                      open: false,
+                                    }))
+                                  }
+                                  type="button"
+                                >
+                                  Close draft
+                                </button>
+                                <button
+                                  className="note-button note-button-ghost"
+                                  disabled={
+                                    quarantinedDescriptorMutationState.submitting ||
+                                    !selectedQuarantinedDraftDirty
+                                  }
+                                  onClick={() =>
+                                    setQuarantinedDescriptorEditorState((current) => ({
+                                      ...current,
+                                      rawYaml:
+                                        selectedQuarantinedDescriptor.descriptor.raw_yaml,
+                                    }))
+                                  }
+                                  type="button"
+                                >
+                                  Reset draft
+                                </button>
+                                <button
+                                  className="note-button note-button-primary"
+                                  disabled={
+                                    quarantinedDescriptorMutationState.submitting ||
+                                    !selectedQuarantinedDraftDirty
+                                  }
+                                  onClick={() => {
+                                    void saveQuarantinedDescriptorDraft();
+                                  }}
+                                  type="button"
+                                >
+                                  {quarantinedDescriptorMutationState.submitting &&
+                                  quarantinedDescriptorMutationState.action === "save"
+                                    ? "Saving draft…"
+                                    : "Save draft"}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="detail-grid">
+                              <article className="service-inline-item">
+                                <p className="detail-label">Generated endpoints</p>
+                                {selectedQuarantinedDescriptor.descriptor.endpoints.length > 0 ? (
+                                  <ul className="endpoint-list">
+                                    {selectedQuarantinedDescriptor.descriptor.endpoints.map(
+                                      (endpoint) => (
+                                        <li key={`queue-endpoint-${endpoint.name}`}>
+                                          {endpoint.name} · {endpoint.port}
+                                          {endpoint.path ? ` · ${endpoint.path}` : ""}
+                                          {endpoint.healthy_when
+                                            ? ` · ${endpoint.healthy_when}`
+                                            : ""}
+                                        </li>
+                                      ),
+                                    )}
+                                  </ul>
+                                ) : (
+                                  <p className="muted service-inline-copy">
+                                    No endpoints were generated for this candidate.
+                                  </p>
+                                )}
+                              </article>
+                              <article className="service-inline-item">
+                                <p className="detail-label">Generated dependencies</p>
+                                {selectedQuarantinedDescriptor.descriptor
+                                  .typical_dependency_containers.length > 0 ||
+                                selectedQuarantinedDescriptor.descriptor
+                                  .typical_dependency_shares.length > 0 ? (
+                                  <>
+                                    {selectedQuarantinedDescriptor.descriptor
+                                      .typical_dependency_containers.length > 0 ? (
+                                      <ul className="chip-list service-inline-chip-list">
+                                        {selectedQuarantinedDescriptor.descriptor.typical_dependency_containers.map(
+                                          (dependency) => (
+                                            <li key={`queue-dependency-${dependency.name}`}>
+                                              <span className="chip ghost">
+                                                {dependency.name}
+                                              </span>
+                                            </li>
+                                          ),
+                                        )}
+                                      </ul>
+                                    ) : null}
+                                    {selectedQuarantinedDescriptor.descriptor
+                                      .typical_dependency_shares.length > 0 ? (
+                                      <p className="step-meta">
+                                        Shares:{" "}
+                                        {selectedQuarantinedDescriptor.descriptor.typical_dependency_shares.join(
+                                          ", ",
+                                        )}
+                                      </p>
+                                    ) : null}
+                                  </>
+                                ) : (
+                                  <p className="muted service-inline-copy">
+                                    No dependencies were generated for this candidate.
+                                  </p>
+                                )}
+                              </article>
+                            </div>
+                          )}
+                        </article>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               )}
             </div>
           </section>
@@ -2493,6 +6008,18 @@ async function fetchOptionalJson<T>(url: string): Promise<T | null> {
   return (await response.json()) as T;
 }
 
+async function readApiError(response: Response, fallback: string): Promise<string> {
+  try {
+    const payload = (await response.json()) as { detail?: unknown };
+    if (typeof payload.detail === "string" && payload.detail) {
+      return payload.detail;
+    }
+  } catch {
+    return fallback;
+  }
+  return fallback;
+}
+
 async function loadSupplementalPanels(): Promise<SupplementalPanelsState> {
   const [
     capabilityHealth,
@@ -2528,6 +6055,131 @@ function formatLabel(value: string): string {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatListPreview(values: string[]): string {
+  return values.length > 0 ? values.join(", ") : "None";
+}
+
+function descriptorIdSegment(detail: ServiceDescriptorView): string {
+  const prefix = `${detail.category}/`;
+  return detail.descriptor_id.startsWith(prefix)
+    ? detail.descriptor_id.slice(prefix.length)
+    : detail.descriptor_id;
+}
+
+function createDescriptorEditorState(
+  detail: ServiceDescriptorView,
+  mode: DescriptorEditorMode = "form",
+): DescriptorEditorState {
+  return {
+    mode,
+    imagePatterns: serializeEditorList(detail.match.image_patterns),
+    containerNamePatterns: serializeEditorList(detail.match.container_name_patterns),
+    shareDependencies: serializeEditorList(detail.typical_dependency_shares),
+    endpoints:
+      detail.endpoints.length > 0
+        ? detail.endpoints.map((endpoint) => ({
+            clientId: createClientId(),
+            name: endpoint.name,
+            port: String(endpoint.port),
+            path: endpoint.path ?? "",
+            auth: endpoint.auth ?? "",
+            authHeader: endpoint.auth_header ?? "",
+            healthyWhen: endpoint.healthy_when ?? "",
+          }))
+        : [createEmptyDescriptorEndpointState()],
+    containerDependencies:
+      detail.typical_dependency_containers.length > 0
+        ? detail.typical_dependency_containers.map((dependency) => ({
+            clientId: createClientId(),
+            name: dependency.name,
+            alternatives: dependency.alternatives.join(", "),
+          }))
+        : [createEmptyDescriptorDependencyState()],
+    rawYaml: detail.raw_yaml,
+  };
+}
+
+function buildDescriptorSavePayload(
+  editorState: DescriptorEditorState,
+): Record<string, unknown> {
+  if (editorState.mode === "yaml") {
+    return {
+      mode: "yaml",
+      raw_yaml: editorState.rawYaml,
+    };
+  }
+  return {
+    mode: "form",
+    match: {
+      image_patterns: parseEditorLines(editorState.imagePatterns),
+      container_name_patterns: parseEditorLines(editorState.containerNamePatterns),
+    },
+    endpoints: editorState.endpoints.map((endpoint) => ({
+      name: endpoint.name.trim(),
+      port: Number(endpoint.port),
+      path: blankToNull(endpoint.path),
+      auth: blankToNull(endpoint.auth),
+      auth_header: blankToNull(endpoint.authHeader),
+      healthy_when: blankToNull(endpoint.healthyWhen),
+    })),
+    typical_dependency_containers: editorState.containerDependencies.map((dependency) => ({
+      name: dependency.name.trim(),
+      alternatives: parseCommaSeparated(dependency.alternatives),
+    })),
+    typical_dependency_shares: parseEditorLines(editorState.shareDependencies),
+  };
+}
+
+function createEmptyDescriptorEndpointState(): DescriptorEditorEndpointState {
+  return {
+    clientId: createClientId(),
+    name: "",
+    port: "",
+    path: "",
+    auth: "",
+    authHeader: "",
+    healthyWhen: "",
+  };
+}
+
+function createEmptyDescriptorDependencyState(): DescriptorEditorDependencyState {
+  return {
+    clientId: createClientId(),
+    name: "",
+    alternatives: "",
+  };
+}
+
+function serializeEditorList(values: string[]): string {
+  return values.join("\n");
+}
+
+function parseEditorLines(value: string): string[] {
+  return value
+    .split("\n")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function parseCommaSeparated(value: string): string[] {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function blankToNull(value: string): string | null {
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function createClientId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `client-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function labelForInsight(level: number): string {
@@ -2760,6 +6412,28 @@ function chooseIncidentId(incidents: Incident[], currentId: string | null): stri
   return latestIncident(incidents)?.id ?? null;
 }
 
+function chooseQuarantinedDescriptorId(
+  items: QuarantinedDescriptorQueueItem[],
+  currentId: string | null,
+  selectedServiceId: string | null,
+): string | null {
+  if (selectedServiceId !== null) {
+    const matchingSelectedService = items.find((item) =>
+      item.matching_services.some((service) => service.id === selectedServiceId),
+    );
+    if (matchingSelectedService !== undefined) {
+      return matchingSelectedService.descriptor.descriptor_id;
+    }
+  }
+  if (
+    currentId !== null &&
+    items.some((item) => item.descriptor.descriptor_id === currentId)
+  ) {
+    return currentId;
+  }
+  return items[0]?.descriptor.descriptor_id ?? null;
+}
+
 function chooseServiceId(
   services: Service[],
   incidents: Incident[],
@@ -2785,6 +6459,197 @@ function latestIncident(incidents: Incident[]): Incident | null {
     [...incidents].sort((left, right) => right.updated_at.localeCompare(left.updated_at))[0] ??
     null
   );
+}
+
+function buildServiceReferenceMap(services: Service[]): Map<string, string> {
+  const referenceMap = new Map<string, string>();
+  for (const service of services) {
+    const imageParts = service.image === null ? [] : service.image.split("/");
+    const imageName =
+      imageParts.length === 0 ? null : imageParts[imageParts.length - 1].split(":")[0];
+    const suffixReference =
+      service.id.includes("-") ? service.id.slice(service.id.indexOf("-") + 1) : null;
+    const references = new Set([
+      service.id,
+      service.name,
+      service.container_id,
+      service.descriptor_id,
+      imageName,
+      suffixReference,
+      ...service.lifecycle.previous_names,
+    ]);
+    for (const reference of references) {
+      if (!reference) {
+        continue;
+      }
+      referenceMap.set(normalizeServiceReference(reference), service.id);
+    }
+  }
+  return referenceMap;
+}
+
+function normalizeServiceReference(reference: string): string {
+  return reference.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function matchServiceReference(
+  reference: string | null | undefined,
+  serviceReferenceMap: Map<string, string>,
+): string | null {
+  if (!reference) {
+    return null;
+  }
+  return serviceReferenceMap.get(normalizeServiceReference(reference)) ?? null;
+}
+
+function buildIncidentGraphFocus(
+  incident: Incident,
+  investigation: Investigation | null,
+  services: Service[],
+  edges: GraphEdge[],
+  serviceReferenceMap: Map<string, string>,
+): IncidentGraphFocus | null {
+  if (services.length === 0) {
+    return null;
+  }
+
+  const serviceIds = new Set(services.map((service) => service.id));
+  const affectedServiceIds = incident.affected_services.filter((serviceId) =>
+    serviceIds.has(serviceId),
+  );
+  const evidenceServiceIds = Array.from(
+    new Set(
+      (investigation?.evidence_steps ?? [])
+        .map((step) => matchServiceReference(step.target, serviceReferenceMap))
+        .filter((serviceId): serviceId is string => serviceId !== null),
+    ),
+  );
+  const remediationServiceId = matchServiceReference(
+    investigation?.remediation?.target ?? null,
+    serviceReferenceMap,
+  );
+  const rootServiceId =
+    matchServiceReference(incident.root_cause_service, serviceReferenceMap) ??
+    remediationServiceId ??
+    evidenceServiceIds[0] ??
+    affectedServiceIds[0] ??
+    null;
+
+  const highlightedServiceIds = new Set<string>(affectedServiceIds);
+  if (rootServiceId !== null) {
+    highlightedServiceIds.add(rootServiceId);
+  }
+  if (remediationServiceId !== null) {
+    highlightedServiceIds.add(remediationServiceId);
+  }
+  for (const serviceId of evidenceServiceIds) {
+    highlightedServiceIds.add(serviceId);
+  }
+
+  if (highlightedServiceIds.size === 0) {
+    return null;
+  }
+
+  const highlightedEdgeKeys = new Set<string>();
+  if (rootServiceId !== null) {
+    for (const serviceId of highlightedServiceIds) {
+      if (serviceId === rootServiceId) {
+        continue;
+      }
+      const path = findShortestIncidentPath(rootServiceId, serviceId, edges);
+      if (path === null) {
+        continue;
+      }
+      for (const pathServiceId of path.serviceIds) {
+        highlightedServiceIds.add(pathServiceId);
+      }
+      for (const key of path.edgeKeys) {
+        highlightedEdgeKeys.add(key);
+      }
+    }
+  }
+
+  if (highlightedEdgeKeys.size === 0) {
+    for (const edge of edges) {
+      if (
+        highlightedServiceIds.has(edge.source_service_id) &&
+        highlightedServiceIds.has(edge.target_service_id)
+      ) {
+        highlightedEdgeKeys.add(edgeKey(edge));
+      }
+    }
+  }
+
+  return {
+    rootServiceId,
+    serviceIds: [...highlightedServiceIds],
+    edgeKeys: [...highlightedEdgeKeys],
+    evidenceServiceIds,
+  };
+}
+
+function findShortestIncidentPath(
+  startServiceId: string,
+  targetServiceId: string,
+  edges: GraphEdge[],
+): { serviceIds: string[]; edgeKeys: string[] } | null {
+  if (startServiceId === targetServiceId) {
+    return {
+      serviceIds: [startServiceId],
+      edgeKeys: [],
+    };
+  }
+
+  const adjacency = new Map<string, Array<{ serviceId: string; edgeKey: string }>>();
+  for (const edge of edges) {
+    const key = edgeKey(edge);
+    const sourceNeighbors = adjacency.get(edge.source_service_id) ?? [];
+    sourceNeighbors.push({
+      serviceId: edge.target_service_id,
+      edgeKey: key,
+    });
+    adjacency.set(edge.source_service_id, sourceNeighbors);
+
+    const targetNeighbors = adjacency.get(edge.target_service_id) ?? [];
+    targetNeighbors.push({
+      serviceId: edge.source_service_id,
+      edgeKey: key,
+    });
+    adjacency.set(edge.target_service_id, targetNeighbors);
+  }
+
+  const queue: Array<{ serviceId: string; serviceIds: string[]; edgeKeys: string[] }> = [
+    {
+      serviceId: startServiceId,
+      serviceIds: [startServiceId],
+      edgeKeys: [],
+    },
+  ];
+  const visited = new Set([startServiceId]);
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current === undefined) {
+      break;
+    }
+    for (const neighbor of adjacency.get(current.serviceId) ?? []) {
+      if (visited.has(neighbor.serviceId)) {
+        continue;
+      }
+      const nextPath = {
+        serviceId: neighbor.serviceId,
+        serviceIds: [...current.serviceIds, neighbor.serviceId],
+        edgeKeys: [...current.edgeKeys, neighbor.edgeKey],
+      };
+      if (neighbor.serviceId === targetServiceId) {
+        return nextPath;
+      }
+      visited.add(neighbor.serviceId);
+      queue.push(nextPath);
+    }
+  }
+
+  return null;
 }
 
 function SummaryTile(props: {
@@ -2831,27 +6696,114 @@ function MemoryTabButton(props: {
   );
 }
 
-function LegendSwatch(props: { tone: GraphEdge["confidence"]; label: string }) {
+function LegendSwatch(props: {
+  tone: GraphEdge["confidence"];
+  label: string;
+  detail: string;
+}) {
   return (
     <div className="legend-item">
       <span className={`legend-line ${props.tone}`} />
-      <span>{props.label}</span>
+      <span>
+        <strong>{props.label}</strong>
+        <small>{props.detail}</small>
+      </span>
     </div>
   );
 }
 
+function edgeKey(edge: GraphEdge): string {
+  return `${edge.source_service_id}::${edge.target_service_id}`;
+}
+
+function buildGraphEdgeSourceSummary(edge: GraphEdge): string {
+  const detail = edge.description ? ` ${edge.description}` : "";
+  return `${formatLabel(edge.source)} · ${formatLabel(edge.confidence)}.${detail}`;
+}
+
+function graphEdgeConfidenceDetail(confidence: GraphEdge["confidence"]): string {
+  switch (confidence) {
+    case "user_confirmed":
+      return "Highest trust. User-confirmed edges should guide investigations directly.";
+    case "runtime_observed":
+      return "Strong runtime evidence from service facts or adapters reinforces this edge.";
+    case "configured":
+      return "Known configuration supports this dependency, but it is not yet manually confirmed.";
+    case "inferred":
+      return "Topology or descriptor logic suggests this edge and may still need review.";
+    case "auto_generated":
+      return "Suggested automatically. Review before treating it as operator-approved context.";
+    default:
+      return "Dependency confidence is available but not yet described in this UI.";
+  }
+}
+
+function edgeNeedsConfirmation(edge: GraphEdge): boolean {
+  return edge.confidence === "inferred" || edge.confidence === "auto_generated";
+}
+
+function edgeMarkerPosition(source: NodeLayout, target: NodeLayout): { x: number; y: number } {
+  return {
+    x: (source.x + CARD_WIDTH + target.x) / 2,
+    y: (source.y + target.y) / 2 + CARD_HEIGHT / 2,
+  };
+}
+
+function buildEdgeTitle(edge: GraphEdge, sourceName: string, targetName: string): string {
+  const detail = edge.description ? ` ${edge.description}` : "";
+  return `${sourceName} -> ${targetName}. ${formatLabel(edge.confidence)} via ${formatLabel(edge.source)}.${detail}`;
+}
+
+function buildNodeAttentionBadges(
+  service: Service,
+  nodeMeta: GraphResponse["node_meta"][number] | null,
+): Array<{ kind: "identify" | "configure"; label: string }> {
+  const badges: Array<{ kind: "identify" | "configure"; label: string }> = [];
+  if (service.type === "container" && service.descriptor_id === null) {
+    badges.push({ kind: "identify", label: "Identify" });
+  }
+  const insightLevel = service.insight?.level ?? 0;
+  if (
+    nodeMeta !== null &&
+    nodeMeta.target_insight_level >= 4 &&
+    insightLevel < 4
+  ) {
+    badges.push({ kind: "configure", label: "Configure" });
+  }
+  return badges;
+}
+
 function ServiceNode(props: {
   layout: NodeLayout;
+  nodeMeta: GraphResponse["node_meta"][number] | null;
+  filteredOut: boolean;
+  incidentFocused: boolean;
+  incidentRoot: boolean;
+  incidentEvidence: boolean;
   selected: boolean;
   onSelect: (serviceId: string) => void;
 }) {
-  const { layout, selected, onSelect } = props;
+  const {
+    layout,
+    nodeMeta,
+    filteredOut,
+    incidentFocused,
+    incidentRoot,
+    incidentEvidence,
+    selected,
+    onSelect,
+  } = props;
   const insightLevel = layout.service.insight?.level ?? 0;
   const insightName = insightLabel[insightLevel as keyof typeof insightLabel] ?? "Unknown";
+  const improveAvailable =
+    nodeMeta !== null &&
+    nodeMeta.improve_available &&
+    nodeMeta.target_insight_level > insightLevel;
+  const attentionBadges = buildNodeAttentionBadges(layout.service, nodeMeta);
 
   return (
     <g
-      className={`service-node ${layout.service.status} ${selected ? "selected" : ""}`}
+      className={`service-node ${layout.service.status} ${selected ? "selected" : ""} ${filteredOut ? "filtered-out" : ""} ${incidentFocused ? "incident-focused" : ""} ${incidentRoot ? "incident-root" : ""} ${incidentEvidence ? "incident-evidence" : ""}`}
       onClick={() => onSelect(layout.service.id)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -2863,7 +6815,15 @@ function ServiceNode(props: {
       tabIndex={0}
       transform={`translate(${layout.x}, ${layout.y})`}
     >
-      <title>{`Insight Level ${insightLevel}: ${insightName}`}</title>
+      <title>
+        {incidentRoot
+          ? `Incident root cause focus. Insight Level ${insightLevel}: ${insightName}.`
+          : incidentEvidence
+            ? `Investigation evidence focus. Insight Level ${insightLevel}: ${insightName}.`
+            : improveAvailable
+              ? `Insight Level ${insightLevel}: ${insightName}. Improve path available in service detail up to Level ${nodeMeta?.target_insight_level}.`
+              : `Insight Level ${insightLevel}: ${insightName}`}
+      </title>
       <rect width={CARD_WIDTH} height={CARD_HEIGHT} rx={28} />
       <g className={`insight-badge insight-${insightLevel}`} transform="translate(148 14)">
         <rect width={54} height={20} rx={10} />
@@ -2871,6 +6831,26 @@ function ServiceNode(props: {
           {`L${insightLevel}`}
         </text>
       </g>
+      {improveAvailable ? (
+        <g className="improve-badge" transform="translate(18 14)">
+          <rect width={74} height={20} rx={10} />
+          <text x={37} y={14} textAnchor="middle">
+            Improve
+          </text>
+        </g>
+      ) : null}
+      {attentionBadges.map((badge, index) => (
+        <g
+          key={`${layout.service.id}-${badge.kind}`}
+          className={`node-attention-badge ${badge.kind}`}
+          transform={`translate(${18 + index * 78} -10)`}
+        >
+          <rect width={70} height={18} rx={9} />
+          <text x={35} y={13} textAnchor="middle">
+            {badge.label}
+          </text>
+        </g>
+      ))}
       <text className="node-name" x={18} y={30}>
         {layout.service.name}
       </text>

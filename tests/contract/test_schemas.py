@@ -10,8 +10,20 @@ from jsonschema.validators import validator_for
 
 from kaval.api.schemas import (
     AdapterFactSourceType,
+    DescriptorCommunityExportResponse,
+    DescriptorEditContainerDependencyRequest,
+    DescriptorEditEndpointRequest,
+    DescriptorEditMatchRequest,
+    DescriptorEditMode,
+    QuarantinedDescriptorActionResponse,
+    QuarantinedDescriptorQueueItemResponse,
     ServiceAdapterFactsItemResponse,
     ServiceAdapterFactsResponse,
+    ServiceDescriptorGenerateResponse,
+    ServiceDescriptorSaveRequest,
+    ServiceDescriptorSaveResponse,
+    ServiceDescriptorValidationResponse,
+    ServiceDescriptorViewResponse,
 )
 from kaval.discovery.descriptors import ServiceDescriptor
 from kaval.integrations.adapter_fallback import AdapterFactFreshness
@@ -584,6 +596,250 @@ def build_service_adapter_facts_response() -> ServiceAdapterFactsResponse:
     )
 
 
+def build_service_descriptor_view_response() -> ServiceDescriptorViewResponse:
+    """Create a reusable rendered descriptor-view payload sample."""
+    return ServiceDescriptorViewResponse(
+        descriptor_id="arr/radarr",
+        file_path="services/arr/radarr.yaml",
+        write_target_path="services/user/arr/radarr.yaml",
+        name="Radarr",
+        category="arr",
+        source=DescriptorSource.SHIPPED,
+        verified=True,
+        generated_at=None,
+        project_url="https://github.com/Radarr/Radarr",
+        icon="radarr",
+        match={
+            "image_patterns": [
+                "lscr.io/linuxserver/radarr*",
+                "hotio/radarr*",
+            ],
+            "container_name_patterns": [],
+        },
+        endpoints=[
+            {
+                "name": "health_api",
+                "port": 7878,
+                "path": "/api/v3/health",
+                "auth": "api_key",
+                "auth_header": "X-Api-Key",
+                "healthy_when": "json_status_ok",
+            }
+        ],
+        dns_targets=[
+            {
+                "host": "radarr.example.test",
+                "record_type": "A",
+                "expected_values": ["192.0.2.20"],
+            }
+        ],
+        log_signals={
+            "errors": ["Download client .* not available"],
+            "warnings": ["No indexers available"],
+        },
+        typical_dependency_containers=[
+            {
+                "name": "prowlarr",
+                "alternatives": [],
+            }
+        ],
+        typical_dependency_shares=["downloads"],
+        common_failure_modes=[
+            {
+                "trigger": "Download client .* not available",
+                "likely_cause": "Download client container is down or unreachable.",
+                "check_first": ["delugevpn"],
+            }
+        ],
+        investigation_context="Radarr health returns an empty array when healthy.",
+        inspection_surfaces=[
+            {
+                "id": "health_api",
+                "type": "api",
+                "description": "Radarr health diagnostics",
+                "endpoint": "/api/v3/health",
+                "auth": "api_key",
+                "auth_header": "X-Api-Key",
+                "read_only": True,
+                "facts_provided": ["health_issues"],
+                "confidence_effect": "upgrade_to_runtime_observed",
+                "version_range": ">=3.0",
+            }
+        ],
+        credential_hints=[
+            {
+                "key": "api_key",
+                "description": "Radarr API Key",
+                "location": "Radarr Web UI -> Settings -> General -> API Key",
+                "prompt": "Provide the Radarr API key to enable deep inspection.",
+            }
+        ],
+        raw_yaml=(
+            "id: radarr\n"
+            "name: Radarr\n"
+            "category: arr\n"
+            "source: shipped\n"
+            "verified: true\n"
+        ),
+    )
+
+
+def build_service_descriptor_save_request() -> ServiceDescriptorSaveRequest:
+    """Create a reusable descriptor-save request payload sample."""
+    return ServiceDescriptorSaveRequest(
+        mode=DescriptorEditMode.FORM,
+        match=DescriptorEditMatchRequest(
+            image_patterns=["lscr.io/linuxserver/radarr*"],
+            container_name_patterns=[],
+        ),
+        endpoints=[
+            DescriptorEditEndpointRequest(
+                name="health_api",
+                port=7878,
+                path="/api/v3/health",
+                auth="api_key",
+                auth_header="X-Api-Key",
+                healthy_when="json_status_ok",
+            )
+        ],
+        typical_dependency_containers=[
+            DescriptorEditContainerDependencyRequest(
+                name="prowlarr",
+                alternatives=[],
+            )
+        ],
+        typical_dependency_shares=["downloads"],
+    )
+
+
+def build_service_descriptor_save_response() -> ServiceDescriptorSaveResponse:
+    """Create a reusable descriptor-save response payload sample."""
+    return ServiceDescriptorSaveResponse(
+        descriptor=build_service_descriptor_view_response(),
+        audit_change=build_change(),
+    )
+
+
+def build_service_descriptor_generate_response() -> ServiceDescriptorGenerateResponse:
+    """Create a reusable auto-generated descriptor trigger response payload sample."""
+    return ServiceDescriptorGenerateResponse(
+        service_id="svc-custom-app",
+        service_name="custom-app",
+        descriptor=build_service_descriptor_view_response().model_copy(
+            update={
+                "descriptor_id": "custom/custom_app",
+                "file_path": "services/auto_generated/custom/custom_app.yaml",
+                "write_target_path": "services/user/custom/custom_app.yaml",
+                "name": "Custom App",
+                "category": "custom",
+                "source": DescriptorSource.AUTO_GENERATED,
+                "verified": False,
+                "generated_at": ts(14, 30),
+                "inspection_surfaces": [],
+                "credential_hints": [],
+                "raw_yaml": (
+                    "id: custom_app\n"
+                    "name: Custom App\n"
+                    "category: custom\n"
+                    "source: auto_generated\n"
+                    "verified: false\n"
+                    "generated_at: 2026-03-31T14:30:00Z\n"
+                ),
+            }
+        ),
+        audit_change=build_change(),
+        warnings=[
+            "Quarantined auto-generated descriptors stay inactive until review and promotion."
+        ],
+    )
+
+
+def build_quarantined_descriptor_queue_item_response() -> QuarantinedDescriptorQueueItemResponse:
+    """Create a reusable quarantined descriptor queue item payload sample."""
+    return QuarantinedDescriptorQueueItemResponse(
+        descriptor=build_service_descriptor_generate_response().descriptor,
+        review_state="deferred",
+        review_updated_at=ts(14, 35),
+        matching_services=[
+            build_service().model_copy(
+                update={
+                    "id": "svc-custom-app",
+                    "name": "custom-app",
+                    "descriptor_id": None,
+                    "descriptor_source": None,
+                    "image": "ghcr.io/example/custom-app:1.0.0",
+                }
+            )
+        ],
+    )
+
+
+def build_quarantined_descriptor_action_response() -> QuarantinedDescriptorActionResponse:
+    """Create a reusable quarantined descriptor action payload sample."""
+    return QuarantinedDescriptorActionResponse(
+        descriptor_id="custom/custom_app",
+        action="deferred",
+        review_state="deferred",
+        descriptor=build_service_descriptor_generate_response().descriptor,
+        audit_change=build_change(),
+    )
+
+
+def build_descriptor_community_export_response() -> DescriptorCommunityExportResponse:
+    """Create a reusable community descriptor export payload sample."""
+    return DescriptorCommunityExportResponse(
+        descriptor_id="custom/custom_app",
+        target_path="services/custom/custom_app.yaml",
+        yaml_text=(
+            "id: custom_app\n"
+            "name: Custom App\n"
+            "category: custom\n"
+            "match:\n"
+            "  image_patterns:\n"
+            "    - ghcr.io/example/custom-app*\n"
+            "  container_name_patterns:\n"
+            "    - custom-app\n"
+            "endpoints:\n"
+            "  web_ui:\n"
+            "    port: 8080\n"
+            "    path: /\n"
+        ),
+        omitted_fields=["source", "verified", "generated_at"],
+    )
+
+
+def build_service_descriptor_validation_response() -> ServiceDescriptorValidationResponse:
+    """Create a reusable descriptor-validation preview payload sample."""
+    return ServiceDescriptorValidationResponse(
+        valid=True,
+        errors=[],
+        warnings=[
+            "Save will create or update a reviewed user override and "
+            "leave the shipped descriptor unchanged."
+        ],
+        preview={
+            "descriptor_id": "arr/radarr",
+            "write_target_path": "services/user/arr/radarr.yaml",
+            "match": {
+                "current_service_likely_matches": True,
+                "affected_services": [
+                    {
+                        "service_id": "svc-radarr",
+                        "service_name": "Radarr",
+                        "likely_matches": True,
+                    }
+                ],
+            },
+            "dependency_impact": {
+                "added_container_dependencies": ["bazarr"],
+                "removed_container_dependencies": ["delugevpn"],
+                "added_share_dependencies": [],
+                "removed_share_dependencies": ["downloads"],
+            },
+        },
+    )
+
+
 def load_schema(schema_name: str) -> dict[str, object]:
     """Load a checked-in schema file from the repository."""
     schema_path = SCHEMAS_DIR / schema_name
@@ -630,6 +886,16 @@ def test_sample_payloads_validate_against_schemas() -> None:
     approval_token = build_approval_token()
     service_descriptor = build_service_descriptor()
     service_adapter_facts_response = build_service_adapter_facts_response()
+    service_descriptor_view_response = build_service_descriptor_view_response()
+    service_descriptor_generate_response = build_service_descriptor_generate_response()
+    descriptor_community_export_response = build_descriptor_community_export_response()
+    quarantined_descriptor_queue_item_response = (
+        build_quarantined_descriptor_queue_item_response()
+    )
+    quarantined_descriptor_action_response = build_quarantined_descriptor_action_response()
+    service_descriptor_save_request = build_service_descriptor_save_request()
+    service_descriptor_save_response = build_service_descriptor_save_response()
+    service_descriptor_validation_response = build_service_descriptor_validation_response()
 
     validate_with_schema("adapter_result.json", adapter_result.model_dump(mode="json"))
     validate_with_schema("incident.json", incident.model_dump(mode="json"))
@@ -657,6 +923,38 @@ def test_sample_payloads_validate_against_schemas() -> None:
     validate_with_schema(
         "service_adapter_facts_response.json",
         service_adapter_facts_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "service_descriptor_view_response.json",
+        service_descriptor_view_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "service_descriptor_generate_response.json",
+        service_descriptor_generate_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "descriptor_community_export_response.json",
+        descriptor_community_export_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "quarantined_descriptor_queue_item_response.json",
+        quarantined_descriptor_queue_item_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "quarantined_descriptor_action_response.json",
+        quarantined_descriptor_action_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "service_descriptor_save_request.json",
+        service_descriptor_save_request.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "service_descriptor_save_response.json",
+        service_descriptor_save_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "service_descriptor_validation_response.json",
+        service_descriptor_validation_response.model_dump(mode="json"),
     )
     validate_with_schema("user_note.json", user_note.model_dump(mode="json"))
     validate_with_schema("webhook_event.json", webhook_event.model_dump(mode="json"))
