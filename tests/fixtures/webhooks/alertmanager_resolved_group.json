@@ -1,0 +1,60 @@
+{
+  "version": "4",
+  "groupKey": "{}/{alertname=\"SharedStorageLatency\",cluster=\"homelab\"}:{alertname=\"SharedStorageLatency\",cluster=\"homelab\"}",
+  "truncatedAlerts": 0,
+  "status": "resolved",
+  "receiver": "kaval-webhooks",
+  "groupLabels": {
+    "alertname": "SharedStorageLatency",
+    "cluster": "homelab"
+  },
+  "commonLabels": {
+    "alertname": "SharedStorageLatency",
+    "cluster": "homelab",
+    "severity": "warning",
+    "team": "platform"
+  },
+  "commonAnnotations": {
+    "summary": "Shared storage latency returned to normal.",
+    "description": "The storage latency alert cleared for the affected services."
+  },
+  "externalURL": "https://alertmanager.example.com",
+  "alerts": [
+    {
+      "status": "resolved",
+      "labels": {
+        "alertname": "SharedStorageLatency",
+        "service": "immich",
+        "job": "immich-api",
+        "instance": "immich.example.com:443",
+        "severity": "warning"
+      },
+      "annotations": {
+        "summary": "Immich storage latency returned to normal.",
+        "runbook_url": "https://runbooks.example.com/storage/latency"
+      },
+      "startsAt": "2026-04-07T17:10:00Z",
+      "endsAt": "2026-04-07T17:16:00Z",
+      "generatorURL": "https://prometheus.example.com/graph?g0.expr=immich_io_latency_seconds&auth_token=secret-1",
+      "fingerprint": "9bf3e4d2c17ae8a1"
+    },
+    {
+      "status": "resolved",
+      "labels": {
+        "alertname": "SharedStorageLatency",
+        "service": "redis",
+        "job": "redis",
+        "instance": "redis.example.com:6379",
+        "severity": "warning"
+      },
+      "annotations": {
+        "summary": "Redis storage latency returned to normal.",
+        "runbook_url": "https://runbooks.example.com/storage/latency"
+      },
+      "startsAt": "2026-04-07T17:10:20Z",
+      "endsAt": "2026-04-07T17:16:30Z",
+      "generatorURL": "https://prometheus.example.com/graph?g0.expr=redis_latency_seconds&auth_token=secret-2",
+      "fingerprint": "ab39f67124e8d0bc"
+    }
+  ]
+}

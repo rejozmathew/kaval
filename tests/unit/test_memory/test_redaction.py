@@ -105,6 +105,13 @@ def test_redact_for_local_masks_secret_query_params_and_cookie_headers() -> None
     )
 
 
+def test_redact_for_local_keeps_balanced_redaction_marker_at_end_of_url() -> None:
+    """A URL ending in one redacted secret query value should not gain stray punctuation."""
+    redacted = redact_for_local("https://example.com/api?token=supersecret")
+
+    assert redacted == "https://example.com/api?token=%5BREDACTED%5D"
+
+
 def test_redact_json_value_recurses_and_excludes_sensitive_fields() -> None:
     """Structured redaction should recurse and omit explicitly excluded fields."""
     payload = {

@@ -1,0 +1,304 @@
+{
+  "$defs": {
+    "AdapterFactFreshness": {
+      "description": "Freshness states for adapter-derived facts.",
+      "enum": [
+        "current",
+        "stale",
+        "unavailable"
+      ],
+      "title": "AdapterFactFreshness",
+      "type": "string"
+    },
+    "AdapterFactSourceType": {
+      "description": "Provenance source labels for adapter-imported facts.",
+      "enum": [
+        "deep_inspection_adapter"
+      ],
+      "title": "AdapterFactSourceType",
+      "type": "string"
+    },
+    "AdapterStatus": {
+      "description": "Supported adapter execution outcomes.",
+      "enum": [
+        "success",
+        "auth_failed",
+        "connection_failed",
+        "version_incompatible",
+        "parse_error",
+        "degraded"
+      ],
+      "title": "AdapterStatus",
+      "type": "string"
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "RedactionLevel": {
+      "description": "Operational memory redaction levels.",
+      "enum": [
+        "redact_for_local",
+        "redact_for_cloud"
+      ],
+      "title": "RedactionLevel",
+      "type": "string"
+    },
+    "ServiceAdapterFactsItemResponse": {
+      "additionalProperties": false,
+      "description": "One adapter-backed facts payload for a single service.",
+      "properties": {
+        "adapter_id": {
+          "title": "Adapter Id",
+          "type": "string"
+        },
+        "applied_redaction_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RedactionLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "configuration_state": {
+          "$ref": "#/$defs/ServiceDetailAdapterConfigurationState"
+        },
+        "configuration_summary": {
+          "title": "Configuration Summary",
+          "type": "string"
+        },
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "excluded_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Excluded Paths",
+          "type": "array"
+        },
+        "execution_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AdapterStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "facts": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Facts",
+          "type": "object"
+        },
+        "facts_available": {
+          "default": false,
+          "title": "Facts Available",
+          "type": "boolean"
+        },
+        "facts_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Facts Observed At"
+        },
+        "freshness": {
+          "$ref": "#/$defs/AdapterFactFreshness"
+        },
+        "health_state": {
+          "$ref": "#/$defs/ServiceDetailAdapterHealthState"
+        },
+        "health_summary": {
+          "title": "Health Summary",
+          "type": "string"
+        },
+        "missing_credentials": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Credentials",
+          "type": "array"
+        },
+        "next_refresh_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Refresh At"
+        },
+        "read_only": {
+          "default": true,
+          "title": "Read Only",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "refresh_interval_minutes": {
+          "minimum": 1,
+          "title": "Refresh Interval Minutes",
+          "type": "integer"
+        },
+        "service_id": {
+          "title": "Service Id",
+          "type": "string"
+        },
+        "service_name": {
+          "title": "Service Name",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/AdapterFactSourceType",
+          "default": "deep_inspection_adapter"
+        },
+        "stale_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stale At"
+        },
+        "supported_fact_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Fact Names",
+          "type": "array"
+        }
+      },
+      "required": [
+        "adapter_id",
+        "display_name",
+        "service_id",
+        "service_name",
+        "configuration_state",
+        "configuration_summary",
+        "health_state",
+        "health_summary",
+        "refresh_interval_minutes",
+        "freshness"
+      ],
+      "title": "ServiceAdapterFactsItemResponse",
+      "type": "object"
+    },
+    "ServiceDetailAdapterConfigurationState": {
+      "description": "Configuration states shown in the minimum service-detail insight panel.",
+      "enum": [
+        "configured",
+        "unconfigured",
+        "locked"
+      ],
+      "title": "ServiceDetailAdapterConfigurationState",
+      "type": "string"
+    },
+    "ServiceDetailAdapterHealthState": {
+      "description": "Current health states currently derivable for one adapter.",
+      "enum": [
+        "healthy",
+        "degraded",
+        "unknown"
+      ],
+      "title": "ServiceDetailAdapterHealthState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Read-only adapter-imported facts contract for one service.",
+  "properties": {
+    "adapters": {
+      "items": {
+        "$ref": "#/$defs/ServiceAdapterFactsItemResponse"
+      },
+      "title": "Adapters",
+      "type": "array"
+    },
+    "checked_at": {
+      "format": "date-time",
+      "title": "Checked At",
+      "type": "string"
+    },
+    "facts_available": {
+      "default": false,
+      "title": "Facts Available",
+      "type": "boolean"
+    },
+    "service_id": {
+      "title": "Service Id",
+      "type": "string"
+    },
+    "service_name": {
+      "title": "Service Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "service_id",
+    "service_name",
+    "checked_at"
+  ],
+  "title": "ServiceAdapterFactsResponse",
+  "type": "object"
+}

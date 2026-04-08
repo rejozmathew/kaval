@@ -1,0 +1,15 @@
+{
+  "event": {
+    "id": "evt-42",
+    "status": "closed",
+    "title": "Plex transcoder queue back to normal",
+    "url": "https://alerts.example.com/events/evt-42?token=secret-abc"
+  },
+  "service": {
+    "name": "plex",
+    "host": "plex.example.com"
+  },
+  "labels": {
+    "team": "media"
+  }
+}

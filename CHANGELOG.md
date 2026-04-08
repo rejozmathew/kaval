@@ -26,6 +26,7 @@ The format follows Keep a Changelog, and this file is append-only.
 
 ### Added
 
+- Completed the Phase 3B checkpoint: authenticated webhook ingestion with source-specific auth, redaction/rate-limit/dedup handling, shipped source normalizers, deterministic service matching, webhook-to-finding-to-incident wiring, Prometheus metrics with cardinality controls, full user-note CRUD, Telegram memory commands, the complete memory browser tabs with provenance/trust indicators and adapter facts, alert routing with quiet hours/maintenance interaction/multi-issue summaries/self-health notifications, Cloudflare and Authentik evidence-path integration, Homepage/Homarr widget support, and end-to-end webhook scenario coverage.
 - Completed the Phase 3A checkpoint: service insight levels, the deep-inspection adapter foundation, shipped read-only priority adapters for Nginx Proxy Manager, Radarr, Authentik, Cloudflare, and Pi-hole, capability-health visibility, lifecycle handling, the effectiveness score stub, adapter-fact redaction and evidence integration, confidence upgrades, and Phase 3A contract/scenario coverage.
 - Completed the Phase 1 checkpoint: Unraid and Docker discovery, shipped service descriptors, dependency graph confidence, deterministic monitoring checks, change tracking, incident management, Operational Memory system profile, FastAPI read APIs, CLI commands, and the React/WebSocket service map UI.
 - Completed the Phase 2A checkpoint through `P2A-08`: Tier 1 evidence collection, investigation prompt templates, LangGraph investigation workflow, optional local OpenAI-compatible synthesis, Apprise notification delivery, incident-centered notification formatting, incident-grouped dispatch, and Telegram interactive message delivery.
@@ -48,6 +49,8 @@ The format follows Keep a Changelog, and this file is append-only.
 
 ### Changed
 
+- Top-level docs now reflect the Phase 3B-complete checkpoint, the approved one-container/two-process runtime, the current implemented webhook/memory/metrics/alerting/widget surfaces, and that Phase 3 overall is still not complete.
+- The earlier changelog note about docs reflecting the Phase 3A-complete checkpoint referred to that earlier sync point only and is now superseded by the current Phase 3B doc sync above.
 - Top-level project docs and package metadata now describe the current Phase 1 + Phase 2A-through-`P2A-08` checkpoint instead of only the original Phase 0 scaffold.
 - The approved runtime packaging now uses one Docker container with two internal processes: `kaval-core` serves the API/UI on port `9800`, and `kaval-executor` listens on `/run/kaval/executor.sock`; the older sidecar packaging path is no longer the active runtime.
 - Top-level docs now reflect Phase 2A as complete under CR-0002 / ADR-014 instead of stopping at the earlier `P2A-08` / "Operate mode in progress" checkpoint.

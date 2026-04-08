@@ -13,6 +13,7 @@ from kaval.notifications.telegram_interactive import (
     TelegramDeliveryStatus,
     TelegramInteractiveHandler,
     load_telegram_config_from_env,
+    load_telegram_webhook_config_from_env,
 )
 
 
@@ -24,6 +25,13 @@ def ts(hour: int, minute: int = 0) -> datetime:
 def test_load_telegram_config_returns_none_when_credentials_are_missing() -> None:
     """Telegram delivery should stay disabled until both bot token and chat ID exist."""
     config = load_telegram_config_from_env({"KAVAL_TELEGRAM_BOT_TOKEN": "bot-token-only"})
+
+    assert config is None
+
+
+def test_load_telegram_webhook_config_returns_none_when_secret_is_missing() -> None:
+    """Telegram ingress should stay disabled until the webhook secret exists."""
+    config = load_telegram_webhook_config_from_env({"KAVAL_TELEGRAM_BOT_TOKEN": "bot-token"})
 
     assert config is None
 
@@ -73,6 +81,37 @@ def test_telegram_handler_skips_cleanly_when_not_configured() -> None:
 
     assert result.status == TelegramDeliveryStatus.SKIPPED
     assert result.attempted is False
+
+
+def test_telegram_handler_can_send_plain_text_reply_to_a_specific_message() -> None:
+    """Plain-text replies should target the requested chat and message identifiers."""
+    captured: dict[str, object] = {}
+
+    def transport(telegram_request: request.Request, timeout_seconds: float) -> bytes:
+        captured["url"] = telegram_request.full_url
+        captured["timeout"] = timeout_seconds
+        captured["body"] = json.loads(cast(bytes, telegram_request.data).decode("utf-8"))
+        return b'{"ok": true}'
+
+    result = TelegramInteractiveHandler(
+        config=TelegramConfig(
+            bot_token="bot-token",
+            chat_id="12345",
+            timeout_seconds=8.0,
+        ),
+        transport=transport,
+    ).send_text(
+        "Saved note for DelugeVPN.",
+        chat_id="-100987",
+        reply_to_message_id=77,
+    )
+
+    assert result.status == TelegramDeliveryStatus.SENT
+    body = cast(dict[str, object], captured["body"])
+    assert captured["url"] == "https://api.telegram.org/botbot-token/sendMessage"
+    assert body["chat_id"] == "-100987"
+    assert body["reply_to_message_id"] == 77
+    assert body["text"] == "Saved note for DelugeVPN."
 
 
 def build_payload() -> NotificationPayload:

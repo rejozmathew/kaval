@@ -13,6 +13,9 @@ from kaval.credentials.models import (
     VaultConfigRecord,
     VaultCredentialRecord,
 )
+from kaval.integrations.webhooks import WebhookStoredPayload
+from kaval.integrations.webhooks.state import WebhookEventStateRecord
+from kaval.memory.note_models import UserNoteVersion
 from kaval.models import (
     ApprovalToken,
     Change,
@@ -495,6 +498,155 @@ class KavalDatabase:
     def delete_user_note(self, user_note_id: str) -> None:
         """Delete a user note by identifier."""
         self._delete_record("user_notes", "id", user_note_id)
+
+    def upsert_user_note_version(self, user_note_version: UserNoteVersion) -> None:
+        """Insert or update one retained user-note version snapshot."""
+        with self.connection():
+            self.connection().execute(
+                """
+                INSERT INTO user_note_versions (
+                    id,
+                    note_id,
+                    version_number,
+                    recorded_at,
+                    archived,
+                    payload
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    note_id = excluded.note_id,
+                    version_number = excluded.version_number,
+                    recorded_at = excluded.recorded_at,
+                    archived = excluded.archived,
+                    payload = excluded.payload
+                """,
+                (
+                    user_note_version.id,
+                    user_note_version.note_id,
+                    user_note_version.version_number,
+                    user_note_version.recorded_at.isoformat(),
+                    "1" if user_note_version.archived else "0",
+                    user_note_version.model_dump_json(),
+                ),
+            )
+
+    def list_user_note_versions(self, note_id: str) -> list[UserNoteVersion]:
+        """List version snapshots for one note in ascending version order."""
+        rows = self.connection().execute(
+            """
+            SELECT payload
+            FROM user_note_versions
+            WHERE note_id = ?
+            ORDER BY version_number, recorded_at, id
+            """,
+            (note_id,),
+        ).fetchall()
+        return [
+            UserNoteVersion.model_validate_json(str(row["payload"]))
+            for row in rows
+        ]
+
+    def delete_user_note_versions(self, note_id: str) -> None:
+        """Delete all retained version snapshots for one note."""
+        with self.connection():
+            self.connection().execute(
+                "DELETE FROM user_note_versions WHERE note_id = ?",
+                (note_id,),
+            )
+
+    def upsert_webhook_payload(self, webhook_payload: WebhookStoredPayload) -> None:
+        """Insert or update one retained redacted webhook payload."""
+        self._upsert_record(
+            table="webhook_payloads",
+            key_column="id",
+            key_value=webhook_payload.id,
+            payload=webhook_payload,
+            columns={
+                "source_id": webhook_payload.source_id,
+                "source_type": webhook_payload.source_type.value,
+                "received_at": webhook_payload.received_at.isoformat(),
+                "retention_until": webhook_payload.raw_payload_retention_until.isoformat(),
+                "incident_id": webhook_payload.incident_id,
+            },
+        )
+
+    def get_webhook_payload(self, webhook_payload_id: str) -> WebhookStoredPayload | None:
+        """Fetch one retained webhook payload by identifier."""
+        return self._get_record("webhook_payloads", "id", webhook_payload_id, WebhookStoredPayload)
+
+    def list_webhook_payloads(self) -> list[WebhookStoredPayload]:
+        """List retained webhook payloads ordered by receive time and identifier."""
+        return self._list_records("webhook_payloads", "received_at, id", WebhookStoredPayload)
+
+    def delete_webhook_payload(self, webhook_payload_id: str) -> None:
+        """Delete one retained webhook payload by identifier."""
+        self._delete_record("webhook_payloads", "id", webhook_payload_id)
+
+    def purge_expired_webhook_payloads(
+        self,
+        *,
+        now: datetime,
+        open_incident_ids: set[str] | frozenset[str] = frozenset(),
+    ) -> int:
+        """Delete expired webhook payloads unless they are tied to active incidents."""
+        rows = self.connection().execute(
+            """
+            SELECT id, incident_id
+            FROM webhook_payloads
+            WHERE retention_until < ?
+            """,
+            (now.isoformat(),),
+        ).fetchall()
+        expired_ids = [
+            str(row["id"])
+            for row in rows
+            if row["incident_id"] is None or str(row["incident_id"]) not in open_incident_ids
+        ]
+        if not expired_ids:
+            return 0
+        placeholders = ", ".join("?" for _ in expired_ids)
+        with self.connection():
+            self.connection().execute(
+                f"DELETE FROM webhook_payloads WHERE id IN ({placeholders})",
+                expired_ids,
+            )
+        return len(expired_ids)
+
+    def upsert_webhook_event_state(self, state_record: WebhookEventStateRecord) -> None:
+        """Insert or update one normalized webhook dedup-state record."""
+        self._upsert_record(
+            table="webhook_event_states",
+            key_column="state_key",
+            key_value=state_record.state_key,
+            payload=state_record,
+            columns={
+                "source_id": state_record.source_id,
+                "dedup_key": state_record.dedup_key,
+                "active": "1" if state_record.active else "0",
+                "last_received_at": state_record.last_received_at.isoformat(),
+            },
+        )
+
+    def get_webhook_event_state(self, state_key: str) -> WebhookEventStateRecord | None:
+        """Fetch one normalized webhook dedup-state record by key."""
+        return self._get_record(
+            "webhook_event_states",
+            "state_key",
+            state_key,
+            WebhookEventStateRecord,
+        )
+
+    def list_webhook_event_states(self) -> list[WebhookEventStateRecord]:
+        """List normalized webhook dedup-state records ordered by receive time and key."""
+        return self._list_records(
+            "webhook_event_states",
+            "last_received_at, state_key",
+            WebhookEventStateRecord,
+        )
+
+    def delete_webhook_event_state(self, state_key: str) -> None:
+        """Delete one normalized webhook dedup-state record by key."""
+        self._delete_record("webhook_event_states", "state_key", state_key)
 
     def _upsert_record(
         self,

@@ -5,6 +5,14 @@ export type ServiceStatus =
   | "unknown"
   | "stopped";
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
 export interface DependencyEdge {
   target_service_id: string;
   confidence: string;
@@ -191,6 +199,21 @@ export interface UserNote {
 export interface SystemProfile {
   hostname: string;
   unraid_version: string;
+  hardware: {
+    cpu: string;
+    memory_gb: number;
+    gpu: string | null;
+    ups: string | null;
+  };
+  storage: {
+    array: {
+      parity_drives: number;
+      data_drives: number;
+      cache: string | null;
+      total_tb: number;
+      used_tb: number;
+    };
+  };
   networking: {
     domain: string | null;
     dns_provider: string | null;
@@ -205,6 +228,14 @@ export interface SystemProfile {
     total_vms: number;
     matched_descriptors: number;
   };
+  vms: Array<{
+    name: string;
+    purpose: string;
+    os: string | null;
+    type: string | null;
+    quirks: string | null;
+    gpu_passthrough: boolean;
+  }>;
   last_updated: string;
 }
 
@@ -289,4 +320,50 @@ export interface ServiceDetailResponse {
     improve_actions: ServiceDetailImproveAction[];
     fact_summary_available: boolean;
   };
+}
+
+export interface ServiceAdapterFactsItem {
+  adapter_id: string;
+  display_name: string;
+  service_id: string;
+  service_name: string;
+  source: "deep_inspection_adapter";
+  read_only: boolean;
+  configuration_state: "configured" | "unconfigured" | "locked";
+  configuration_summary: string;
+  health_state: "healthy" | "degraded" | "unknown";
+  health_summary: string;
+  missing_credentials: string[];
+  supported_fact_names: string[];
+  execution_status:
+    | "success"
+    | "auth_failed"
+    | "connection_failed"
+    | "version_incompatible"
+    | "parse_error"
+    | "disabled"
+    | null;
+  facts_available: boolean;
+  facts: Record<string, JsonValue>;
+  excluded_paths: string[];
+  applied_redaction_level:
+    | "none"
+    | "redact_for_model"
+    | "redact_for_local"
+    | "redact_for_export"
+    | null;
+  facts_observed_at: string | null;
+  stale_at: string | null;
+  next_refresh_at: string | null;
+  refresh_interval_minutes: number;
+  freshness: "current" | "stale" | "unavailable";
+  reason: string | null;
+}
+
+export interface ServiceAdapterFactsResponse {
+  service_id: string;
+  service_name: string;
+  checked_at: string;
+  facts_available: boolean;
+  adapters: ServiceAdapterFactsItem[];
 }

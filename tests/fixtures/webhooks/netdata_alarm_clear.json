@@ -1,0 +1,22 @@
+{
+  "message": "",
+  "alert": "ImmichCPUHigh",
+  "info": "CPU usage on immich returned to normal.",
+  "chart": "cgroup.immich_cpu",
+  "context": "cgroup.cpu",
+  "space": "Homelab",
+  "Rooms": [
+    {
+      "name": "Apps",
+      "url": "https://app.netdata.cloud/spaces/homelab/rooms/apps"
+    }
+  ],
+  "family": "containers",
+  "class": "System",
+  "severity": "clear",
+  "date": "2026-04-07T18:07:00Z",
+  "duration": "14m 05s",
+  "additional_active_critical_alerts": 0,
+  "additional_active_warning_alerts": 1,
+  "alert_url": "https://app.netdata.cloud/spaces/homelab/rooms/apps/alerts/immich-cpu?access_token=secret-1"
+}

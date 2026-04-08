@@ -694,7 +694,74 @@ def _workflow_relevant_services(
     for finding in findings:
         if finding.service_id in services_by_id and finding.service_id not in relevant_service_ids:
             relevant_service_ids.append(finding.service_id)
+    for service_id in _workflow_related_context_service_ids(
+        relevant_service_ids=relevant_service_ids,
+        services_by_id=services_by_id,
+        descriptor_ids=("networking/cloudflared", "identity/authentik"),
+    ):
+        if service_id not in relevant_service_ids:
+            relevant_service_ids.append(service_id)
     return [services_by_id[service_id] for service_id in relevant_service_ids]
+
+
+def _workflow_related_context_service_ids(
+    *,
+    relevant_service_ids: list[str],
+    services_by_id: Mapping[str, Service],
+    descriptor_ids: tuple[str, ...],
+) -> list[str]:
+    """Return directly connected context services worth inspecting for this incident."""
+    context_service_ids = {
+        service.id
+        for service in services_by_id.values()
+        if service.descriptor_id in descriptor_ids
+    }
+    if not context_service_ids:
+        return []
+
+    related_service_ids: list[str] = []
+    for service_id in relevant_service_ids:
+        for neighbor_id in _workflow_neighbor_service_ids(
+            service_id=service_id,
+            services_by_id=services_by_id,
+        ):
+            if (
+                neighbor_id in context_service_ids
+                and neighbor_id not in relevant_service_ids
+                and neighbor_id not in related_service_ids
+            ):
+                related_service_ids.append(neighbor_id)
+    return related_service_ids
+
+
+def _workflow_neighbor_service_ids(
+    *,
+    service_id: str,
+    services_by_id: Mapping[str, Service],
+) -> list[str]:
+    """Return direct graph neighbors for one service from dependencies or dependents."""
+    service = services_by_id.get(service_id)
+    if service is None:
+        return []
+
+    neighbor_ids = {
+        edge.target_service_id
+        for edge in service.dependencies
+        if edge.target_service_id in services_by_id
+    }
+    neighbor_ids.update(
+        dependent_id
+        for dependent_id in service.dependents
+        if dependent_id in services_by_id
+    )
+    for candidate_service in services_by_id.values():
+        if candidate_service.id == service_id:
+            continue
+        if any(edge.target_service_id == service_id for edge in candidate_service.dependencies):
+            neighbor_ids.add(candidate_service.id)
+        if service_id in candidate_service.dependents:
+            neighbor_ids.add(candidate_service.id)
+    return sorted(neighbor_ids)
 
 
 def _bound_adapters_for_service(

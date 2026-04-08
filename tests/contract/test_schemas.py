@@ -3,16 +3,30 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from jsonschema.validators import validator_for
 
+from kaval.api.schemas import (
+    AdapterFactSourceType,
+    ServiceAdapterFactsItemResponse,
+    ServiceAdapterFactsResponse,
+)
 from kaval.discovery.descriptors import ServiceDescriptor
+from kaval.integrations.adapter_fallback import AdapterFactFreshness
 from kaval.integrations.service_adapters import (
     AdapterDiscoveredEdge,
     AdapterResult,
     AdapterStatus,
+)
+from kaval.integrations.webhooks import (
+    WebhookAlertState,
+    WebhookEvent,
+    WebhookMatchingOutcome,
+    WebhookProcessingStatus,
+    WebhookSeverity,
+    WebhookSourceType,
 )
 from kaval.models import (
     ActionType,
@@ -132,6 +146,36 @@ def build_risk_assessment() -> RiskAssessment:
         ],
         reversible=True,
         warnings=["Restart may briefly interrupt downloads."],
+    )
+
+
+def build_webhook_event() -> WebhookEvent:
+    """Create a reusable normalized webhook event sample."""
+    return WebhookEvent(
+        source_type=WebhookSourceType.PROMETHEUS_ALERTMANAGER,
+        source_id="primary-prometheus",
+        source_event_id="group-7f3d8",
+        dedup_key="prometheus:group-7f3d8:firing",
+        received_at=ts(14, 27),
+        alert_state=WebhookAlertState.FIRING,
+        severity=WebhookSeverity.CRITICAL,
+        title="Media pipeline degraded",
+        body="Prometheus grouped alert for ARR download failures.",
+        url="https://prometheus.example/graph?g0.expr=media_pipeline",
+        tags={
+            "alertname": "MediaPipelineDown",
+            "environment": "homelab",
+        },
+        service_hints=["Radarr", "Sonarr"],
+        matched_service_ids=["svc-radarr", "svc-sonarr"],
+        matching_outcome=WebhookMatchingOutcome.MULTI,
+        raw_payload={
+            "status": "firing",
+            "groupKey": "{}:{alertname=\"MediaPipelineDown\"}",
+        },
+        raw_payload_redacted=True,
+        raw_payload_retention_until=ts(14, 27) + timedelta(days=30),
+        processing_status=WebhookProcessingStatus.MATCHED,
     )
 
 
@@ -492,6 +536,54 @@ def build_service_descriptor() -> ServiceDescriptor:
     )
 
 
+def build_service_adapter_facts_response() -> ServiceAdapterFactsResponse:
+    """Create a reusable adapter-facts API response sample."""
+    return ServiceAdapterFactsResponse(
+        service_id="svc-radarr",
+        service_name="Radarr",
+        checked_at=ts(14, 30),
+        facts_available=True,
+        adapters=[
+            ServiceAdapterFactsItemResponse(
+                adapter_id="radarr_api",
+                display_name="Radarr API",
+                service_id="svc-radarr",
+                service_name="Radarr",
+                source=AdapterFactSourceType.DEEP_INSPECTION_ADAPTER,
+                read_only=True,
+                configuration_state="configured",
+                configuration_summary="Required adapter inputs are configured.",
+                health_state="healthy",
+                health_summary="Adapter returned prompt-safe facts successfully.",
+                missing_credentials=[],
+                supported_fact_names=[
+                    "download_client_status",
+                    "health_issues",
+                ],
+                execution_status=AdapterStatus.SUCCESS,
+                facts_available=True,
+                facts={
+                    "health_issues": [
+                        {
+                            "type": "error",
+                            "message": "Download client unavailable",
+                        }
+                    ],
+                    "download_client_status": {"available": False},
+                },
+                excluded_paths=["api_key"],
+                applied_redaction_level=RedactionLevel.REDACT_FOR_LOCAL,
+                facts_observed_at=ts(14, 25),
+                stale_at=ts(15, 25),
+                next_refresh_at=ts(14, 55),
+                refresh_interval_minutes=30,
+                freshness=AdapterFactFreshness.CURRENT,
+                reason=None,
+            )
+        ],
+    )
+
+
 def load_schema(schema_name: str) -> dict[str, object]:
     """Load a checked-in schema file from the repository."""
     schema_path = SCHEMAS_DIR / schema_name
@@ -534,8 +626,10 @@ def test_sample_payloads_validate_against_schemas() -> None:
     system_profile = build_system_profile()
     journal_entry = build_journal_entry()
     user_note = build_user_note()
+    webhook_event = build_webhook_event()
     approval_token = build_approval_token()
     service_descriptor = build_service_descriptor()
+    service_adapter_facts_response = build_service_adapter_facts_response()
 
     validate_with_schema("adapter_result.json", adapter_result.model_dump(mode="json"))
     validate_with_schema("incident.json", incident.model_dump(mode="json"))
@@ -560,7 +654,12 @@ def test_sample_payloads_validate_against_schemas() -> None:
     )
     validate_with_schema("system_profile.json", system_profile.model_dump(mode="json"))
     validate_with_schema("journal_entry.json", journal_entry.model_dump(mode="json"))
+    validate_with_schema(
+        "service_adapter_facts_response.json",
+        service_adapter_facts_response.model_dump(mode="json"),
+    )
     validate_with_schema("user_note.json", user_note.model_dump(mode="json"))
+    validate_with_schema("webhook_event.json", webhook_event.model_dump(mode="json"))
     validate_with_schema("approval_token.json", approval_token.model_dump(mode="json"))
     validate_with_schema(
         "executor_action_request.json",

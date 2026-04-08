@@ -1,0 +1,28 @@
+{
+  "heartbeat": {
+    "monitorID": 10,
+    "status": 1,
+    "time": "2026-04-07T14:08:05.000Z",
+    "msg": "OK",
+    "important": true,
+    "duration": 27
+  },
+  "monitor": {
+    "id": 10,
+    "name": "Immich",
+    "url": "https://immich.example.com/health",
+    "hostname": "immich",
+    "port": 443,
+    "type": "http",
+    "tags": [
+      {
+        "name": "media"
+      },
+      {
+        "name": "external",
+        "color": "#ffcc00"
+      }
+    ]
+  },
+  "msg": "[Immich] [UP] OK"
+}

@@ -1,0 +1,22 @@
+{
+  "message": "Immich CPU usage triggered a critical Netdata alarm.",
+  "alert": "ImmichCPUHigh",
+  "info": "CPU usage on immich has been above 90% for 10 minutes.",
+  "chart": "cgroup.immich_cpu",
+  "context": "cgroup.cpu",
+  "space": "Homelab",
+  "Rooms": [
+    {
+      "name": "Apps",
+      "url": "https://app.netdata.cloud/spaces/homelab/rooms/apps"
+    }
+  ],
+  "family": "containers",
+  "class": "System",
+  "severity": "critical",
+  "date": "2026-04-07T18:03:00Z",
+  "duration": "10m 12s",
+  "additional_active_critical_alerts": 1,
+  "additional_active_warning_alerts": 2,
+  "alert_url": "https://app.netdata.cloud/spaces/homelab/rooms/apps/alerts/immich-cpu?access_token=secret-1"
+}

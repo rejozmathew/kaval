@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from kaval.api.schemas import ServiceAdapterFactsResponse
 from kaval.discovery.descriptors import ServiceDescriptor
 from kaval.integrations.service_adapters import AdapterResult
+from kaval.integrations.webhooks import WebhookEvent
 from kaval.models import (
     ApprovalToken,
     Change,
@@ -52,12 +54,14 @@ SCHEMA_MODELS: tuple[tuple[str, type[KavalModel]], ...] = (
     ("research_step.json", ResearchStep),
     ("risk_assessment.json", RiskAssessment),
     ("service.json", Service),
+    ("service_adapter_facts_response.json", ServiceAdapterFactsResponse),
     ("service_insight.json", ServiceInsight),
     ("service_lifecycle.json", ServiceLifecycle),
     ("service_lifecycle_event.json", ServiceLifecycleEvent),
     ("service_descriptor.json", ServiceDescriptor),
     ("system_profile.json", SystemProfile),
     ("user_note.json", UserNote),
+    ("webhook_event.json", WebhookEvent),
 )
 
 

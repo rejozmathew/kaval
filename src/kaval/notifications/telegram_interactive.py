@@ -50,6 +50,21 @@ class TelegramConfig:
         object.__setattr__(self, "api_base_url", normalized_api_base_url)
 
 
+@dataclass(frozen=True, slots=True)
+class TelegramWebhookConfig:
+    """Runtime configuration for Telegram webhook ingress verification."""
+
+    secret_token: str
+
+    def __post_init__(self) -> None:
+        """Reject empty secret tokens so ingress auth stays explicit."""
+        secret_token = self.secret_token.strip()
+        if not secret_token:
+            msg = "secret_token must not be empty"
+            raise ValueError(msg)
+        object.__setattr__(self, "secret_token", secret_token)
+
+
 class TelegramDeliveryResult(KavalModel):
     """The outcome of one Telegram delivery attempt."""
 
@@ -68,7 +83,27 @@ class TelegramInteractiveHandler:
 
     def send(self, payload: NotificationPayload) -> TelegramDeliveryResult:
         """Send one notification to Telegram or skip cleanly when not configured."""
-        message_text = _telegram_message_text(payload)
+        return self.send_text(
+            _telegram_message_text(payload),
+            reply_markup={
+                "inline_keyboard": [
+                    [
+                        _keyboard_button(button)
+                        for button in _telegram_actions(payload)
+                    ]
+                ]
+            },
+        )
+
+    def send_text(
+        self,
+        message_text: str,
+        *,
+        chat_id: str | None = None,
+        reply_markup: dict[str, object] | None = None,
+        reply_to_message_id: int | None = None,
+    ) -> TelegramDeliveryResult:
+        """Send one plain-text Telegram message through the configured bot."""
         if self.config is None:
             return TelegramDeliveryResult(
                 status=TelegramDeliveryStatus.SKIPPED,
@@ -77,22 +112,17 @@ class TelegramInteractiveHandler:
                 detail="Telegram is not configured.",
             )
 
-        body = {
-            "chat_id": self.config.chat_id,
+        body: dict[str, object] = {
+            "chat_id": self.config.chat_id if chat_id is None else chat_id,
             "text": message_text,
-            "reply_markup": {
-                "inline_keyboard": [
-                    [
-                        _keyboard_button(button)
-                        for button in _telegram_actions(payload)
-                    ]
-                ]
-            },
         }
+        if reply_markup is not None:
+            body["reply_markup"] = reply_markup
+        if reply_to_message_id is not None:
+            body["reply_to_message_id"] = reply_to_message_id
+
         telegram_request = request.Request(
-            url=(
-                f"{self.config.api_base_url}/bot{self.config.bot_token}/sendMessage"
-            ),
+            url=f"{self.config.api_base_url}/bot{self.config.bot_token}/sendMessage",
             data=json.dumps(body).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -141,6 +171,17 @@ def load_telegram_config_from_env(env: Mapping[str, str] | None = None) -> Teleg
         api_base_url=api_base_url,
         timeout_seconds=timeout_seconds,
     )
+
+
+def load_telegram_webhook_config_from_env(
+    env: Mapping[str, str] | None = None,
+) -> TelegramWebhookConfig | None:
+    """Load optional Telegram webhook verification config from the environment."""
+    source = env or os.environ
+    secret_token = source.get("KAVAL_TELEGRAM_WEBHOOK_SECRET", "").strip()
+    if not secret_token:
+        return None
+    return TelegramWebhookConfig(secret_token=secret_token)
 
 
 def _telegram_actions(payload: NotificationPayload) -> list[NotificationAction]:

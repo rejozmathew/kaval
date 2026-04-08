@@ -1,0 +1,51 @@
+{
+  "receiver": "kaval-webhooks",
+  "status": "firing",
+  "orgId": 1,
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": {
+        "alertname": "ImmichHighLatency",
+        "service": "immich",
+        "instance": "immich.example.com:443",
+        "severity": "critical"
+      },
+      "annotations": {
+        "summary": "Immich latency is above the SLO.",
+        "description": "P95 latency exceeded 800ms for the last 10 minutes.",
+        "runbook_url": "https://runbooks.example.com/immich/latency"
+      },
+      "startsAt": "2026-04-07T16:18:00Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://grafana.example.com/alerting/grafana/abc123/view?orgId=1",
+      "fingerprint": "4fd6e0b8f342a1e7",
+      "silenceURL": "https://grafana.example.com/alerting/silence/new?matcher=service%3Dimmich&auth_token=secret-token",
+      "dashboardURL": "https://grafana.example.com/d/immich-overview/immich-overview?orgId=1",
+      "panelURL": "https://grafana.example.com/d/immich-overview/immich-overview?orgId=1&viewPanel=7",
+      "values": {
+        "B": 912.4
+      }
+    }
+  ],
+  "groupLabels": {
+    "alertname": "ImmichHighLatency",
+    "service": "immich"
+  },
+  "commonLabels": {
+    "alertname": "ImmichHighLatency",
+    "service": "immich",
+    "severity": "critical"
+  },
+  "commonAnnotations": {
+    "summary": "Immich latency is above the SLO.",
+    "runbook_url": "https://runbooks.example.com/immich/latency"
+  },
+  "externalURL": "https://grafana.example.com/",
+  "version": "1",
+  "groupKey": "{}:{alertname=\"ImmichHighLatency\",service=\"immich\"}",
+  "truncatedAlerts": 0,
+  "title": "[FIRING:1] ImmichHighLatency (immich critical)",
+  "state": "alerting",
+  "message": "Immich latency exceeded the configured threshold."
+}

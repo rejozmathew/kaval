@@ -14,6 +14,7 @@ from kaval.credentials.models import (
     VaultCredentialRecord,
 )
 from kaval.database import KavalDatabase
+from kaval.memory.note_models import UserNoteVersion
 from kaval.models import (
     ActionType,
     ApprovalToken,
@@ -351,6 +352,19 @@ def build_user_note() -> UserNote:
     )
 
 
+def build_user_note_version() -> UserNoteVersion:
+    """Create a reusable retained user-note version payload."""
+    return UserNoteVersion(
+        id="notever-1",
+        note_id="note-1",
+        version_number=1,
+        recorded_at=ts(15, 5),
+        archived=False,
+        current=False,
+        note=build_user_note(),
+    )
+
+
 def test_bootstrap_applies_baseline_migration(tmp_path: Path) -> None:
     """Bootstrapping should create the expected baseline tables."""
     database = build_database(tmp_path)
@@ -366,11 +380,17 @@ def test_bootstrap_applies_baseline_migration(tmp_path: Path) -> None:
         assert "incidents" in tables
         assert "system_profiles" in tables
         assert "credential_requests" in tables
+        assert "webhook_payloads" in tables
+        assert "webhook_event_states" in tables
+        assert "user_note_versions" in tables
         assert database.applied_migrations() == [
             "0001_phase0_baseline",
             "0002_phase2b_credential_requests",
             "0003_phase2b_vault",
             "0004_phase3a_capability_runtime_signals",
+            "0005_phase3b_webhook_payloads",
+            "0006_phase3b_webhook_event_states",
+            "0007_phase3b_user_note_versions",
         ]
         assert database.migrations_current() is True
     finally:
@@ -501,6 +521,38 @@ def test_database_backfills_service_insight_for_pre_phase3_payloads(tmp_path: Pa
         assert stored is not None
         assert stored.insight is not None
         assert stored.insight.level == ServiceInsightLevel.MONITORED
+    finally:
+        database.close()
+
+
+def test_database_persists_user_note_versions(tmp_path: Path) -> None:
+    """User-note history snapshots should round-trip through SQLite."""
+    database = build_database(tmp_path)
+    first_version = build_user_note_version()
+    second_version = first_version.model_copy(
+        update={
+            "id": "notever-2",
+            "version_number": 2,
+            "recorded_at": ts(16),
+            "archived": True,
+            "current": True,
+            "note": first_version.note.model_copy(
+                update={
+                    "note": "Archive after validating the VPN path.",
+                    "updated_at": ts(16),
+                }
+            ),
+        }
+    )
+    try:
+        database.upsert_user_note_version(first_version)
+        database.upsert_user_note_version(second_version)
+
+        assert database.list_user_note_versions("note-1") == [first_version, second_version]
+
+        database.delete_user_note_versions("note-1")
+
+        assert database.list_user_note_versions("note-1") == []
     finally:
         database.close()
 

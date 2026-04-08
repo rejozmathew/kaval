@@ -22,8 +22,8 @@ Phase 3/4 Requirements Expansion v2 final:
 - Webhook security: payload redaction, rate limiting, retention policy, replay protection
 - Webhook → finding → incident pipeline wiring
 - Prometheus `/metrics` endpoint with cardinality-controlled labels
-- User notes CRUD API + Telegram memory commands
-- Memory browser UI (journal, notes, system profile, recurrence, adapter facts tabs)
+- User notes CRUD API + Telegram memory commands (transport-local handler + inbound ingress/auth wiring)
+- Stable adapter-imported facts read API + Memory browser UI (journal, notes, system profile, recurrence, adapter facts tabs)
 - Memory provenance indicators and trust display
 - Alerting operational model: severity routing, digest behavior, quiet hours, multi-issue handling
 - Kaval self-health notifications
@@ -81,12 +81,14 @@ These are guidance surfaces, not hard guarantees. The active task prompt should 
 - P3B-12 Prometheus `/metrics` endpoint (service, investigation, adapter, action, webhook, system metrics)
 - P3B-13 Metrics cardinality controls (category-level labels only, no unbounded instance IDs)
 - P3B-14 User notes full CRUD API (create, edit, version history, archive, delete)
-- P3B-15 Telegram memory commands (`/note`, `/notes`, `/journal`, `/recurrence`)
+- P3B-15A Telegram memory commands: transport-local command parser/handler (`/note`, `/notes`, `/journal`, `/recurrence`)
+- P3B-15B Telegram inbound command ingress: approved inbound update transport/auth-verification/runtime-config wiring
 - P3B-16 Memory browser UI: journal tab with provenance indicators
 - P3B-17 Memory browser UI: notes tab with trust indicators (`safe_for_model`, stale, source)
 - P3B-18 Memory browser UI: system profile tab with diff view
 - P3B-19 Memory browser UI: recurrence tab with permanent-fix suggestions
-- P3B-20 Memory browser UI: facts tab (adapter-imported facts, per service)
+- P3B-20A Stable adapter-imported facts read API / serialization contract (freshness, provenance, read-only facts)
+- P3B-20B Memory browser UI: facts tab (adapter-imported facts, per service)
 - P3B-21 Alerting: severity routing implementation (immediate/dedup/digest/dashboard-only)
 - P3B-22 Alerting: quiet hours and maintenance mode interaction (with self-health guardrail)
 - P3B-23 Alerting: multi-issue summary notifications
@@ -110,9 +112,11 @@ These are guidance surfaces, not hard guarantees. The active task prompt should 
 - P3B-12 can begin independently of webhook work, but should align with the capability-health and action-boundary model already established in Phase 3A.
 - P3B-13 depends on P3B-12.
 - P3B-14 depends on the existing Operational Memory backend from Phase 2B and the current API/database foundations.
-- P3B-15 depends on P3B-14 and the existing Telegram/interactive notification path from Phase 2A.
+- P3B-15A depends on P3B-14 and the existing Telegram/interactive notification path from Phase 2A.
+- P3B-15B depends on P3B-15A and the approved inbound Telegram update/auth contract for this phase.
 - P3B-16..19 depend on P3B-14 and the existing React UI/API surfaces.
-- P3B-20 depends on P3B-14, existing React UI/API surfaces, and Phase 3A adapter fact integration (`P3A-22` in the corrected 3A plan).
+- P3B-20A depends on P3B-14, the current API/database foundations, and Phase 3A adapter fact integration (`P3A-22` in the corrected 3A plan).
+- P3B-20B depends on P3B-20A and the existing React UI/API surfaces.
 - P3B-21 depends on the existing notification bus from Phase 2A and on clear incident/finding state from existing systems.
 - P3B-22 depends on P3B-21 and existing maintenance/suppression semantics where available.
 - P3B-23 depends on P3B-21 and P3B-22.
@@ -130,8 +134,8 @@ These are guidance surfaces, not hard guarantees. The active task prompt should 
 - Multi-service Prometheus alert → properly matched and grouped.
 - Webhook endpoints enforce auth, rate limits, payload size limits, replay protection, and payload redaction.
 - `/metrics` returns valid Prometheus exposition format with cardinality-controlled labels.
-- User can create, edit, archive, and delete notes via UI/API and interact with memory via Telegram commands.
-- Memory browser shows all 5 tabs with provenance indicators and trust context.
+- User can create, edit, archive, and delete notes via UI/API and interact with memory via Telegram commands end-to-end (`P3B-15A` + `P3B-15B`).
+- Memory browser shows all 5 tabs with provenance indicators and trust context, and the adapter-facts capability is complete only after both `P3B-20A` and `P3B-20B` land.
 - Severity routing works: critical = immediate, medium = digest, low = dashboard-only.
 - Quiet hours hold non-critical notifications while critical issues still push through.
 - Global maintenance does not suppress critical Kaval self-health failures.
@@ -162,7 +166,8 @@ These are guidance surfaces, not hard guarantees. The active task prompt should 
 - Query-string webhook auth (`?key=`) is a fallback for tools that cannot set headers. Header auth is preferred.
 - Raw webhook payloads are retained for 30 days by default, then purged.
 - Metrics must avoid high-cardinality labels — no raw incident IDs, container IDs, or arbitrary user-defined names unless explicitly bounded.
-- Telegram memory commands extend the existing interactive handler from P2A-08.
+- Telegram memory commands extend the existing interactive handler from P2A-08, but are not complete until both the transport-local handler and inbound ingress/auth wiring land.
+- Adapter-imported facts are not complete for the memory browser until both the stable read API / serialization contract (`P3B-20A`) and the facts-tab UI (`P3B-20B`) land.
 - For execution runs, the active-task prompt should still restate files, exact validation commands, acceptance criteria, and blockers before coding.
 
 ---
@@ -458,9 +463,9 @@ Complete the user-notes API surface on top of the Phase 2B memory backend.
 **Stop conditions**
 - stop if note lifecycle behavior conflicts with the existing memory trust model
 
-### P3B-15 — Telegram memory commands
+### P3B-15A — Telegram memory commands: transport-local parser/handler
 **Goal**
-Extend Telegram/interactive memory access without widening the action boundary.
+Extend Telegram/interactive memory access at the transport-local command layer without widening the action boundary.
 
 **Primary touch surfaces**
 - `src/kaval/notifications/telegram*`
@@ -469,15 +474,41 @@ Extend Telegram/interactive memory access without widening the action boundary.
 - `tests/integration/`
 
 **Acceptance criteria**
-- `/note`, `/notes`, `/journal`, and `/recurrence` work as defined.
-- Commands remain read-only or note-entry only, not administrative mutation beyond note management.
+- Transport-local parsing/handling exists for `/note`, `/notes`, `/journal`, and `/recurrence`.
+- `/note` remains note-entry only; the other commands remain read-only memory access.
+- Command behavior stays within the current memory trust model and action boundary.
 
 **Validation focus**
-- integration tests for command handling
-- security tests if command content feeds prompts later
+- unit tests for command parsing and handler behavior
+- integration tests for command-to-memory wiring where transport can be simulated locally
 
 **Stop conditions**
+- stop if the command layer cannot be implemented cleanly without first deciding the inbound transport/auth contract
 - stop if Telegram memory commands start to require settings/admin actions that belong in later UI/admin work
+
+### P3B-15B — Telegram inbound command ingress
+**Goal**
+Add the approved inbound update transport/auth-verification/runtime-config wiring required to make the P3B-15A Telegram memory commands work end-to-end.
+
+**Primary touch surfaces**
+- `src/kaval/api/`
+- `src/kaval/notifications/telegram*`
+- `src/kaval/memory/`
+- `tests/integration/`
+- `tests/security/`
+
+**Acceptance criteria**
+- Approved inbound Telegram updates reach the P3B-15A command handler through an explicit runtime transport.
+- The ingress/auth-verification/runtime-config contract is enforced consistently.
+- `/note`, `/notes`, `/journal`, and `/recurrence` work end-to-end through the approved Telegram ingress path.
+
+**Validation focus**
+- integration tests for inbound update routing and command execution
+- security tests for ingress auth/verification behavior
+
+**Stop conditions**
+- stop if the inbound Telegram transport/auth-verification contract is still not approved
+- stop if the ingress design would widen the current trust boundary or require later admin/settings work to be invented early
 
 ### P3B-16 — Memory browser UI: journal tab
 **Goal**
@@ -553,13 +584,39 @@ Add recurrence visualization with conservative permanent-fix suggestions.
 **Stop conditions**
 - stop if the UI would overstate speculative recurrence as confirmed fact
 
-### P3B-20 — Memory browser UI: facts tab
+### P3B-20A — Stable adapter-imported facts read API / serialization contract
 **Goal**
-Display adapter-imported facts per service with provenance and freshness.
+Expose a stable read-only adapter-facts contract for the memory browser, including the imported facts themselves plus freshness and provenance fields.
+
+**Primary touch surfaces**
+- `src/kaval/api/`
+- `src/kaval/api/schemas.py`
+- adapter fact read/serialization helpers from Phase 3A where needed
+- `tests/integration/`
+- `tests/contract/` if checked-in API/schema artifacts change
+
+**Acceptance criteria**
+- A stable read API / serialization contract exists for adapter-imported facts.
+- The contract includes freshness and provenance/trust context needed by the facts tab.
+- The contract remains read-only and bounded to prompt-safe/redacted facts.
+
+**Validation focus**
+- integration tests for the read API / serialization contract
+- contract/schema validation if checked-in contracts are affected
+- typecheck
+
+**Stop conditions**
+- stop if exposing facts would bypass required redaction or freshness/provenance trust semantics
+- stop if the contract would require broadening adapter scope beyond approved read-only facts
+
+### P3B-20B — Memory browser UI: facts tab
+**Goal**
+Display adapter-imported facts per service with provenance and freshness using the stable `P3B-20A` read contract.
 
 **Primary touch surfaces**
 - same as P3B-16
-- adapter fact API/read surfaces from Phase 3A
+- frontend types for the stable `P3B-20A` contract
+- adapter fact API/read surfaces from `P3B-20A`
 
 **Acceptance criteria**
 - Adapter facts are visible per service.
@@ -570,7 +627,8 @@ Display adapter-imported facts per service with provenance and freshness.
 - API/UI tests if present
 
 **Stop conditions**
-- stop if Phase 3A has not yet exposed adapter facts in a stable API shape
+- stop if `P3B-20A` has not yet exposed adapter facts in a stable API shape
+- stop if the UI would overstate stale, partial, or absent adapter facts as confirmed current state
 
 ### P3B-21 — Alerting: severity routing implementation
 **Goal**
@@ -754,4 +812,3 @@ Lock down the user-facing behavior introduced by 3B’s memory/alerting/self-hea
 
 **Stop conditions**
 - stop if those surfaces are still changing and need another earlier task to stabilize first
-

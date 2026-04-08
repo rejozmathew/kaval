@@ -242,7 +242,7 @@ def _split_trailing_punctuation(url: str) -> tuple[str, str]:
     """Split off common trailing punctuation that should survive redaction."""
     suffix = ""
     core = url
-    while core and core[-1] in {".", ",", ")", "]"}:
+    while core and core[-1] in {".", ",", ")"}:
         suffix = core[-1] + suffix
         core = core[:-1]
     return core, suffix

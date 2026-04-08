@@ -1,0 +1,223 @@
+{
+  "$defs": {
+    "JsonValue": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "WebhookAlertState": {
+      "description": "Lifecycle states preserved from the source alert.",
+      "enum": [
+        "firing",
+        "resolved"
+      ],
+      "title": "WebhookAlertState",
+      "type": "string"
+    },
+    "WebhookMatchingOutcome": {
+      "description": "Current matching outcome for one webhook event.",
+      "enum": [
+        "pending",
+        "unmatched",
+        "single",
+        "multi"
+      ],
+      "title": "WebhookMatchingOutcome",
+      "type": "string"
+    },
+    "WebhookProcessingStatus": {
+      "description": "Lifecycle states for webhook ingestion and downstream processing.",
+      "enum": [
+        "new",
+        "matched",
+        "finding_created",
+        "duplicate",
+        "ignored"
+      ],
+      "title": "WebhookProcessingStatus",
+      "type": "string"
+    },
+    "WebhookSeverity": {
+      "description": "Normalized webhook severities prior to finding creation.",
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "info"
+      ],
+      "title": "WebhookSeverity",
+      "type": "string"
+    },
+    "WebhookSourceType": {
+      "description": "Supported normalized webhook source types.",
+      "enum": [
+        "uptime_kuma",
+        "grafana",
+        "prometheus_alertmanager",
+        "netdata",
+        "generic_json"
+      ],
+      "title": "WebhookSourceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Canonical internal event used across webhook ingestion.",
+  "properties": {
+    "alert_state": {
+      "$ref": "#/$defs/WebhookAlertState",
+      "default": "firing"
+    },
+    "body": {
+      "default": "",
+      "title": "Body",
+      "type": "string"
+    },
+    "dedup_key": {
+      "minLength": 1,
+      "title": "Dedup Key",
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "matched_service_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Matched Service Ids",
+      "type": "array"
+    },
+    "matching_outcome": {
+      "$ref": "#/$defs/WebhookMatchingOutcome",
+      "default": "pending"
+    },
+    "processing_status": {
+      "$ref": "#/$defs/WebhookProcessingStatus",
+      "default": "new"
+    },
+    "raw_payload": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Raw Payload",
+      "type": "object"
+    },
+    "raw_payload_redacted": {
+      "default": false,
+      "title": "Raw Payload Redacted",
+      "type": "boolean"
+    },
+    "raw_payload_retention_until": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Raw Payload Retention Until"
+    },
+    "received_at": {
+      "format": "date-time",
+      "title": "Received At",
+      "type": "string"
+    },
+    "service_hints": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Service Hints",
+      "type": "array"
+    },
+    "severity": {
+      "$ref": "#/$defs/WebhookSeverity"
+    },
+    "source_event_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Event Id"
+    },
+    "source_id": {
+      "minLength": 1,
+      "title": "Source Id",
+      "type": "string"
+    },
+    "source_type": {
+      "$ref": "#/$defs/WebhookSourceType"
+    },
+    "tags": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "object"
+    },
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Url"
+    }
+  },
+  "required": [
+    "source_type",
+    "source_id",
+    "dedup_key",
+    "severity",
+    "title"
+  ],
+  "title": "WebhookEvent",
+  "type": "object"
+}

@@ -1,0 +1,26 @@
+{
+  "event": {
+    "id": "evt-42",
+    "status": "open",
+    "priority": "p2",
+    "title": "Plex transcoder queue backed up",
+    "summary": "Multiple jobs have waited longer than 10 minutes.",
+    "url": "https://alerts.example.com/events/evt-42?token=secret-abc"
+  },
+  "service": {
+    "name": "plex",
+    "host": "plex.example.com"
+  },
+  "impacted_services": [
+    {
+      "name": "tautulli"
+    }
+  ],
+  "labels": {
+    "team": "media",
+    "component": "transcoder"
+  },
+  "debug": {
+    "webhook_id": "whk-evt-42"
+  }
+}

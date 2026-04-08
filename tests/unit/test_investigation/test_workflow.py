@@ -354,6 +354,287 @@ def test_workflow_does_not_create_new_edges_from_unmatched_adapter_targets(
         database.close()
 
 
+def test_workflow_collects_cloudflare_facts_for_connected_ingress_context(
+    tmp_path: Path,
+) -> None:
+    """Connected cloudflared services should contribute prompt-safe Cloudflare facts."""
+    database_path = tmp_path / "cloudflare-ingress.db"
+    database = seed_cloudflare_ingress_database(database_path)
+    try:
+        credential_service = build_adapter_credential_service(
+            database=database,
+            database_path=database_path,
+        )
+        for credential_key, secret_value in {
+            "api_token": "cloudflare-token",
+            "zone_name": "example.com",
+            "account_id": "account-123",
+            "tunnel_id": "tunnel-123",
+        }.items():
+            satisfy_adapter_secret(
+                service=credential_service,
+                incident_id="inc-npm-ingress",
+                service_id="svc-cloudflared",
+                credential_key=credential_key,
+                secret_value=secret_value,
+                reason=f"Need Cloudflare deep inspection ({credential_key}).",
+                requested_at=ts(18, 20),
+            )
+
+        adapter = FakeInspectionAdapter(
+            result=AdapterResult(
+                adapter_id="cloudflare_api",
+                status=AdapterStatus.SUCCESS,
+                facts={
+                    "ssl_mode": {"value": "strict"},
+                    "tunnel_dns_records": [
+                        {
+                            "name": "app.example.com",
+                            "content": "tunnel-123.cfargotunnel.com",
+                        }
+                    ],
+                    "api_token": "leak-me",
+                },
+                edges_discovered=[],
+                timestamp=ts(18, 25),
+                reason=None,
+            ),
+            adapter_id="cloudflare_api",
+            surface_bindings=(
+                AdapterSurfaceBinding(
+                    descriptor_id="networking/cloudflared",
+                    surface_id="dns_records",
+                ),
+            ),
+            credential_keys=("api_token", "zone_name", "account_id", "tunnel_id"),
+        )
+        workflow = InvestigationWorkflow(
+            database=database,
+            synthesizer=StaticSynthesizer(
+                root_cause=(
+                    "Cloudflare-side ingress is healthy; the TLS breakage is inside "
+                    "Nginx Proxy Manager after the image update."
+                ),
+                confidence=0.88,
+                action_type="none",
+                target=None,
+            ),
+            log_reader=fixture_log_reader,
+            credential_material_service=credential_service,
+            adapter_registry=AdapterRegistry([adapter]),
+        )
+
+        result = workflow.run(
+            incident_id="inc-npm-ingress",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(18, 30),
+        )
+
+        assert adapter.seen_service_id == "svc-cloudflared"
+        assert adapter.seen_credentials == {
+            "api_token": "cloudflare-token",
+            "zone_name": "example.com",
+            "account_id": "account-123",
+            "tunnel_id": "tunnel-123",
+        }
+        assert "\"adapter_id\": \"cloudflare_api\"" in result.prompt_bundle.user_prompt
+        assert "\"ssl_mode\"" in result.prompt_bundle.user_prompt
+        assert "\"strict\"" in result.prompt_bundle.user_prompt
+        assert "cloudflare-token" not in result.prompt_bundle.user_prompt
+        assert "leak-me" not in result.prompt_bundle.user_prompt
+        assert any(
+            step.action == "inspect_service_adapter"
+            and step.target == "svc-cloudflared"
+            and step.result_data["status"] == "success"
+            and step.result_data["facts_available"] is True
+            for step in result.investigation.evidence_steps
+        )
+    finally:
+        database.close()
+
+
+def test_workflow_does_not_collect_cloudflare_facts_for_unrelated_services(
+    tmp_path: Path,
+) -> None:
+    """Unrelated incidents should not pull cloudflared into adapter evidence."""
+    database_path = tmp_path / "cloudflare-unrelated.db"
+    database = seed_database(database_path)
+    database.upsert_service(
+        Service(
+            id="svc-cloudflared",
+            name="cloudflared",
+            type=ServiceType.CONTAINER,
+            category="networking",
+            status=ServiceStatus.HEALTHY,
+            descriptor_id="networking/cloudflared",
+            descriptor_source=DescriptorSource.SHIPPED,
+            container_id="container-cloudflared",
+            vm_id=None,
+            image="cloudflare/cloudflared:2026.4.0",
+            endpoints=[],
+            dns_targets=[],
+            dependencies=[],
+            dependents=[],
+            last_check=ts(14, 24),
+            active_findings=0,
+            active_incidents=0,
+        )
+    )
+    try:
+        credential_service = build_adapter_credential_service(
+            database=database,
+            database_path=database_path,
+        )
+        for credential_key, secret_value in {
+            "api_token": "cloudflare-token",
+            "zone_name": "example.com",
+            "account_id": "account-123",
+            "tunnel_id": "tunnel-123",
+        }.items():
+            satisfy_adapter_secret(
+                service=credential_service,
+                incident_id="inc-delugevpn",
+                service_id="svc-cloudflared",
+                credential_key=credential_key,
+                secret_value=secret_value,
+                reason=f"Need Cloudflare deep inspection ({credential_key}).",
+                requested_at=ts(14, 20),
+            )
+
+        adapter = FakeInspectionAdapter(
+            result=AdapterResult(
+                adapter_id="cloudflare_api",
+                status=AdapterStatus.SUCCESS,
+                facts={"ssl_mode": {"value": "strict"}},
+                edges_discovered=[],
+                timestamp=ts(14, 25),
+                reason=None,
+            ),
+            adapter_id="cloudflare_api",
+            surface_bindings=(
+                AdapterSurfaceBinding(
+                    descriptor_id="networking/cloudflared",
+                    surface_id="dns_records",
+                ),
+            ),
+            credential_keys=("api_token", "zone_name", "account_id", "tunnel_id"),
+        )
+        workflow = InvestigationWorkflow(
+            database=database,
+            synthesizer=StaticSynthesizer(
+                root_cause="DelugeVPN lost its VPN tunnel.",
+                confidence=0.91,
+                action_type="restart_container",
+                target="delugevpn",
+            ),
+            log_reader=fixture_log_reader,
+            credential_material_service=credential_service,
+            adapter_registry=AdapterRegistry([adapter]),
+        )
+
+        result = workflow.run(
+            incident_id="inc-delugevpn",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(14, 30),
+        )
+
+        assert adapter.seen_service_id is None
+        assert "cloudflare_api" not in result.prompt_bundle.user_prompt
+        assert not any(
+            step.action == "inspect_service_adapter"
+            and step.target == "svc-cloudflared"
+            for step in result.investigation.evidence_steps
+        )
+    finally:
+        database.close()
+
+
+def test_workflow_collects_authentik_facts_for_connected_sso_context(
+    tmp_path: Path,
+) -> None:
+    """Connected Authentik services should contribute prompt-safe identity facts."""
+    database_path = tmp_path / "authentik-sso-context.db"
+    database = seed_authentik_sso_context_database(database_path)
+    try:
+        credential_service = build_adapter_credential_service(
+            database=database,
+            database_path=database_path,
+        )
+        satisfy_adapter_secret(
+            service=credential_service,
+            incident_id="inc-nextcloud-sso",
+            service_id="svc-authentik",
+            credential_key="api_token",
+            secret_value="authentik-token",
+            reason="Need Authentik deep inspection.",
+            requested_at=ts(17, 20),
+        )
+
+        adapter = FakeInspectionAdapter(
+            result=AdapterResult(
+                adapter_id="authentik_api",
+                status=AdapterStatus.SUCCESS,
+                facts={
+                    "applications": [
+                        {"slug": "nextcloud", "name": "Nextcloud"},
+                    ],
+                    "providers": [
+                        {"name": "Nextcloud OIDC"},
+                    ],
+                    "api_token": "leak-me",
+                },
+                edges_discovered=[],
+                timestamp=ts(17, 25),
+                reason=None,
+            ),
+            adapter_id="authentik_api",
+            surface_bindings=(
+                AdapterSurfaceBinding(
+                    descriptor_id="identity/authentik",
+                    surface_id="applications",
+                ),
+            ),
+            credential_keys=("api_token",),
+        )
+        workflow = InvestigationWorkflow(
+            database=database,
+            synthesizer=StaticSynthesizer(
+                root_cause=(
+                    "The downstream app is healthy; the SSO failure is concentrated in "
+                    "the connected Authentik identity path."
+                ),
+                confidence=0.86,
+                action_type="none",
+                target=None,
+            ),
+            log_reader=fixture_log_reader,
+            credential_material_service=credential_service,
+            adapter_registry=AdapterRegistry([adapter]),
+        )
+
+        result = workflow.run(
+            incident_id="inc-nextcloud-sso",
+            trigger=InvestigationTrigger.AUTO,
+            now=ts(17, 30),
+        )
+
+        assert adapter.seen_service_id == "svc-authentik"
+        assert adapter.seen_credentials == {"api_token": "authentik-token"}
+        assert "\"adapter_id\": \"authentik_api\"" in result.prompt_bundle.user_prompt
+        assert "\"Nextcloud OIDC\"" in result.prompt_bundle.user_prompt
+        assert "authentik-token" not in result.prompt_bundle.user_prompt
+        assert "leak-me" not in result.prompt_bundle.user_prompt
+        assert any(
+            step.action == "inspect_service_adapter"
+            and step.target == "svc-authentik"
+            and step.result_data["status"] == "success"
+            and step.result_data["facts_available"] is True
+            for step in result.investigation.evidence_steps
+        )
+    finally:
+        database.close()
+
+
 def test_workflow_persists_investigation_and_updates_incident_for_restart(
     tmp_path: Path,
 ) -> None:
@@ -1026,10 +1307,23 @@ class FakeInspectionAdapter:
     supported_versions = ">=3.0"
     read_only = True
 
-    def __init__(self, *, result: AdapterResult) -> None:
+    def __init__(
+        self,
+        *,
+        result: AdapterResult,
+        adapter_id: str = "radarr_api",
+        surface_bindings: tuple[AdapterSurfaceBinding, ...] = (
+            AdapterSurfaceBinding(descriptor_id="arr/radarr", surface_id="health_api"),
+        ),
+        credential_keys: tuple[str, ...] = ("api_key",),
+    ) -> None:
         """Store the deterministic adapter result."""
         self._result = result
+        self.adapter_id = adapter_id
+        self.surface_bindings = surface_bindings
+        self.credential_keys = credential_keys
         self.seen_credentials: dict[str, str] = {}
+        self.seen_service_id: str | None = None
 
     async def inspect(
         self,
@@ -1037,7 +1331,7 @@ class FakeInspectionAdapter:
         credentials: Mapping[str, str],
     ) -> AdapterResult:
         """Return the configured result and capture the supplied credential bundle."""
-        del service
+        self.seen_service_id = service.id
         self.seen_credentials = dict(credentials)
         return self._result
 
@@ -1058,27 +1352,33 @@ def build_adapter_credential_service(
 def satisfy_adapter_secret(
     *,
     service: CredentialMaterialService,
+    incident_id: str = "inc-delugevpn",
+    service_id: str = "svc-radarr",
+    credential_key: str = "api_key",
     secret_value: str,
+    reason: str = "Need Radarr deep inspection.",
+    requested_at: datetime | None = None,
 ) -> None:
-    """Satisfy the seeded Radarr adapter credential using volatile storage."""
+    """Satisfy one seeded adapter credential using volatile storage."""
+    requested_timestamp = requested_at or ts(14, 20)
     request_record = service.request_manager.create_request(
-        incident_id="inc-delugevpn",
-        service_id="svc-radarr",
-        credential_key="api_key",
-        reason="Need Radarr deep inspection.",
-        now=ts(14, 20),
+        incident_id=incident_id,
+        service_id=service_id,
+        credential_key=credential_key,
+        reason=reason,
+        now=requested_timestamp,
     )
     service.request_manager.resolve_choice(
         request_id=request_record.id,
         mode=CredentialRequestMode.VOLATILE,
         decided_by="user_via_telegram",
-        now=ts(14, 21),
+        now=requested_timestamp.replace(minute=requested_timestamp.minute + 1),
     )
     service.submit_secret(
         request_id=request_record.id,
         secret_value=secret_value,
         submitted_by="user_via_telegram",
-        now=ts(14, 22),
+        now=requested_timestamp.replace(minute=requested_timestamp.minute + 2),
     )
 
 
@@ -1086,6 +1386,20 @@ def fixture_log_reader(container_id: str, _tail_lines: int) -> str:
     """Return deterministic log lines for the seeded services."""
     if container_id == "container-radarr":
         return "2026-03-31T14:24:01Z warn: Download client DelugeVPN not available\n"
+    if container_id == "container-authentik":
+        return (
+            "2026-03-31T17:24:01Z error: OAuth source request failed for provider "
+            "google-oauth\n"
+        )
+    if container_id == "container-nextcloud":
+        return "2026-03-31T17:24:02Z warn: OIDC login callback rejected\n"
+    if container_id == "container-npm":
+        return (
+            "2026-03-31T18:24:01Z error: SSL routines: ssl3_read_bytes:sslv3 alert "
+            "handshake failure\n"
+        )
+    if container_id == "container-cloudflared":
+        return "2026-03-31T18:24:05Z info: Registered tunnel connection to Cloudflare\n"
     return "2026-03-31T14:23:55Z error: VPN tunnel inactive\n"
 
 
@@ -1327,6 +1641,236 @@ def seed_database(
             stale=False,
             added_at=ts(12, 0),
             updated_at=ts(12, 30),
+        )
+    )
+    return database
+
+
+def seed_cloudflare_ingress_database(database_path: Path) -> KavalDatabase:
+    """Seed a temporary database with one ingress incident linked to cloudflared."""
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+
+    database.upsert_service(
+        Service(
+            id="svc-npm",
+            name="Nginx Proxy Manager",
+            type=ServiceType.CONTAINER,
+            category="networking",
+            status=ServiceStatus.DEGRADED,
+            descriptor_id="networking/nginx_proxy_manager",
+            descriptor_source=DescriptorSource.SHIPPED,
+            container_id="container-npm",
+            vm_id=None,
+            image="jc21/nginx-proxy-manager:2.12.1",
+            endpoints=[],
+            dns_targets=[],
+            dependencies=[
+                DependencyEdge(
+                    target_service_id="svc-cloudflared",
+                    confidence=DependencyConfidence.INFERRED,
+                    source=DependencySource.DESCRIPTOR,
+                    description="Proxy traffic depends on the tunnel path.",
+                )
+            ],
+            dependents=[],
+            last_check=ts(18, 24),
+            active_findings=1,
+            active_incidents=1,
+        )
+    )
+    database.upsert_service(
+        Service(
+            id="svc-cloudflared",
+            name="cloudflared",
+            type=ServiceType.CONTAINER,
+            category="networking",
+            status=ServiceStatus.HEALTHY,
+            descriptor_id="networking/cloudflared",
+            descriptor_source=DescriptorSource.SHIPPED,
+            container_id="container-cloudflared",
+            vm_id=None,
+            image="cloudflare/cloudflared:2026.4.0",
+            endpoints=[],
+            dns_targets=[],
+            dependencies=[],
+            dependents=["svc-npm"],
+            last_check=ts(18, 24),
+            active_findings=0,
+            active_incidents=0,
+        )
+    )
+    database.upsert_finding(
+        Finding(
+            id="find-npm-ingress",
+            title="NPM TLS handshakes failing after image update",
+            severity=Severity.HIGH,
+            domain="networking",
+            service_id="svc-npm",
+            summary=(
+                "NPM logs show repeated TLS handshake failures after the latest "
+                "image update."
+            ),
+            evidence=[
+                Evidence(
+                    kind=EvidenceKind.LOG,
+                    source="docker_logs",
+                    summary="SSL handshake failures in NPM logs.",
+                    observed_at=ts(18, 23),
+                    data={
+                        "matched_patterns": ["SSL routines"],
+                        "excerpt": (
+                            "SSL routines: ssl3_read_bytes:sslv3 alert handshake failure"
+                        ),
+                    },
+                )
+            ],
+            impact="Reverse-proxied sites fail external TLS handshakes.",
+            confidence=0.96,
+            status=FindingStatus.GROUPED,
+            incident_id="inc-npm-ingress",
+            related_changes=[],
+            created_at=ts(18, 23),
+            resolved_at=None,
+        )
+    )
+    database.upsert_incident(
+        Incident(
+            id="inc-npm-ingress",
+            title="NPM external TLS failures after image update",
+            severity=Severity.HIGH,
+            status=IncidentStatus.OPEN,
+            trigger_findings=["find-npm-ingress"],
+            all_findings=["find-npm-ingress"],
+            affected_services=["svc-npm"],
+            triggering_symptom="External TLS handshakes started failing.",
+            suspected_cause="Recent NPM image update likely changed TLS behavior.",
+            confirmed_cause=None,
+            root_cause_service="svc-npm",
+            resolution_mechanism=None,
+            cause_confirmation_source=None,
+            confidence=0.9,
+            investigation_id=None,
+            approved_actions=[],
+            changes_correlated=[],
+            grouping_window_start=ts(18, 23),
+            grouping_window_end=ts(18, 28),
+            created_at=ts(18, 23),
+            updated_at=ts(18, 28),
+            resolved_at=None,
+            mttr_seconds=None,
+            journal_entry_id=None,
+        )
+    )
+    return database
+
+
+def seed_authentik_sso_context_database(database_path: Path) -> KavalDatabase:
+    """Seed a temporary database with one downstream SSO incident linked to Authentik."""
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+
+    database.upsert_service(
+        Service(
+            id="svc-authentik",
+            name="Authentik",
+            type=ServiceType.CONTAINER,
+            category="identity",
+            status=ServiceStatus.DEGRADED,
+            descriptor_id="identity/authentik",
+            descriptor_source=DescriptorSource.SHIPPED,
+            container_id="container-authentik",
+            vm_id=None,
+            image="ghcr.io/goauthentik/server:2026.3.1",
+            endpoints=[],
+            dns_targets=[],
+            dependencies=[],
+            dependents=["svc-nextcloud"],
+            last_check=ts(17, 24),
+            active_findings=0,
+            active_incidents=0,
+        )
+    )
+    database.upsert_service(
+        Service(
+            id="svc-nextcloud",
+            name="Nextcloud",
+            type=ServiceType.CONTAINER,
+            category="cloud",
+            status=ServiceStatus.DEGRADED,
+            descriptor_id="cloud/nextcloud",
+            descriptor_source=DescriptorSource.SHIPPED,
+            container_id="container-nextcloud",
+            vm_id=None,
+            image="linuxserver/nextcloud:31.0.0",
+            endpoints=[],
+            dns_targets=[],
+            dependencies=[
+                DependencyEdge(
+                    target_service_id="svc-authentik",
+                    confidence=DependencyConfidence.INFERRED,
+                    source=DependencySource.DESCRIPTOR,
+                    description="Nextcloud SSO depends on Authentik.",
+                )
+            ],
+            dependents=[],
+            last_check=ts(17, 24),
+            active_findings=1,
+            active_incidents=1,
+        )
+    )
+    database.upsert_finding(
+        Finding(
+            id="find-nextcloud-sso",
+            title="Nextcloud SSO login failed",
+            severity=Severity.HIGH,
+            domain="identity",
+            service_id="svc-nextcloud",
+            summary="Nextcloud OIDC callbacks are failing after Authentik redirects users.",
+            evidence=[
+                Evidence(
+                    kind=EvidenceKind.LOG,
+                    source="application_logs",
+                    summary="OIDC callback rejected",
+                    observed_at=ts(17, 24),
+                    data={"message": "OIDC callback rejected"},
+                )
+            ],
+            impact="Protected applications cannot complete SSO logins.",
+            confidence=0.93,
+            status=FindingStatus.GROUPED,
+            incident_id="inc-nextcloud-sso",
+            related_changes=[],
+            created_at=ts(17, 24),
+            resolved_at=None,
+        )
+    )
+    database.upsert_incident(
+        Incident(
+            id="inc-nextcloud-sso",
+            title="Nextcloud SSO degraded",
+            severity=Severity.HIGH,
+            status=IncidentStatus.OPEN,
+            trigger_findings=["find-nextcloud-sso"],
+            all_findings=["find-nextcloud-sso"],
+            affected_services=["svc-nextcloud"],
+            triggering_symptom="OIDC callbacks are failing after redirect.",
+            suspected_cause="Connected identity-provider redirects are failing.",
+            confirmed_cause=None,
+            root_cause_service="svc-nextcloud",
+            resolution_mechanism=None,
+            cause_confirmation_source=None,
+            confidence=0.89,
+            investigation_id=None,
+            approved_actions=[],
+            changes_correlated=[],
+            grouping_window_start=ts(17, 23),
+            grouping_window_end=ts(17, 28),
+            created_at=ts(17, 23),
+            updated_at=ts(17, 28),
+            resolved_at=None,
+            mttr_seconds=None,
+            journal_entry_id=None,
         )
     )
     return database

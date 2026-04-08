@@ -1,0 +1,28 @@
+{
+  "heartbeat": {
+    "monitorID": 10,
+    "status": 0,
+    "time": "2026-04-07T14:06:38.000Z",
+    "msg": "PING immich.example.com failed after 3 retries.",
+    "important": true,
+    "duration": 60
+  },
+  "monitor": {
+    "id": 10,
+    "name": "Immich",
+    "url": "https://immich.example.com/health",
+    "hostname": "immich",
+    "port": 443,
+    "type": "http",
+    "tags": [
+      {
+        "name": "media"
+      },
+      {
+        "name": "external",
+        "color": "#ffcc00"
+      }
+    ]
+  },
+  "msg": "[Immich] [DOWN] PING immich.example.com failed after 3 retries."
+}

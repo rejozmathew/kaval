@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -51,11 +52,17 @@ from kaval.runtime import (
 )
 
 api_app_module = importlib.import_module("kaval.api.app")
+WEBHOOK_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "webhooks"
 
 
 def ts(hour: int, minute: int = 0) -> datetime:
     """Build a deterministic UTC timestamp for API tests."""
     return datetime(2026, 3, 31, hour, minute, tzinfo=UTC)
+
+
+def load_webhook_fixture(name: str) -> dict[str, object]:
+    """Load one webhook payload fixture used by FastAPI webhook tests."""
+    return json.loads((WEBHOOK_FIXTURES_DIR / name).read_text(encoding="utf-8"))
 
 
 def test_fastapi_core_endpoints_expose_phase1_state(
@@ -81,6 +88,7 @@ def test_fastapi_core_endpoints_expose_phase1_state(
         widget_response = client.get("/api/v1/widget")
         system_profile_response = client.get("/api/v1/system-profile")
         user_notes_response = client.get("/api/v1/user-notes")
+        memory_notes_response = client.get("/api/v1/memory/notes")
 
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok", "database_ready": True}
@@ -114,7 +122,28 @@ def test_fastapi_core_endpoints_expose_phase1_state(
 
     journal_payload = journal_entries_response.json()
     assert journal_entries_response.status_code == 200
-    assert [entry["id"] for entry in journal_payload] == ["jrnl-1"]
+    assert journal_payload == [
+        {
+            "id": "jrnl-1",
+            "incident_id": "inc-0",
+            "date": "2026-03-31",
+            "services": ["svc-delugevpn"],
+            "summary": "DelugeVPN degraded after a dependency restart.",
+            "root_cause": "Downloads share dependency became unavailable.",
+            "resolution": "Restarted DelugeVPN after the share recovered.",
+            "time_to_resolution_minutes": 7.0,
+            "model_used": "local",
+            "tags": ["delugevpn", "storage"],
+            "lesson": "Watch the downloads share before restarting clients.",
+            "recurrence_count": 1,
+            "confidence": "confirmed",
+            "user_confirmed": True,
+            "last_verified_at": "2026-03-31T11:50:00Z",
+            "applies_to_version": None,
+            "superseded_by": None,
+            "stale_after_days": 180,
+        }
+    ]
 
     graph_payload = graph_response.json()
     assert graph_response.status_code == 200
@@ -139,6 +168,7 @@ def test_fastapi_core_endpoints_expose_phase1_state(
     widget_payload = widget_response.json()
     assert widget_response.status_code == 200
     assert widget_payload == {
+        "status": "degraded",
         "total_services": 2,
         "active_findings": 1,
         "active_incidents": 1,
@@ -148,7 +178,19 @@ def test_fastapi_core_endpoints_expose_phase1_state(
         "stopped_services": 0,
         "unknown_services": 0,
         "last_updated": "2026-03-31T12:00:00Z",
+        "services_total": 2,
+        "services_healthy": 1,
+        "services_degraded": 1,
+        "services_down": 0,
+        "last_investigation": "2026-03-31T12:04:00Z",
+        "effectiveness_score": 50,
+        "adapters_healthy": 0,
+        "adapters_degraded": 0,
+        "pending_approvals": 0,
+        "url": "http://testserver",
+        "refresh_interval_seconds": 60,
     }
+    assert widget_response.headers["x-kaval-widget-refresh-seconds"] == "60"
 
     profile_payload = system_profile_response.json()
     assert system_profile_response.status_code == 200
@@ -157,7 +199,22 @@ def test_fastapi_core_endpoints_expose_phase1_state(
 
     notes_payload = user_notes_response.json()
     assert user_notes_response.status_code == 200
-    assert [note["id"] for note in notes_payload] == ["note-1"]
+    assert notes_payload == [
+        {
+            "id": "note-1",
+            "service_id": "svc-delugevpn",
+            "note": "Provider endpoint rotates often during maintenance windows.",
+            "safe_for_model": True,
+            "last_verified_at": "2026-03-31T12:00:00Z",
+            "stale": False,
+            "added_at": "2026-03-31T12:00:00Z",
+            "updated_at": "2026-03-31T12:05:00Z",
+        }
+    ]
+
+    memory_notes_payload = memory_notes_response.json()
+    assert memory_notes_response.status_code == 200
+    assert memory_notes_payload == notes_payload
 
 
 def test_fastapi_service_insight_upgrades_when_local_model_is_configured(
@@ -176,6 +233,68 @@ def test_fastapi_service_insight_upgrades_when_local_model_is_configured(
 
     assert services_response.status_code == 200
     assert services_response.json()[0]["insight"] == {"level": 3}
+
+
+def test_webhook_receiver_accepts_bearer_auth_for_configured_source(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Configured webhook sources should accept bearer-authenticated POSTs."""
+    monkeypatch.setenv("KAVAL_WEBHOOK_KEY_UPTIME_KUMA", "uptime-secret")
+    monkeypatch.delenv("KAVAL_WEBHOOK_KEY_GRAFANA", raising=False)
+    database_path = tmp_path / "kaval.db"
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/webhooks/uptime_kuma",
+            headers={"Authorization": "Bearer uptime-secret"},
+            json=load_webhook_fixture("uptime_kuma_down.json"),
+        )
+
+    assert response.status_code == 202
+    assert response.text == ""
+
+
+def test_webhook_receiver_accepts_query_key_fallback_for_configured_source(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """The query-string key should work as a compatibility fallback."""
+    monkeypatch.setenv("KAVAL_WEBHOOK_KEY_GRAFANA", "grafana-secret")
+    monkeypatch.delenv("KAVAL_WEBHOOK_KEY_UPTIME_KUMA", raising=False)
+    database_path = tmp_path / "kaval.db"
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/webhooks/grafana?key=grafana-secret",
+            json=load_webhook_fixture("grafana_firing.json"),
+        )
+
+    assert response.status_code == 202
+    assert response.text == ""
+
+
+def test_webhook_receiver_returns_not_found_for_unconfigured_source(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Webhook routes should fail cleanly when the source is not configured."""
+    monkeypatch.delenv("KAVAL_WEBHOOK_KEY_UPTIME_KUMA", raising=False)
+    monkeypatch.delenv("KAVAL_WEBHOOK_KEY_GRAFANA", raising=False)
+    database_path = tmp_path / "kaval.db"
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/webhooks/uptime_kuma",
+            headers={"Authorization": "Bearer missing"},
+            json={"status": "down"},
+        )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "webhook source not configured"}
 
 
 def test_service_detail_endpoint_returns_minimum_insight_section_for_service_without_adapter(
