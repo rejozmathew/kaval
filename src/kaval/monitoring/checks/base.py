@@ -38,6 +38,10 @@ class MonitoringCheck(ABC):
     check_id: str
     interval_seconds: int
 
+    def can_run_without_services(self, context: CheckContext) -> bool:
+        """Return whether this check can execute without registered services."""
+        return False
+
     @abstractmethod
     def run(self, context: CheckContext) -> list[Finding]:
         """Run the check against the current discovery context."""

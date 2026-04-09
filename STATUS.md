@@ -4,8 +4,8 @@
 - Name: Kaval
 - PRD version: 4.1
 - Current phase: Phase 3 complete
-- Current task: Phase 3 complete; awaiting a separately authorized Phase 4 run
-- Overall status: Phase 3B execution is complete from the current repo state, Phase 3C execution is complete from the current repo state, P3B-01 through P3B-30 remain complete and validated, P3C-01 through P3C-36 are complete and validated, ADR-018 remains the accepted settings persistence contract, and the Phase 3 exit criteria are satisfied
+- Current task: Phase 3 complete; post-phase maintenance fix for the Unraid scheduler regression is complete; awaiting a separately authorized Phase 4 run
+- Overall status: Phase 3B execution is complete from the current repo state, Phase 3C execution is complete from the current repo state, P3B-01 through P3B-30 remain complete and validated, P3C-01 through P3C-36 are complete and validated, ADR-018 remains the accepted settings persistence contract, the Phase 3 exit criteria are satisfied, and the post-phase scheduler regression that skipped service-less Unraid system runs is fixed and revalidated
 
 ## Phase gates
 - [x] Phase 0 complete
@@ -24,6 +24,15 @@
 - [x] Operational Memory query/result schema
 
 ## Completed work
+- 2026-04-09: Completed maintenance fix for the Unraid system scheduler regression.
+- Goal: restore the accepted Unraid monitoring behavior where the scheduler can execute the Unraid system check directly from the discovery snapshot even before system/share service nodes are registered.
+- Goal: preserve the existing per-service cadence behavior for normal checks by only enabling check-level execution when a check explicitly opts in and there are no applicable registered services to schedule.
+- Added an explicit `can_run_without_services()` hook to `src/kaval/monitoring/checks/base.py`, implemented the Unraid-specific opt-in in `src/kaval/monitoring/checks/unraid_system.py`, and updated `src/kaval/monitoring/scheduler.py` so service-scoped checks still use per-service due tracking while opt-in global checks can execute on check-level cadence when no applicable services exist.
+- Added regression coverage in `tests/unit/test_scheduler.py` for service-less global execution and verified the original integration failure path now passes unchanged.
+- Files changed: `src/kaval/monitoring/checks/base.py`, `src/kaval/monitoring/checks/unraid_system.py`, `src/kaval/monitoring/scheduler.py`, `tests/unit/test_scheduler.py`, and `STATUS.md`.
+- Validations run: `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check src/kaval/monitoring/checks/base.py src/kaval/monitoring/checks/unraid_system.py src/kaval/monitoring/scheduler.py tests/unit/test_scheduler.py`, `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`, `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit/test_scheduler.py tests/unit/test_unraid_system_check.py`, and `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/integration`.
+- Failures/blockers: none. The regression came from the scheduler requiring at least one registered applicable service before any check could run, which conflicted with the existing Unraid check contract that synthesizes system/share services from the discovery snapshot when needed.
+- Next task: none within Phase 3. Await explicit authorization before starting Phase 4.
 - 2026-04-09: Completed P3C-36 End-to-end scenario: descriptor auto-generation → quarantine → review → promote → monitoring active.
 - Goal: validate the full quarantined-descriptor lifecycle end to end, including the inactive-until-promotion rule, explicit review/edit handling, and audited promotion into the reviewed user tree.
 - Goal: prove promotion activates the descriptor catalog but does not mutate service identity in place, and that the next discovery rematch is what makes the reviewed descriptor live for monitoring and recommendation surfaces.

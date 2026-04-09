@@ -72,6 +72,24 @@ class _StaticFindingCheck(MonitoringCheck):
         ]
 
 
+class _GlobalOnlyCheck(MonitoringCheck):
+    """A deterministic test check that can run without registered services."""
+
+    def __init__(self, check_id: str, interval_seconds: int) -> None:
+        """Store the check identity and schedule interval."""
+        self.check_id = check_id
+        self.interval_seconds = interval_seconds
+
+    def can_run_without_services(self, context: CheckContext) -> bool:
+        """Allow execution without any service inventory."""
+        return True
+
+    def run(self, context: CheckContext) -> list:
+        """Emit no findings and assert the scheduler kept global scope intact."""
+        assert context.target_service_ids is None
+        return []
+
+
 def test_scheduler_runs_due_checks_in_deterministic_order() -> None:
     """Checks should run in sorted ID order and skip until their interval elapses."""
     services = build_mock_services()
@@ -92,6 +110,20 @@ def test_scheduler_runs_due_checks_in_deterministic_order() -> None:
     assert skipped_run.findings == []
     assert second_run.executed_checks == ("a-check", "b-check")
     assert scheduler.last_run_at("a-check") == ts(10, 1, 1)
+
+
+def test_scheduler_runs_global_check_without_registered_services() -> None:
+    """Checks that declare global execution should still run without services."""
+    scheduler = CheckScheduler([_GlobalOnlyCheck("global-check", interval_seconds=60)])
+
+    first_run = scheduler.run_due_checks(CheckContext(services=[], now=ts(10, 0, 0)))
+    skipped_run = scheduler.run_due_checks(CheckContext(services=[], now=ts(10, 0, 30)))
+    second_run = scheduler.run_due_checks(CheckContext(services=[], now=ts(10, 1, 1)))
+
+    assert first_run.executed_checks == ("global-check",)
+    assert skipped_run.executed_checks == ()
+    assert second_run.executed_checks == ("global-check",)
+    assert scheduler.last_run_at("global-check") == ts(10, 1, 1)
 
 
 def test_scheduler_rejects_duplicate_check_ids() -> None:

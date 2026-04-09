@@ -51,6 +51,10 @@ class UnraidSystemCheck(MonitoringCheck):
         self._warning_share_usage_ratio = warning_share_usage_ratio
         self._critical_share_usage_ratio = critical_share_usage_ratio
 
+    def can_run_without_services(self, context: CheckContext) -> bool:
+        """Allow execution from the Unraid snapshot before service nodes exist."""
+        return context.unraid_snapshot is not None
+
     def run(self, context: CheckContext) -> list[Finding]:
         """Evaluate the current Unraid snapshot for degraded system conditions."""
         snapshot = context.unraid_snapshot

@@ -8,7 +8,7 @@ from typing import Sequence
 
 from kaval.database import KavalDatabase
 from kaval.maintenance import filter_findings_for_maintenance
-from kaval.models import Finding, Incident
+from kaval.models import Finding, Incident, Service
 from kaval.monitoring.cadence import (
     MonitoringCadenceConfig,
     MonitoringCadenceDecision,
@@ -84,26 +84,42 @@ class CheckScheduler:
             )
             if not cadence.enabled:
                 continue
+            applicable_services = _applicable_services(context=context, check=check)
             due_service_ids = _due_service_ids(
-                context=context,
-                check=check,
+                applicable_services=applicable_services,
                 cadence=self._cadence,
                 decision=cadence,
+                check=check,
                 last_service_run_at=self._last_service_run_at,
+                now=context.now,
             )
-            if not due_service_ids:
-                continue
-            findings.extend(
-                check.run(
-                    CheckContext(
-                        services=context.services,
-                        docker_snapshot=context.docker_snapshot,
-                        unraid_snapshot=context.unraid_snapshot,
-                        target_service_ids=frozenset(due_service_ids),
-                        now=context.now,
-                    )
+            if due_service_ids:
+                run_context = CheckContext(
+                    services=context.services,
+                    docker_snapshot=context.docker_snapshot,
+                    unraid_snapshot=context.unraid_snapshot,
+                    target_service_ids=frozenset(due_service_ids),
+                    now=context.now,
                 )
-            )
+            elif (
+                not applicable_services
+                and check.can_run_without_services(context)
+                and _is_due(
+                    now=context.now,
+                    last_run_at=self._last_run_at.get(check_id),
+                    interval_seconds=cadence.effective_interval_seconds,
+                )
+            ):
+                run_context = CheckContext(
+                    services=context.services,
+                    docker_snapshot=context.docker_snapshot,
+                    unraid_snapshot=context.unraid_snapshot,
+                    target_service_ids=None,
+                    now=context.now,
+                )
+            else:
+                continue
+            findings.extend(check.run(run_context))
             for service_id in due_service_ids:
                 self._last_service_run_at[(check_id, service_id)] = context.now
             self._last_run_at[check_id] = context.now
@@ -154,21 +170,17 @@ def _is_due(
 
 def _due_service_ids(
     *,
-    context: CheckContext,
-    check: MonitoringCheck,
+    applicable_services: Sequence[Service],
     cadence: MonitoringCadenceConfig,
     decision: MonitoringCadenceDecision,
+    check: MonitoringCheck,
     last_service_run_at: dict[tuple[str, str], datetime],
+    now: datetime,
 ) -> list[str]:
     """Return the service ids that are due for one check execution."""
     due_service_ids: list[str] = []
     accelerated_scope = set(decision.scoped_service_ids)
-    for service in context.services:
-        try:
-            if not check_applies_to_service(check.check_id, service):
-                continue
-        except ValueError:
-            pass
+    for service in applicable_services:
         execution = resolve_service_check_execution(
             config=cadence,
             service_id=service.id,
@@ -181,9 +193,27 @@ def _due_service_ids(
         if decision.accelerated and service.id in accelerated_scope:
             interval_seconds = min(interval_seconds, decision.effective_interval_seconds)
         if _is_due(
-            now=context.now,
+            now=now,
             last_run_at=last_service_run_at.get((check.check_id, service.id)),
             interval_seconds=interval_seconds,
         ):
             due_service_ids.append(service.id)
     return due_service_ids
+
+
+def _applicable_services(
+    *,
+    context: CheckContext,
+    check: MonitoringCheck,
+) -> list[Service]:
+    """Return the registered services applicable to one scheduler check."""
+    applicable_services: list[Service] = []
+    for service in context.services:
+        try:
+            if not check_applies_to_service(check.check_id, service):
+                continue
+        except ValueError:
+            applicable_services.append(service)
+            continue
+        applicable_services.append(service)
+    return applicable_services
