@@ -15,6 +15,8 @@ from kaval.models import (
     EndpointProtocol,
     FindingStatus,
     IncidentStatus,
+    MaintenanceScope,
+    MaintenanceWindowRecord,
     Service,
     ServiceStatus,
     ServiceType,
@@ -107,6 +109,52 @@ def test_webhook_pipeline_routes_unmatched_alerts_to_external_pseudo_service(
     assert findings[0].status is FindingStatus.GROUPED
     assert len(incidents) == 1
     assert incidents[0].affected_services == ["svc-external-alerts"]
+
+
+def test_webhook_pipeline_marks_maintenance_suppressed_matches_as_ignored(
+    tmp_path: Path,
+) -> None:
+    """Matched webhook alerts under maintenance should not create findings or incidents."""
+    database = KavalDatabase(path=tmp_path / "kaval.db")
+    database.bootstrap()
+    database.upsert_service(
+        build_service(
+            service_id="svc-immich",
+            name="Immich",
+            endpoint_host="immich.example.com",
+            endpoint_port=443,
+        )
+    )
+    database.upsert_maintenance_window(
+        MaintenanceWindowRecord(
+            scope=MaintenanceScope.SERVICE,
+            service_id="svc-immich",
+            started_at=ts(11, 45),
+            expires_at=ts(12, 30),
+        )
+    )
+
+    try:
+        result = WebhookPipelineProcessor().process(
+            database=database,
+            source_id="uptime_kuma",
+            source_type=WebhookSourceType.UPTIME_KUMA,
+            payload=load_fixture("uptime_kuma_down.json"),
+            received_at=ts(12, 0),
+            raw_payload_retention_until=retention_until(ts(12, 0)),
+        )
+
+        findings = database.list_findings()
+        incidents = database.list_incidents()
+    finally:
+        database.close()
+
+    assert result.event.matching_outcome == "single"
+    assert result.event.processing_status == "ignored"
+    assert result.findings == []
+    assert result.incident_result is None
+    assert findings == []
+    assert incidents == []
 
 
 def test_webhook_pipeline_uses_stable_group_service_for_multi_service_alerts(

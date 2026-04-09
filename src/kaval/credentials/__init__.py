@@ -28,10 +28,12 @@ __all__ = [
     "CredentialVault",
     "CredentialVaultError",
     "CredentialVaultLockedError",
+    "CredentialVaultNotInitializedError",
     "CredentialVaultPassphraseError",
     "ParsedCredentialTelegramCallback",
     "TelegramCredentialRequestHandler",
     "VaultStatus",
+    "VaultCredentialTestResult",
     "VolatileCredentialStore",
     "build_credential_request_callback_id",
     "build_credential_request_message",
@@ -57,7 +59,9 @@ def __getattr__(name: str) -> Any:
         "CredentialVault",
         "CredentialVaultError",
         "CredentialVaultLockedError",
+        "CredentialVaultNotInitializedError",
         "CredentialVaultPassphraseError",
+        "VaultCredentialTestResult",
         "VolatileCredentialStore",
     }:
         return getattr(import_module("kaval.credentials.vault"), name)

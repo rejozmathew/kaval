@@ -95,6 +95,14 @@ class ChatCompletionResponse(_ProviderModel):
     """The subset of the provider response used by the synthesizer."""
 
     choices: list[ChatCompletionChoice]
+    usage: "_OpenAICompatibleUsage | None" = None
+
+
+class _OpenAICompatibleUsage(_ProviderModel):
+    """Optional token-usage details returned by OpenAI-compatible providers."""
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,14 +121,25 @@ class OpenAICompatibleInvestigationSynthesizer:
     ) -> InvestigationSynthesis:
         """Request structured investigation output from the configured local model."""
         del incident, evidence
-        structured_payload = request_openai_compatible_json(
+        response_payload = request_openai_compatible_completion(
             config=self.config,
             system_prompt=prompt_bundle.system_prompt,
             user_prompt=prompt_bundle.user_prompt,
             transport=self.transport,
         )
+        structured_payload = _extract_json_object(
+            _extract_response_content(response_payload)
+        )
+        prompt_tokens, completion_tokens = _extract_usage_token_counts(response_payload)
         structured_payload["model_used"] = ModelUsed.LOCAL.value
         structured_payload["cloud_model_calls"] = 0
+        structured_payload["local_input_tokens"] = prompt_tokens
+        structured_payload["local_output_tokens"] = completion_tokens
+        structured_payload["cloud_input_tokens"] = 0
+        structured_payload["cloud_output_tokens"] = 0
+        structured_payload["estimated_cloud_cost_usd"] = 0.0
+        structured_payload["estimated_total_cost_usd"] = 0.0
+        structured_payload["cloud_escalation_reason"] = None
         return InvestigationSynthesis.model_validate(structured_payload)
 
     def _build_request(self, prompt_bundle: InvestigationPromptBundle) -> request.Request:
@@ -187,6 +206,23 @@ def request_openai_compatible_json(
     transport: RequestTransport | None = None,
 ) -> dict[str, JsonValue]:
     """Request one JSON object from the configured local model endpoint."""
+    response_payload = request_openai_compatible_completion(
+        config=config,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        transport=transport,
+    )
+    return _extract_json_object(_extract_response_content(response_payload))
+
+
+def request_openai_compatible_completion(
+    *,
+    config: LocalModelConfig,
+    system_prompt: str,
+    user_prompt: str,
+    transport: RequestTransport | None = None,
+) -> ChatCompletionResponse:
+    """Request one OpenAI-compatible completion and retain optional usage metadata."""
     payload = ChatCompletionRequest(
         model=config.model,
         messages=[
@@ -205,9 +241,25 @@ def request_openai_compatible_json(
         method="POST",
     )
     response_body = (transport or _default_transport)(http_request, config.timeout_seconds)
-    response_payload = _decode_response_payload(response_body)
-    content = _extract_response_content(response_payload)
-    return _extract_json_object(content)
+    return _decode_response_payload(response_body)
+
+
+def probe_local_model_connection(
+    *,
+    config: LocalModelConfig,
+    transport: RequestTransport | None = None,
+) -> None:
+    """Run one small explicit connectivity check against the local model endpoint."""
+    response_payload = request_openai_compatible_json(
+        config=config,
+        system_prompt="Return JSON only.",
+        user_prompt='{"connection_ok": true}',
+        transport=transport,
+    )
+    if response_payload.get("connection_ok") is not True:
+        raise LocalModelResponseError(
+            "local model test did not return the expected JSON acknowledgement"
+        )
 
 
 def _default_transport(http_request: request.Request, timeout_seconds: float) -> bytes:
@@ -232,6 +284,16 @@ def _extract_response_content(response_payload: ChatCompletionResponse) -> str:
         if text_parts:
             return "\n".join(text_parts)
     raise LocalModelResponseError("local model returned no usable message content")
+
+
+def _extract_usage_token_counts(
+    response_payload: ChatCompletionResponse,
+) -> tuple[int, int]:
+    """Return provider-reported prompt and completion token counts when present."""
+    usage = response_payload.usage
+    if usage is None:
+        return 0, 0
+    return max(int(usage.prompt_tokens or 0), 0), max(int(usage.completion_tokens or 0), 0)
 
 
 def _extract_json_object(content: str) -> dict[str, JsonValue]:

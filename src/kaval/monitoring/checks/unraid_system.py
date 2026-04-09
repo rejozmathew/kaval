@@ -14,7 +14,12 @@ from kaval.models import (
     ServiceType,
     Severity,
 )
-from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
+from kaval.monitoring.checks.base import (
+    CheckContext,
+    MonitoringCheck,
+    build_finding,
+    service_selected,
+)
 
 _HEALTHY_ARRAY_STATES = {"STARTED", "OK"}
 _HEALTHY_DISK_STATUSES = {"OK", "VALID"}
@@ -56,36 +61,42 @@ class UnraidSystemCheck(MonitoringCheck):
         system_service = _system_service(context.services, snapshot.system_info.hostname)
 
         if snapshot.array is not None and snapshot.array.state not in _HEALTHY_ARRAY_STATES:
-            findings.append(
-                _array_state_finding(
-                    service=system_service,
-                    state=snapshot.array.state,
-                    now=context.now,
-                    check_id=self.check_id,
+            if service_selected(context, system_service.id):
+                findings.append(
+                    _array_state_finding(
+                        service=system_service,
+                        state=snapshot.array.state,
+                        now=context.now,
+                        check_id=self.check_id,
+                    )
                 )
-            )
 
         if snapshot.array is not None:
             for disk in snapshot.array.disks:
-                finding = _disk_health_finding(
-                    service=system_service,
-                    disk=disk,
-                    now=context.now,
-                    check_id=self.check_id,
+                finding = (
+                    _disk_health_finding(
+                        service=system_service,
+                        disk=disk,
+                        now=context.now,
+                        check_id=self.check_id,
+                    )
+                    if service_selected(context, system_service.id)
+                    else None
                 )
                 if finding is not None:
                     findings.append(finding)
 
         for share in snapshot.shares:
+            share_service = _share_service(context.services, share.name)
             finding = _share_capacity_finding(
-                service=_share_service(context.services, share.name),
+                service=share_service,
                 share=share,
                 now=context.now,
                 check_id=self.check_id,
                 warning_share_usage_ratio=self._warning_share_usage_ratio,
                 critical_share_usage_ratio=self._critical_share_usage_ratio,
             )
-            if finding is not None:
+            if finding is not None and service_selected(context, share_service.id):
                 findings.append(finding)
         return findings
 

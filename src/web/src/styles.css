@@ -368,6 +368,11 @@ select {
   stroke-width: 2;
 }
 
+.service-node.vm rect {
+  fill: rgba(14, 24, 40, 0.96);
+  stroke-dasharray: 12 7;
+}
+
 .service-node:hover,
 .service-node:focus-visible {
   transform: translateY(-3px);
@@ -415,6 +420,19 @@ select {
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.05em;
+}
+
+.vm-badge rect {
+  fill: rgba(121, 219, 255, 0.16);
+  stroke: rgba(121, 219, 255, 0.42);
+  stroke-width: 1;
+}
+
+.vm-badge text {
+  fill: #79dbff;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .improve-badge:hover rect,
@@ -513,6 +531,37 @@ select {
 .node-meta {
   font-size: 0.72rem;
   opacity: 0.72;
+}
+
+.vm-node-meta {
+  fill: rgba(185, 240, 255, 0.82);
+}
+
+.vm-child-strip {
+  pointer-events: none;
+}
+
+.vm-child-connector {
+  stroke: rgba(121, 219, 255, 0.48);
+  stroke-width: 1.5;
+}
+
+.vm-child-badge rect {
+  fill: rgba(121, 219, 255, 0.12);
+  stroke: rgba(121, 219, 255, 0.28);
+  stroke-width: 1;
+}
+
+.vm-child-badge.empty rect {
+  fill: rgba(159, 170, 184, 0.1);
+  stroke: rgba(159, 170, 184, 0.24);
+}
+
+.vm-child-badge text {
+  fill: rgba(236, 247, 255, 0.86);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .legend {
@@ -762,6 +811,25 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.finding-feedback-grid {
+  margin-top: 1rem;
+}
+
+.finding-feedback-controls {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 0.85rem;
+}
+
+.finding-feedback-action-row {
+  justify-content: flex-start;
+  margin-top: 0;
+}
+
+.maintenance-guardrail {
+  margin: 1rem 0 0.8rem;
+}
+
 .investigation-grid {
   display: grid;
   gap: 1rem;
@@ -856,6 +924,12 @@ select {
   padding: 0.9rem 0.95rem;
   background: rgba(8, 13, 19, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.finding-feedback-suggestion {
+  background:
+    linear-gradient(130deg, rgba(255, 179, 96, 0.08), transparent 54%),
+    rgba(8, 13, 19, 0.78);
 }
 
 .effectiveness-panel {
@@ -958,6 +1032,66 @@ select {
 
 .descriptor-editor {
   margin-bottom: 1rem;
+}
+
+.model-settings-editor {
+  margin-top: 1rem;
+}
+
+.model-settings-audit {
+  margin-top: 0.75rem;
+}
+
+.notification-channel-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.notification-channel-card {
+  border-radius: 1rem;
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.monitoring-check-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.monitoring-check-card {
+  border-radius: 1rem;
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.monitoring-effective-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.vault-credential-list,
+.vault-test-result-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.vault-credential-card {
+  border-radius: 1rem;
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.vault-access-grid,
+.vault-password-grid {
+  margin-bottom: 0.75rem;
+}
+
+.chip.warning {
+  border-color: rgba(255, 196, 107, 0.5);
+  color: #ffd48d;
 }
 
 .descriptor-editor-list {
@@ -1083,6 +1217,33 @@ select {
   color: #f4efe7;
   font-weight: 700;
   line-height: 1.45;
+}
+
+.audit-filter-grid,
+.audit-event-grid {
+  margin-top: 1rem;
+}
+
+.usage-summary-grid,
+.usage-breakdown-grid {
+  margin-top: 1rem;
+}
+
+.audit-chip-strip {
+  align-items: center;
+}
+
+.audit-value {
+  margin: 0.35rem 0 0;
+  color: rgba(244, 239, 231, 0.88);
+  font-family: "Courier New", monospace;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.usage-summary-card strong,
+.usage-reason-list strong {
+  font-variant-numeric: tabular-nums;
 }
 
 .queue-section,
@@ -1302,6 +1463,20 @@ select {
   gap: 0.8rem;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
   margin-top: 0.8rem;
+}
+
+.system-plugin-list {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  margin-top: 0.8rem;
+}
+
+.system-plugin-card {
+  border-radius: 1.1rem;
+  padding: 0.95rem 1rem;
+  background: rgba(8, 13, 19, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .recurrence-pattern-list {
@@ -1653,7 +1828,8 @@ select {
   .memory-summary-grid,
   .journal-copy-grid,
   .system-profile-grid,
-  .system-vm-list {
+  .system-vm-list,
+  .system-plugin-list {
     grid-template-columns: 1fr;
   }
 

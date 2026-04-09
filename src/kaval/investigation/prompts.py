@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from textwrap import dedent
 from typing import Literal, Sequence, cast
 
+from pydantic import Field
+
 from kaval.investigation.evidence import InvestigationEvidenceResult
 from kaval.investigation.research import Tier2ResearchBundle
 from kaval.models import (
@@ -173,6 +175,13 @@ class InvestigationSynthesis(KavalModel):
     degraded_mode_note: str | None = None
     model_used: ModelUsed = ModelUsed.NONE
     cloud_model_calls: int = NonNegativeInt
+    local_input_tokens: int = Field(default=0, ge=0)
+    local_output_tokens: int = Field(default=0, ge=0)
+    cloud_input_tokens: int = Field(default=0, ge=0)
+    cloud_output_tokens: int = Field(default=0, ge=0)
+    estimated_cloud_cost_usd: float = Field(default=0.0, ge=0.0)
+    estimated_total_cost_usd: float = Field(default=0.0, ge=0.0)
+    cloud_escalation_reason: str | None = None
 
 
 def build_investigation_prompt_bundle(

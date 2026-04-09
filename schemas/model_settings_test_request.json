@@ -1,0 +1,38 @@
+{
+  "$defs": {
+    "ModelSettingsTestScope": {
+      "description": "Supported staged/active scopes for explicit model settings tests.",
+      "enum": [
+        "active",
+        "staged"
+      ],
+      "title": "ModelSettingsTestScope",
+      "type": "string"
+    },
+    "ModelSettingsTestTarget": {
+      "description": "Supported model-settings connectivity test targets.",
+      "enum": [
+        "local",
+        "cloud"
+      ],
+      "title": "ModelSettingsTestTarget",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Explicit staged or active model-settings connectivity test request.",
+  "properties": {
+    "scope": {
+      "$ref": "#/$defs/ModelSettingsTestScope",
+      "default": "staged"
+    },
+    "target": {
+      "$ref": "#/$defs/ModelSettingsTestTarget"
+    }
+  },
+  "required": [
+    "target"
+  ],
+  "title": "ModelSettingsTestRequest",
+  "type": "object"
+}

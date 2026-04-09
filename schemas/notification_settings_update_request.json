@@ -1,0 +1,168 @@
+{
+  "$defs": {
+    "NotificationSettingsChannelUpdateRequest": {
+      "additionalProperties": false,
+      "description": "Writable notification channel payload with a write-only destination URL.",
+      "properties": {
+        "destination": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Destination"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "NotificationSettingsChannelUpdateRequest",
+      "type": "object"
+    },
+    "NotificationSettingsQuietHoursUpdateRequest": {
+      "additionalProperties": false,
+      "description": "Writable daily quiet-hours schedule payload.",
+      "properties": {
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "end_time_local": {
+          "title": "End Time Local",
+          "type": "string"
+        },
+        "start_time_local": {
+          "title": "Start Time Local",
+          "type": "string"
+        },
+        "timezone": {
+          "title": "Timezone",
+          "type": "string"
+        }
+      },
+      "required": [
+        "enabled",
+        "start_time_local",
+        "end_time_local",
+        "timezone"
+      ],
+      "title": "NotificationSettingsQuietHoursUpdateRequest",
+      "type": "object"
+    },
+    "NotificationSettingsRoutingUpdateRequest": {
+      "additionalProperties": false,
+      "description": "Writable severity routing and dedup policy payload.",
+      "properties": {
+        "critical": {
+          "enum": [
+            "immediate",
+            "immediate_with_dedup",
+            "hourly_digest",
+            "dashboard_only"
+          ],
+          "title": "Critical",
+          "type": "string"
+        },
+        "dedup_window_minutes": {
+          "minimum": 1,
+          "title": "Dedup Window Minutes",
+          "type": "integer"
+        },
+        "digest_window_minutes": {
+          "minimum": 1,
+          "title": "Digest Window Minutes",
+          "type": "integer"
+        },
+        "high": {
+          "enum": [
+            "immediate",
+            "immediate_with_dedup",
+            "hourly_digest",
+            "dashboard_only"
+          ],
+          "title": "High",
+          "type": "string"
+        },
+        "low": {
+          "enum": [
+            "immediate",
+            "immediate_with_dedup",
+            "hourly_digest",
+            "dashboard_only"
+          ],
+          "title": "Low",
+          "type": "string"
+        },
+        "medium": {
+          "enum": [
+            "immediate",
+            "immediate_with_dedup",
+            "hourly_digest",
+            "dashboard_only"
+          ],
+          "title": "Medium",
+          "type": "string"
+        }
+      },
+      "required": [
+        "critical",
+        "high",
+        "medium",
+        "low",
+        "dedup_window_minutes",
+        "digest_window_minutes"
+      ],
+      "title": "NotificationSettingsRoutingUpdateRequest",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Full staged notification-settings update payload.",
+  "properties": {
+    "channels": {
+      "items": {
+        "$ref": "#/$defs/NotificationSettingsChannelUpdateRequest"
+      },
+      "title": "Channels",
+      "type": "array"
+    },
+    "quiet_hours": {
+      "$ref": "#/$defs/NotificationSettingsQuietHoursUpdateRequest"
+    },
+    "routing": {
+      "$ref": "#/$defs/NotificationSettingsRoutingUpdateRequest"
+    }
+  },
+  "required": [
+    "routing",
+    "quiet_hours"
+  ],
+  "title": "NotificationSettingsUpdateRequest",
+  "type": "object"
+}

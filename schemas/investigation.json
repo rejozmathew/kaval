@@ -280,9 +280,33 @@
   "additionalProperties": false,
   "description": "An investigation tied to a single incident.",
   "properties": {
+    "cloud_escalation_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cloud Escalation Reason"
+    },
+    "cloud_input_tokens": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Cloud Input Tokens",
+      "type": "integer"
+    },
     "cloud_model_calls": {
       "minimum": 0,
       "title": "Cloud Model Calls",
+      "type": "integer"
+    },
+    "cloud_output_tokens": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Cloud Output Tokens",
       "type": "integer"
     },
     "completed_at": {
@@ -301,6 +325,18 @@
       "maximum": 1.0,
       "minimum": 0.0,
       "title": "Confidence",
+      "type": "number"
+    },
+    "estimated_cloud_cost_usd": {
+      "default": 0.0,
+      "minimum": 0.0,
+      "title": "Estimated Cloud Cost Usd",
+      "type": "number"
+    },
+    "estimated_total_cost_usd": {
+      "default": 0.0,
+      "minimum": 0.0,
+      "title": "Estimated Total Cost Usd",
       "type": "number"
     },
     "evidence_steps": {
@@ -324,6 +360,18 @@
       },
       "title": "Journal Entries Referenced",
       "type": "array"
+    },
+    "local_input_tokens": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Local Input Tokens",
+      "type": "integer"
+    },
+    "local_output_tokens": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Local Output Tokens",
+      "type": "integer"
     },
     "model_used": {
       "$ref": "#/$defs/ModelUsed"

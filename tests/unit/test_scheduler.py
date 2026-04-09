@@ -3,10 +3,25 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
-from kaval.models import Evidence, EvidenceKind, Incident, IncidentStatus, Severity
+from kaval.database import KavalDatabase
+from kaval.models import (
+    Evidence,
+    EvidenceKind,
+    Incident,
+    IncidentStatus,
+    MaintenanceScope,
+    MaintenanceWindowRecord,
+    Severity,
+)
+from kaval.monitoring import (
+    MonitoringCadenceConfig,
+    MonitoringCheckCadenceRule,
+    ServiceMonitoringCadenceOverride,
+)
 from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
-from kaval.monitoring.scheduler import CheckScheduler
+from kaval.monitoring.scheduler import CheckScheduler, persist_findings
 from kaval.pipeline import build_mock_services
 
 
@@ -25,7 +40,15 @@ class _StaticFindingCheck(MonitoringCheck):
 
     def run(self, context: CheckContext) -> list:
         """Emit a single finding for the Radarr mock service."""
-        service = next(service for service in context.services if service.id == "svc-radarr")
+        candidates = [
+            service
+            for service in context.services
+            if context.target_service_ids is None or service.id in context.target_service_ids
+        ]
+        service = next(
+            (service for service in candidates if service.id == "svc-radarr"),
+            candidates[0],
+        )
         return [
             build_finding(
                 check_id=self.check_id,
@@ -106,6 +129,148 @@ def test_scheduler_applies_bounded_incident_acceleration() -> None:
     assert first_run.executed_checks == ("a-check",)
     assert accelerated_run.executed_checks == ("a-check",)
     assert scheduler.last_run_at("a-check") == ts(10, 0, 31)
+
+
+def test_scheduler_respects_disabled_and_service_specific_cadence() -> None:
+    """Disabled checks should skip entirely and service overrides should narrow due runs."""
+    services = build_mock_services()
+    disabled_scheduler = CheckScheduler(
+        [_StaticFindingCheck("a-check", interval_seconds=60)],
+        cadence=MonitoringCadenceConfig(
+            check_overrides=[
+                MonitoringCheckCadenceRule(
+                    check_id="a-check",
+                    enabled=False,
+                    interval_seconds=60,
+                )
+            ]
+        ),
+    )
+
+    disabled_run = disabled_scheduler.run_due_checks(
+        CheckContext(services=services, now=ts(10, 0, 0))
+    )
+
+    assert disabled_run.executed_checks == ()
+    assert disabled_run.findings == []
+
+    override_scheduler = CheckScheduler(
+        [_StaticFindingCheck("a-check", interval_seconds=60)],
+        cadence=MonitoringCadenceConfig(
+            service_overrides=[
+                ServiceMonitoringCadenceOverride(
+                    service_id="svc-radarr",
+                    check_id="a-check",
+                    enabled=True,
+                    interval_seconds=30,
+                ),
+                ServiceMonitoringCadenceOverride(
+                    service_id="svc-sonarr",
+                    check_id="a-check",
+                    enabled=False,
+                    interval_seconds=None,
+                ),
+            ]
+        ),
+    )
+
+    first_run = override_scheduler.run_due_checks(
+        CheckContext(services=services, now=ts(10, 0, 0))
+    )
+    second_run = override_scheduler.run_due_checks(
+        CheckContext(services=services, now=ts(10, 0, 31))
+    )
+
+    assert first_run.executed_checks == ("a-check",)
+    assert second_run.executed_checks == ("a-check",)
+    assert [finding.service_id for finding in second_run.findings] == ["svc-radarr"]
+
+
+def test_persist_findings_respects_active_maintenance_windows(tmp_path: Path) -> None:
+    """Persisted findings should skip service and global maintenance windows."""
+    services = build_mock_services()
+    database = KavalDatabase(path=tmp_path / "kaval.db")
+    database.bootstrap()
+    try:
+        for service in services:
+            database.upsert_service(service)
+
+        database.upsert_maintenance_window(
+            MaintenanceWindowRecord(
+                scope=MaintenanceScope.SERVICE,
+                service_id="svc-radarr",
+                started_at=ts(10, 30),
+                expires_at=ts(11, 30),
+            )
+        )
+        persist_findings(
+            database,
+            [
+                build_finding(
+                    check_id="container_health",
+                    service=service,
+                    title=f"{service.name}: health degraded",
+                    severity=Severity.MEDIUM,
+                    summary="Synthetic maintenance persistence coverage.",
+                    impact="Used only for scheduler maintenance tests.",
+                    evidence=[
+                        Evidence(
+                            kind=EvidenceKind.EVENT,
+                            source="container_health",
+                            summary="Synthetic scheduler maintenance evidence.",
+                            observed_at=ts(11, 0),
+                            data={"service_id": service.id},
+                        )
+                    ],
+                    now=ts(11, 0),
+                    confidence=0.8,
+                )
+                for service in services
+            ],
+        )
+
+        stored_after_service_scope = database.list_findings()
+        assert {finding.service_id for finding in stored_after_service_scope} == {
+            "svc-delugevpn",
+            "svc-sonarr",
+        }
+
+        database.upsert_maintenance_window(
+            MaintenanceWindowRecord(
+                scope=MaintenanceScope.GLOBAL,
+                started_at=ts(11, 5),
+                expires_at=ts(11, 45),
+            )
+        )
+        persist_findings(
+            database,
+            [
+                build_finding(
+                    check_id="container_health",
+                    service=service,
+                    title=f"{service.name}: health degraded again",
+                    severity=Severity.MEDIUM,
+                    summary="Synthetic global maintenance coverage.",
+                    impact="Used only for scheduler maintenance tests.",
+                    evidence=[
+                        Evidence(
+                            kind=EvidenceKind.EVENT,
+                            source="container_health",
+                            summary="Synthetic global maintenance evidence.",
+                            observed_at=ts(11, 15),
+                            data={"service_id": service.id},
+                        )
+                    ],
+                    now=ts(11, 15),
+                    confidence=0.8,
+                )
+                for service in services
+            ],
+        )
+
+        assert len(database.list_findings()) == 2
+    finally:
+        database.close()
 
 
 def _build_incident(

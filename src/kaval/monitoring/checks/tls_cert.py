@@ -19,7 +19,13 @@ from kaval.models import (
     Service,
     Severity,
 )
-from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
+from kaval.monitoring.checks.base import (
+    CheckContext,
+    MonitoringCheck,
+    build_finding,
+    iter_target_services,
+)
+from kaval.monitoring_thresholds import TLS_WARNING_DAYS_DEFAULT
 
 type CertificateFetcher = Callable[[str, int, float], "TLSCertificateInfo"]
 
@@ -47,7 +53,7 @@ class TLSCertificateCheck(MonitoringCheck):
         interval_seconds: int = 21600,
         *,
         timeout_seconds: float = 5.0,
-        warning_days: int = 7,
+        warning_days: int = TLS_WARNING_DAYS_DEFAULT,
         critical_days: int = 1,
         fetch_certificate: CertificateFetcher | None = None,
     ) -> None:
@@ -72,7 +78,7 @@ class TLSCertificateCheck(MonitoringCheck):
     def run(self, context: CheckContext) -> list[Finding]:
         """Inspect HTTPS endpoints and emit expiry or retrieval findings."""
         findings: list[Finding] = []
-        for service in sorted(context.services, key=lambda service: service.id):
+        for service in sorted(iter_target_services(context), key=lambda service: service.id):
             for endpoint in _https_endpoints(service):
                 host, port = _endpoint_host_port(endpoint)
                 try:

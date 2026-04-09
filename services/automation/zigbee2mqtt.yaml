@@ -1,0 +1,37 @@
+id: zigbee2mqtt
+name: Zigbee2MQTT
+category: automation
+project_url: https://www.zigbee2mqtt.io/
+icon: zigbee2mqtt.svg
+match:
+  image_patterns:
+    - "koenkk/zigbee2mqtt*"
+    - "*zigbee2mqtt*"
+  container_name_patterns:
+    - "zigbee2mqtt*"
+endpoints:
+  web_ui:
+    port: 8080
+    path: /
+log_signals:
+  errors:
+    - "Error while starting zigbee-herdsman"
+    - "MQTT publish failed"
+    - "Failed to connect to the adapter"
+  warnings:
+    - "Device .* left the network"
+    - "Not connected to MQTT server"
+typical_dependencies:
+  containers:
+    - mosquitto
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "Failed to connect to the adapter"
+    likely_cause: "The Zigbee coordinator path is wrong or the USB device is unavailable"
+    check_first:
+      - USB passthrough
+      - Zigbee adapter path
+investigation_context: |
+  Zigbee2MQTT depends on both an MQTT broker and a reachable Zigbee coordinator.
+  Startup failures usually stem from USB passthrough or MQTT connectivity issues.

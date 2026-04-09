@@ -1,0 +1,38 @@
+id: calibre_web
+name: Calibre-Web
+category: media
+project_url: https://github.com/janeczku/calibre-web
+icon: calibre_web.svg
+match:
+  image_patterns:
+    - "lscr.io/linuxserver/calibre-web*"
+    - "ghcr.io/linuxserver/calibre-web*"
+    - "*calibre-web*"
+  container_name_patterns:
+    - "calibre-web*"
+    - "calibreweb*"
+endpoints:
+  web_ui:
+    port: 8083
+    path: /
+log_signals:
+  errors:
+    - "Database file not found"
+    - "Failed to load metadata"
+    - "OperationalError"
+  warnings:
+    - "Google Drive upload failed"
+    - "Cover extraction failed"
+typical_dependencies:
+  shares:
+    - media
+    - appdata
+common_failure_modes:
+  - trigger: "Database file not found"
+    likely_cause: "The Calibre library path is missing or mounted at the wrong location"
+    check_first:
+      - media share mount
+      - library path configuration
+investigation_context: |
+  Calibre-Web depends on a readable Calibre library path and persistent app
+  data. Most failures come from missing library mounts or sqlite metadata errors.

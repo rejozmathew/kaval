@@ -10,13 +10,48 @@ from jsonschema.validators import validator_for
 
 from kaval.api.schemas import (
     AdapterFactSourceType,
+    CredentialVaultChangePasswordRequest,
+    CredentialVaultEntrySource,
+    CredentialVaultMutationResponse,
+    CredentialVaultResponse,
+    CredentialVaultTestResponse,
     DescriptorCommunityExportResponse,
     DescriptorEditContainerDependencyRequest,
     DescriptorEditEndpointRequest,
     DescriptorEditMatchRequest,
     DescriptorEditMode,
+    FindingDismissRequest,
+    FindingDismissResponse,
+    FindingFeedbackSuggestionAction,
+    FindingReviewResponse,
+    MaintenanceModeMutationResponse,
+    MaintenanceModeResponse,
+    MaintenanceWindowResponse,
+    MaintenanceWindowUpdateRequest,
+    ModelSettingsMutationResponse,
+    ModelSettingsResponse,
+    ModelSettingsSecretSource,
+    ModelSettingsTestRequest,
+    ModelSettingsTestResponse,
+    ModelSettingsTestScope,
+    ModelSettingsTestTarget,
+    ModelSettingsUpdateRequest,
+    MonitoringSettingsMutationResponse,
+    MonitoringSettingsResolutionSource,
+    MonitoringSettingsResponse,
+    MonitoringSettingsUpdateRequest,
+    NotificationSettingsMutationResponse,
+    NotificationSettingsResponse,
+    NotificationSettingsSecretSource,
+    NotificationSettingsTestRequest,
+    NotificationSettingsTestResponse,
+    NotificationSettingsTestScope,
+    NotificationSettingsUpdateRequest,
     QuarantinedDescriptorActionResponse,
     QuarantinedDescriptorQueueItemResponse,
+    RecommendationActionResponse,
+    RecommendationItemResponse,
+    RecommendationsResponse,
     ServiceAdapterFactsItemResponse,
     ServiceAdapterFactsResponse,
     ServiceDescriptorGenerateResponse,
@@ -24,6 +59,13 @@ from kaval.api.schemas import (
     ServiceDescriptorSaveResponse,
     ServiceDescriptorValidationResponse,
     ServiceDescriptorViewResponse,
+    ServiceDetailCheckSuppressionMutationResponse,
+    ServiceDetailCheckSuppressionUpdateRequest,
+    ServiceDetailResponse,
+    SystemSettingsLogLevel,
+    SystemSettingsMutationResponse,
+    SystemSettingsResponse,
+    SystemSettingsUpdateRequest,
 )
 from kaval.discovery.descriptors import ServiceDescriptor
 from kaval.integrations.adapter_fallback import AdapterFactFreshness
@@ -58,6 +100,7 @@ from kaval.models import (
     ExecutorActionResult,
     ExecutorActionStatus,
     Finding,
+    FindingFeedbackReason,
     FindingStatus,
     HardwareProfile,
     Incident,
@@ -68,6 +111,7 @@ from kaval.models import (
     InvestigationTrigger,
     JournalConfidence,
     JournalEntry,
+    MaintenanceScope,
     ModelUsed,
     NetworkingProfile,
     NotificationAction,
@@ -77,6 +121,8 @@ from kaval.models import (
     NotificationSourceType,
     OperationalMemoryQuery,
     OperationalMemoryResult,
+    PluginImpactService,
+    PluginProfile,
     RedactionLevel,
     RemediationProposal,
     RemediationStatus,
@@ -219,6 +265,194 @@ def build_finding() -> Finding:
     )
 
 
+def build_finding_review_response() -> FindingReviewResponse:
+    """Create a reusable finding review payload sample."""
+    return FindingReviewResponse(
+        active_findings=[
+            {
+                "finding": build_finding().model_copy(
+                    update={
+                        "domain": "endpoint_probe",
+                        "service_id": "svc-delugevpn",
+                        "title": "DelugeVPN endpoint probe failed",
+                        "summary": (
+                            "The DelugeVPN web UI did not respond within the configured timeout."
+                        ),
+                        "impact": "The service may be down or timing out.",
+                        "severity": Severity.MEDIUM,
+                        "incident_id": None,
+                        "created_at": ts(14, 30),
+                        "related_changes": [],
+                    }
+                ),
+                "service_name": "DelugeVPN",
+                "domain_label": "Endpoint probe",
+                "dismissal_reason": None,
+                "dismissal_count_for_pattern": 5,
+                "suggestion": {
+                    "service_id": "svc-delugevpn",
+                    "service_name": "DelugeVPN",
+                    "check_id": "endpoint_probe",
+                    "check_label": "Endpoint probe",
+                    "dismissal_count": 5,
+                    "action": FindingFeedbackSuggestionAction.ADJUST_THRESHOLD_OR_SUPPRESS,
+                    "message": (
+                        "You've dismissed 5 endpoint probe findings for DelugeVPN. "
+                        "Consider adjusting the threshold or suppressing this check."
+                    ),
+                },
+            }
+        ],
+        recently_dismissed=[
+            {
+                "finding": build_finding().model_copy(
+                    update={
+                        "domain": "endpoint_probe",
+                        "service_id": "svc-delugevpn",
+                        "title": "DelugeVPN endpoint probe failed",
+                        "summary": (
+                            "The DelugeVPN web UI did not respond within the configured timeout."
+                        ),
+                        "impact": "The service may be down or timing out.",
+                        "severity": Severity.MEDIUM,
+                        "incident_id": None,
+                        "status": FindingStatus.DISMISSED,
+                        "created_at": ts(14, 20),
+                        "resolved_at": ts(14, 25),
+                        "related_changes": [],
+                    }
+                ),
+                "service_name": "DelugeVPN",
+                "domain_label": "Endpoint probe",
+                "dismissal_reason": FindingFeedbackReason.FALSE_POSITIVE,
+                "dismissal_count_for_pattern": 5,
+                "suggestion": {
+                    "service_id": "svc-delugevpn",
+                    "service_name": "DelugeVPN",
+                    "check_id": "endpoint_probe",
+                    "check_label": "Endpoint probe",
+                    "dismissal_count": 5,
+                    "action": FindingFeedbackSuggestionAction.ADJUST_THRESHOLD_OR_SUPPRESS,
+                    "message": (
+                        "You've dismissed 5 endpoint probe findings for DelugeVPN. "
+                        "Consider adjusting the threshold or suppressing this check."
+                    ),
+                },
+            }
+        ],
+        suggestions=[
+            {
+                "service_id": "svc-delugevpn",
+                "service_name": "DelugeVPN",
+                "check_id": "endpoint_probe",
+                "check_label": "Endpoint probe",
+                "dismissal_count": 5,
+                "action": FindingFeedbackSuggestionAction.ADJUST_THRESHOLD_OR_SUPPRESS,
+                "message": (
+                    "You've dismissed 5 endpoint probe findings for DelugeVPN. "
+                    "Consider adjusting the threshold or suppressing this check."
+                ),
+            }
+        ],
+    )
+
+
+def build_finding_dismiss_request() -> FindingDismissRequest:
+    """Create a reusable finding dismiss request payload sample."""
+    return FindingDismissRequest(reason=FindingFeedbackReason.ALREADY_AWARE)
+
+
+def build_finding_dismiss_response() -> FindingDismissResponse:
+    """Create a reusable finding dismiss response payload sample."""
+    return FindingDismissResponse(
+        finding=build_finding().model_copy(
+            update={
+                "status": FindingStatus.DISMISSED,
+                "resolved_at": ts(14, 40),
+            }
+        ),
+        review=build_finding_review_response(),
+        audit_change=build_change(),
+    )
+
+
+def build_maintenance_mode_response() -> MaintenanceModeResponse:
+    """Create a reusable maintenance-mode payload sample."""
+    return MaintenanceModeResponse(
+        global_window=MaintenanceWindowResponse(
+            scope=MaintenanceScope.GLOBAL,
+            service_id=None,
+            service_name=None,
+            started_at=ts(14, 30),
+            expires_at=ts(15, 0),
+            minutes_remaining=30,
+        ),
+        service_windows=[
+            MaintenanceWindowResponse(
+                scope=MaintenanceScope.SERVICE,
+                service_id="svc-delugevpn",
+                service_name="DelugeVPN",
+                started_at=ts(14, 35),
+                expires_at=ts(16, 35),
+                minutes_remaining=120,
+            )
+        ],
+        self_health_guardrail=(
+            "Global maintenance suppresses normal findings and incident notifications, "
+            "but critical Kaval self-health remains unsuppressed."
+        ),
+    )
+
+
+def build_maintenance_window_update_request() -> MaintenanceWindowUpdateRequest:
+    """Create a reusable maintenance-window update payload sample."""
+    return MaintenanceWindowUpdateRequest(duration_minutes=45)
+
+
+def build_maintenance_mode_mutation_response() -> MaintenanceModeMutationResponse:
+    """Create a reusable maintenance-mode mutation response sample."""
+    return MaintenanceModeMutationResponse(
+        maintenance=build_maintenance_mode_response(),
+        audit_change=build_change(),
+    )
+
+
+def build_recommendations_response() -> RecommendationsResponse:
+    """Create a reusable proactive recommendations payload sample."""
+    return RecommendationsResponse(
+        items=[
+            RecommendationItemResponse(
+                id="missing-descriptors",
+                kind="missing_descriptor",
+                title="2 services are missing descriptors",
+                detail=(
+                    "custom-app is the highest-impact unmatched service with 2 downstream "
+                    "dependents. Local descriptor generation is available after review."
+                ),
+                action=RecommendationActionResponse(
+                    label="Review custom-app",
+                    target="service_detail",
+                    service_id="svc-custom-app",
+                ),
+            ),
+            RecommendationItemResponse(
+                id="cloud-model",
+                kind="cloud_model",
+                title="Cloud escalation is not configured",
+                detail=(
+                    "Investigations are currently local-only. For complex multi-service "
+                    "incidents, consider adding a bounded cloud escalation path."
+                ),
+                action=RecommendationActionResponse(
+                    label="Open model settings",
+                    target="model_settings",
+                    service_id=None,
+                ),
+            ),
+        ]
+    )
+
+
 def build_incident() -> Incident:
     """Create a reusable incident sample."""
     return Incident(
@@ -279,6 +513,13 @@ def build_investigation() -> Investigation:
         confidence=0.95,
         model_used=ModelUsed.LOCAL,
         cloud_model_calls=0,
+        local_input_tokens=410,
+        local_output_tokens=92,
+        cloud_input_tokens=0,
+        cloud_output_tokens=0,
+        estimated_cloud_cost_usd=0.0,
+        estimated_total_cost_usd=0.0,
+        cloud_escalation_reason=None,
         journal_entries_referenced=["jrnl-1"],
         user_notes_referenced=["note-1"],
         recurrence_count=3,
@@ -402,6 +643,21 @@ def build_system_profile() -> SystemProfile:
                 purpose="Hosts Moodle LMS + MariaDB",
                 os="Ubuntu 22.04 LTS",
                 quirks="LVM default partition is only ~10GB regardless of vdisk size",
+            )
+        ],
+        plugins=[
+            PluginProfile(
+                name="community.applications",
+                version="2026.03.30",
+                enabled=True,
+                update_available=False,
+                impacted_services=[
+                    PluginImpactService(
+                        service_id="svc-radarr",
+                        service_name="Radarr",
+                        descriptor_id="arr/radarr",
+                    )
+                ],
             )
         ],
         last_updated=ts(14),
@@ -593,6 +849,78 @@ def build_service_adapter_facts_response() -> ServiceAdapterFactsResponse:
                 reason=None,
             )
         ],
+    )
+
+
+def build_service_detail_response() -> ServiceDetailResponse:
+    """Create a reusable service-detail response sample."""
+    return ServiceDetailResponse(
+        service=build_service(),
+        insight_section={
+            "current_level": 2,
+            "adapter_available": True,
+            "adapters": [
+                {
+                    "adapter_id": "radarr_api",
+                    "display_name": "Radarr API",
+                    "configuration_state": "configured",
+                    "configuration_summary": "Required adapter inputs are configured.",
+                    "health_state": "healthy",
+                    "health_summary": "Adapter returned prompt-safe facts successfully.",
+                    "missing_credentials": [],
+                    "supported_fact_names": ["health_issues"],
+                }
+            ],
+            "improve_actions": [],
+            "fact_summary_available": True,
+        },
+        monitoring_section={
+            "checks": [
+                {
+                    "check_id": "endpoint_probe",
+                    "label": "Endpoint probe",
+                    "description": (
+                        "Probe declared HTTP and HTTPS endpoints that do not require auth."
+                    ),
+                    "inherited_enabled": True,
+                    "inherited_interval_seconds": 120,
+                    "effective_enabled": False,
+                    "effective_interval_seconds": 120,
+                    "source": MonitoringSettingsResolutionSource.SERVICE_OVERRIDE,
+                    "suppressed": True,
+                    "override_enabled": False,
+                    "override_interval_seconds": None,
+                    "override_updated_at": ts(14, 40),
+                }
+            ]
+        },
+    )
+
+
+def build_service_detail_check_suppression_update_request(
+    *,
+    suppressed: bool = True,
+) -> ServiceDetailCheckSuppressionUpdateRequest:
+    """Create a reusable suppression-toggle request sample."""
+    return ServiceDetailCheckSuppressionUpdateRequest(suppressed=suppressed)
+
+
+def build_service_detail_check_suppression_mutation_response(
+    *,
+    suppressed: bool = True,
+) -> ServiceDetailCheckSuppressionMutationResponse:
+    """Create a reusable suppression-toggle mutation response sample."""
+    detail = build_service_detail_response()
+    if not suppressed:
+        check = detail.monitoring_section.checks[0]
+        check.effective_enabled = True
+        check.source = MonitoringSettingsResolutionSource.GLOBAL_DEFAULT
+        check.suppressed = False
+        check.override_enabled = None
+        check.override_updated_at = None
+    return ServiceDetailCheckSuppressionMutationResponse(
+        detail=detail,
+        audit_change=build_change(),
     )
 
 
@@ -808,6 +1136,584 @@ def build_descriptor_community_export_response() -> DescriptorCommunityExportRes
     )
 
 
+def build_model_settings_response() -> ModelSettingsResponse:
+    """Create a reusable staged/active model settings payload sample."""
+    return ModelSettingsResponse(
+        config_path="/data/kaval.yaml",
+        load_error=None,
+        apply_required=True,
+        last_applied_at=ts(14, 50),
+        active={
+            "local": {
+                "enabled": False,
+                "provider": "openai_compatible",
+                "model": None,
+                "base_url": "http://localhost:11434",
+                "timeout_seconds": 30.0,
+                "api_key_ref": None,
+                "api_key_source": ModelSettingsSecretSource.UNSET,
+                "api_key_configured": False,
+                "configured": False,
+            },
+            "cloud": {
+                "enabled": False,
+                "provider": "anthropic",
+                "model": None,
+                "base_url": "https://api.anthropic.com",
+                "timeout_seconds": 45.0,
+                "max_output_tokens": 1600,
+                "api_key_ref": None,
+                "api_key_source": ModelSettingsSecretSource.UNSET,
+                "api_key_configured": False,
+                "configured": False,
+            },
+            "escalation": {
+                "finding_count_gt": 3,
+                "local_confidence_lt": 0.6,
+                "escalate_on_multiple_domains": True,
+                "escalate_on_changelog_research": True,
+                "escalate_on_user_request": False,
+                "max_cloud_calls_per_day": 20,
+                "max_cloud_calls_per_incident": 3,
+            },
+        },
+        staged={
+            "local": {
+                "enabled": True,
+                "provider": "openai_compatible",
+                "model": "qwen3:14b",
+                "base_url": "http://localhost:11434",
+                "timeout_seconds": 12.0,
+                "api_key_ref": "vault:settings:models:local_api_key",
+                "api_key_source": ModelSettingsSecretSource.VAULT,
+                "api_key_configured": True,
+                "configured": True,
+            },
+            "cloud": {
+                "enabled": True,
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-20250514",
+                "base_url": "https://api.anthropic.com",
+                "timeout_seconds": 25.0,
+                "max_output_tokens": 800,
+                "api_key_ref": "vault:settings:models:cloud_api_key",
+                "api_key_source": ModelSettingsSecretSource.VAULT,
+                "api_key_configured": True,
+                "configured": True,
+            },
+            "escalation": {
+                "finding_count_gt": 4,
+                "local_confidence_lt": 0.55,
+                "escalate_on_multiple_domains": True,
+                "escalate_on_changelog_research": True,
+                "escalate_on_user_request": False,
+                "max_cloud_calls_per_day": 20,
+                "max_cloud_calls_per_incident": 3,
+            },
+        },
+    )
+
+
+def build_model_settings_update_request() -> ModelSettingsUpdateRequest:
+    """Create a reusable model settings update payload sample."""
+    return ModelSettingsUpdateRequest(
+        local={
+            "enabled": True,
+            "model": "qwen3:14b",
+            "base_url": "http://localhost:11434",
+            "timeout_seconds": 12.0,
+            "api_key": "write-only-local-secret",
+            "clear_stored_api_key": False,
+        },
+        cloud={
+            "enabled": True,
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-20250514",
+            "base_url": "https://api.anthropic.com",
+            "timeout_seconds": 25.0,
+            "max_output_tokens": 800,
+            "api_key": "write-only-cloud-secret",
+            "clear_stored_api_key": False,
+        },
+        escalation={
+            "finding_count_gt": 4,
+            "local_confidence_lt": 0.55,
+            "escalate_on_multiple_domains": True,
+            "escalate_on_changelog_research": True,
+            "escalate_on_user_request": False,
+            "max_cloud_calls_per_day": 20,
+            "max_cloud_calls_per_incident": 3,
+        },
+    )
+
+
+def build_model_settings_mutation_response() -> ModelSettingsMutationResponse:
+    """Create a reusable model settings mutation response payload sample."""
+    return ModelSettingsMutationResponse(
+        settings=build_model_settings_response(),
+        audit_change=build_change(),
+    )
+
+
+def build_model_settings_test_request() -> ModelSettingsTestRequest:
+    """Create a reusable model settings test request payload sample."""
+    return ModelSettingsTestRequest(
+        target=ModelSettingsTestTarget.LOCAL,
+        scope=ModelSettingsTestScope.STAGED,
+    )
+
+
+def build_model_settings_test_response() -> ModelSettingsTestResponse:
+    """Create a reusable model settings test response payload sample."""
+    return ModelSettingsTestResponse(
+        target=ModelSettingsTestTarget.CLOUD,
+        scope=ModelSettingsTestScope.STAGED,
+        ok=True,
+        checked_at=ts(14, 55),
+        message="Cloud model endpoint accepted the explicit settings test.",
+    )
+
+
+def build_notification_settings_response() -> NotificationSettingsResponse:
+    """Create a reusable staged/active notification settings payload sample."""
+    return NotificationSettingsResponse(
+        config_path="/data/kaval.yaml",
+        load_error=None,
+        apply_required=True,
+        last_applied_at=ts(15, 0),
+        active={
+            "channels": [],
+            "routing": {
+                "critical": "immediate",
+                "high": "immediate_with_dedup",
+                "medium": "hourly_digest",
+                "low": "dashboard_only",
+                "dedup_window_minutes": 15,
+                "digest_window_minutes": 60,
+            },
+            "quiet_hours": {
+                "enabled": False,
+                "start_time_local": "22:00",
+                "end_time_local": "07:00",
+                "timezone": "UTC",
+                "active_now": False,
+                "quiet_until": None,
+            },
+            "configured_channel_count": 0,
+        },
+        staged={
+            "channels": [
+                {
+                    "id": "channel-1",
+                    "name": "Primary Discord",
+                    "kind": "discord",
+                    "enabled": True,
+                    "destination_ref": (
+                        "vault:settings:notifications:channels:channel-1:destination"
+                    ),
+                    "destination_source": NotificationSettingsSecretSource.VAULT,
+                    "destination_configured": True,
+                }
+            ],
+            "routing": {
+                "critical": "immediate",
+                "high": "immediate_with_dedup",
+                "medium": "hourly_digest",
+                "low": "dashboard_only",
+                "dedup_window_minutes": 20,
+                "digest_window_minutes": 30,
+            },
+            "quiet_hours": {
+                "enabled": True,
+                "start_time_local": "22:00",
+                "end_time_local": "07:00",
+                "timezone": "UTC",
+                "active_now": True,
+                "quiet_until": ts(23, 0),
+            },
+            "configured_channel_count": 1,
+        },
+    )
+
+
+def build_notification_settings_update_request() -> NotificationSettingsUpdateRequest:
+    """Create a reusable notification settings update payload sample."""
+    return NotificationSettingsUpdateRequest(
+        channels=[
+            {
+                "id": None,
+                "name": "Primary Discord",
+                "enabled": True,
+                "destination": "write-only-discord-destination",
+            }
+        ],
+        routing={
+            "critical": "immediate",
+            "high": "immediate_with_dedup",
+            "medium": "hourly_digest",
+            "low": "dashboard_only",
+            "dedup_window_minutes": 20,
+            "digest_window_minutes": 30,
+        },
+        quiet_hours={
+            "enabled": True,
+            "start_time_local": "22:00",
+            "end_time_local": "07:00",
+            "timezone": "UTC",
+        },
+    )
+
+
+def build_notification_settings_mutation_response() -> NotificationSettingsMutationResponse:
+    """Create a reusable notification settings mutation response payload sample."""
+    return NotificationSettingsMutationResponse(
+        settings=build_notification_settings_response(),
+        audit_change=build_change(),
+    )
+
+
+def build_notification_settings_test_request() -> NotificationSettingsTestRequest:
+    """Create a reusable notification settings test request payload sample."""
+    return NotificationSettingsTestRequest(
+        channel_id="channel-1",
+        scope=NotificationSettingsTestScope.STAGED,
+    )
+
+
+def build_notification_settings_test_response() -> NotificationSettingsTestResponse:
+    """Create a reusable notification settings test response payload sample."""
+    return NotificationSettingsTestResponse(
+        channel_id="channel-1",
+        scope=NotificationSettingsTestScope.ACTIVE,
+        ok=True,
+        checked_at=ts(15, 5),
+        message="Explicit notification channel test delivered successfully.",
+    )
+
+
+def build_system_settings_response() -> SystemSettingsResponse:
+    """Create a reusable staged/active system settings payload sample."""
+    return SystemSettingsResponse(
+        config_path="/data/kaval.yaml",
+        load_error=None,
+        apply_required=True,
+        last_applied_at=ts(15, 15),
+        active={
+            "log_level": "warning",
+            "audit_detail_retention_days": 90,
+            "audit_summary_retention_days": 365,
+        },
+        staged={
+            "log_level": "debug",
+            "audit_detail_retention_days": 120,
+            "audit_summary_retention_days": 400,
+        },
+        database={
+            "path": "/data/kaval.db",
+            "exists": True,
+            "size_bytes": 1048576,
+            "migrations_current": True,
+            "quick_check_ok": True,
+            "quick_check_result": "ok",
+            "journal_mode": "wal",
+        },
+        transfer_guidance={
+            "phase_guardrail": (
+                "Phase 3C exposes warnings and scope only. Automated backup, export, "
+                "and import execution stays out of scope until Phase 4."
+            ),
+            "exports": [
+                {
+                    "target": "operational_memory",
+                    "label": "Operational memory",
+                    "available": False,
+                    "sensitivity": "high",
+                    "warning": (
+                        "Operational-memory exports can contain sensitive incident context, "
+                        "user notes, system topology, and credential references."
+                    ),
+                }
+            ],
+            "imports": [
+                {
+                    "target": "descriptors",
+                    "label": "Descriptor import",
+                    "available": False,
+                    "warning": (
+                        "Descriptor imports can activate sensitive topology assumptions. "
+                        "Review and promote descriptors explicitly before runtime use."
+                    ),
+                }
+            ],
+        },
+        about={
+            "api_title": "Kaval API",
+            "api_version": "0.1.0",
+            "api_summary": "Phase 2 monitoring, investigation, and UAC API.",
+            "checked_at": ts(15, 16),
+            "started_at": ts(15, 0),
+            "uptime_seconds": 960.0,
+            "runtime_log_level": "warning",
+            "settings_path": "/data/kaval.yaml",
+            "database_path": "/data/kaval.db",
+            "services_dir": "/opt/kaval/services",
+            "web_dist_dir": "/opt/kaval/web/dist",
+            "web_bundle_present": True,
+            "model_status": {
+                "local_model_enabled": True,
+                "local_model_configured": True,
+                "local_model_summary": "Enabled · qwen3:14b · http://localhost:11434",
+                "cloud_model_enabled": False,
+                "cloud_model_configured": False,
+                "cloud_model_summary": "Disabled",
+                "escalation_summary": "Finding>4, confidence<0.55, caps 20/day and 3/incident",
+            },
+        },
+    )
+
+
+def build_system_settings_update_request() -> SystemSettingsUpdateRequest:
+    """Create a reusable system settings update payload sample."""
+    return SystemSettingsUpdateRequest(
+        log_level=SystemSettingsLogLevel.DEBUG,
+        audit_detail_retention_days=120,
+        audit_summary_retention_days=400,
+    )
+
+
+def build_system_settings_mutation_response() -> SystemSettingsMutationResponse:
+    """Create a reusable system settings mutation response payload sample."""
+    return SystemSettingsMutationResponse(
+        settings=build_system_settings_response(),
+        audit_change=build_change(),
+    )
+
+
+def build_monitoring_settings_response() -> MonitoringSettingsResponse:
+    """Create a reusable staged/active monitoring settings payload sample."""
+    return MonitoringSettingsResponse(
+        config_path="/data/kaval.yaml",
+        load_error=None,
+        apply_required=True,
+        last_applied_at=ts(15, 10),
+        active={
+            "checks": [
+                {
+                    "check_id": "endpoint_probe",
+                    "label": "Endpoint probe",
+                    "description": (
+                        "Probe declared HTTP and HTTPS endpoints that do not require auth."
+                    ),
+                    "enabled": True,
+                    "interval_seconds": 120,
+                    "tls_warning_days": None,
+                    "restart_delta_threshold": None,
+                    "probe_timeout_seconds": 5.0,
+                    "default_enabled": True,
+                    "default_interval_seconds": 120,
+                    "default_tls_warning_days": None,
+                    "default_restart_delta_threshold": None,
+                    "default_probe_timeout_seconds": 5.0,
+                }
+            ],
+            "service_overrides": [],
+            "effective_services": [
+                {
+                    "service_id": "svc-delugevpn",
+                    "service_name": "DelugeVPN",
+                    "service_status": "degraded",
+                    "checks": [
+                        {
+                            "check_id": "endpoint_probe",
+                            "label": "Endpoint probe",
+                            "enabled": True,
+                            "base_interval_seconds": 120,
+                            "effective_interval_seconds": 120,
+                            "source": MonitoringSettingsResolutionSource.GLOBAL_DEFAULT,
+                            "tls_warning_days": None,
+                            "restart_delta_threshold": None,
+                            "probe_timeout_seconds": 5.0,
+                            "threshold_source": MonitoringSettingsResolutionSource.GLOBAL_DEFAULT,
+                            "accelerated_now": False,
+                            "incident_ids": [],
+                        }
+                    ],
+                }
+            ],
+        },
+        staged={
+            "checks": [
+                {
+                    "check_id": "endpoint_probe",
+                    "label": "Endpoint probe",
+                    "description": (
+                        "Probe declared HTTP and HTTPS endpoints that do not require auth."
+                    ),
+                    "enabled": True,
+                    "interval_seconds": 75,
+                    "tls_warning_days": None,
+                    "restart_delta_threshold": None,
+                    "probe_timeout_seconds": 2.5,
+                    "default_enabled": True,
+                    "default_interval_seconds": 120,
+                    "default_tls_warning_days": None,
+                    "default_restart_delta_threshold": None,
+                    "default_probe_timeout_seconds": 5.0,
+                }
+            ],
+            "service_overrides": [
+                {
+                    "service_id": "svc-delugevpn",
+                    "service_name": "DelugeVPN",
+                    "service_status": "degraded",
+                    "check_id": "endpoint_probe",
+                    "check_label": "Endpoint probe",
+                    "enabled": False,
+                    "interval_seconds": 45,
+                    "tls_warning_days": None,
+                    "restart_delta_threshold": None,
+                    "probe_timeout_seconds": 2.5,
+                    "updated_at": ts(15, 12),
+                }
+            ],
+            "effective_services": [
+                {
+                    "service_id": "svc-delugevpn",
+                    "service_name": "DelugeVPN",
+                    "service_status": "degraded",
+                    "checks": [
+                        {
+                            "check_id": "endpoint_probe",
+                            "label": "Endpoint probe",
+                            "enabled": False,
+                            "base_interval_seconds": 45,
+                            "effective_interval_seconds": 45,
+                            "source": MonitoringSettingsResolutionSource.SERVICE_OVERRIDE,
+                            "tls_warning_days": None,
+                            "restart_delta_threshold": None,
+                            "probe_timeout_seconds": 2.5,
+                            "threshold_source": MonitoringSettingsResolutionSource.SERVICE_OVERRIDE,
+                            "accelerated_now": False,
+                            "incident_ids": [],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+
+def build_monitoring_settings_update_request() -> MonitoringSettingsUpdateRequest:
+    """Create a reusable monitoring settings update payload sample."""
+    return MonitoringSettingsUpdateRequest(
+        checks=[
+            {
+                "check_id": "endpoint_probe",
+                "enabled": True,
+                "interval_seconds": 75,
+                "probe_timeout_seconds": 2.5,
+            }
+        ],
+        service_overrides=[
+            {
+                "service_id": "svc-delugevpn",
+                "check_id": "endpoint_probe",
+                "enabled": False,
+                "interval_seconds": 45,
+                "probe_timeout_seconds": 2.5,
+            }
+        ],
+    )
+
+
+def build_monitoring_settings_mutation_response() -> MonitoringSettingsMutationResponse:
+    """Create a reusable monitoring settings mutation response payload sample."""
+    return MonitoringSettingsMutationResponse(
+        settings=build_monitoring_settings_response(),
+        audit_change=build_change(),
+    )
+
+
+def build_credential_vault_response() -> CredentialVaultResponse:
+    """Create a reusable credential-vault management payload sample."""
+    return CredentialVaultResponse(
+        status={
+            "initialized": True,
+            "unlocked": True,
+            "unlock_expires_at": ts(15, 45),
+            "stored_credentials": 2,
+        },
+        auto_lock_minutes=5,
+        credentials=[
+            {
+                "reference_id": "vault:settings:models:local_api_key",
+                "source": CredentialVaultEntrySource.MANAGED_SETTING,
+                "service_id": "settings.models.local",
+                "service_name": "Local model settings",
+                "credential_key": "api_key",
+                "credential_description": "API key",
+                "created_at": ts(15, 20),
+                "updated_at": ts(15, 20),
+                "last_used_at": ts(15, 25),
+                "last_tested_at": ts(15, 30),
+                "expires_at": None,
+            },
+            {
+                "reference_id": "vault:cred-1",
+                "source": CredentialVaultEntrySource.CREDENTIAL_REQUEST,
+                "service_id": "svc-radarr",
+                "service_name": "Radarr",
+                "credential_key": "api_key",
+                "credential_description": "Radarr API Key",
+                "created_at": ts(15, 21),
+                "updated_at": ts(15, 21),
+                "last_used_at": None,
+                "last_tested_at": None,
+                "expires_at": None,
+            },
+        ],
+    )
+
+
+def build_credential_vault_mutation_response() -> CredentialVaultMutationResponse:
+    """Create a reusable credential-vault mutation response payload sample."""
+    return CredentialVaultMutationResponse(
+        vault=build_credential_vault_response(),
+        audit_change=build_change(),
+    )
+
+
+def build_credential_vault_test_response() -> CredentialVaultTestResponse:
+    """Create a reusable credential-vault test response payload sample."""
+    return CredentialVaultTestResponse(
+        vault=build_credential_vault_response(),
+        ok=True,
+        checked_at=ts(15, 35),
+        tested_credentials=2,
+        readable_credentials=2,
+        results=[
+            {
+                "reference_id": "vault:settings:models:local_api_key",
+                "service_name": "Local model settings",
+                "credential_description": "API key",
+                "ok": True,
+                "message": "Stored credential decrypted successfully.",
+                "checked_at": ts(15, 35),
+            }
+        ],
+        message="Explicit vault readability test passed for all stored credentials.",
+        audit_change=build_change(),
+    )
+
+
+def build_credential_vault_change_password_request() -> CredentialVaultChangePasswordRequest:
+    """Create a reusable credential-vault change-password request payload sample."""
+    return CredentialVaultChangePasswordRequest(
+        current_master_passphrase="correct horse battery staple",
+        new_master_passphrase="correct horse battery stable",
+    )
+
+
 def build_service_descriptor_validation_response() -> ServiceDescriptorValidationResponse:
     """Create a reusable descriptor-validation preview payload sample."""
     return ServiceDescriptorValidationResponse(
@@ -886,9 +1792,45 @@ def test_sample_payloads_validate_against_schemas() -> None:
     approval_token = build_approval_token()
     service_descriptor = build_service_descriptor()
     service_adapter_facts_response = build_service_adapter_facts_response()
+    finding_review_response = build_finding_review_response()
+    finding_dismiss_request = build_finding_dismiss_request()
+    finding_dismiss_response = build_finding_dismiss_response()
+    maintenance_mode_response = build_maintenance_mode_response()
+    maintenance_window_update_request = build_maintenance_window_update_request()
+    maintenance_mode_mutation_response = build_maintenance_mode_mutation_response()
+    recommendations_response = build_recommendations_response()
+    service_detail_response = build_service_detail_response()
+    service_detail_check_suppression_update_request = (
+        build_service_detail_check_suppression_update_request()
+    )
+    service_detail_check_suppression_mutation_response = (
+        build_service_detail_check_suppression_mutation_response()
+    )
     service_descriptor_view_response = build_service_descriptor_view_response()
     service_descriptor_generate_response = build_service_descriptor_generate_response()
     descriptor_community_export_response = build_descriptor_community_export_response()
+    model_settings_response = build_model_settings_response()
+    model_settings_update_request = build_model_settings_update_request()
+    model_settings_mutation_response = build_model_settings_mutation_response()
+    model_settings_test_request = build_model_settings_test_request()
+    model_settings_test_response = build_model_settings_test_response()
+    monitoring_settings_response = build_monitoring_settings_response()
+    monitoring_settings_update_request = build_monitoring_settings_update_request()
+    monitoring_settings_mutation_response = build_monitoring_settings_mutation_response()
+    credential_vault_response = build_credential_vault_response()
+    credential_vault_mutation_response = build_credential_vault_mutation_response()
+    credential_vault_test_response = build_credential_vault_test_response()
+    credential_vault_change_password_request = (
+        build_credential_vault_change_password_request()
+    )
+    notification_settings_response = build_notification_settings_response()
+    notification_settings_update_request = build_notification_settings_update_request()
+    notification_settings_mutation_response = build_notification_settings_mutation_response()
+    notification_settings_test_request = build_notification_settings_test_request()
+    notification_settings_test_response = build_notification_settings_test_response()
+    system_settings_response = build_system_settings_response()
+    system_settings_update_request = build_system_settings_update_request()
+    system_settings_mutation_response = build_system_settings_mutation_response()
     quarantined_descriptor_queue_item_response = (
         build_quarantined_descriptor_queue_item_response()
     )
@@ -925,6 +1867,46 @@ def test_sample_payloads_validate_against_schemas() -> None:
         service_adapter_facts_response.model_dump(mode="json"),
     )
     validate_with_schema(
+        "finding_review_response.json",
+        finding_review_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "finding_dismiss_request.json",
+        finding_dismiss_request.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "finding_dismiss_response.json",
+        finding_dismiss_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "maintenance_mode_response.json",
+        maintenance_mode_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "maintenance_window_update_request.json",
+        maintenance_window_update_request.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "maintenance_mode_mutation_response.json",
+        maintenance_mode_mutation_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "recommendations_response.json",
+        recommendations_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "service_detail_response.json",
+        service_detail_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "service_detail_check_suppression_update_request.json",
+        service_detail_check_suppression_update_request.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "service_detail_check_suppression_mutation_response.json",
+        service_detail_check_suppression_mutation_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
         "service_descriptor_view_response.json",
         service_descriptor_view_response.model_dump(mode="json"),
     )
@@ -935,6 +1917,86 @@ def test_sample_payloads_validate_against_schemas() -> None:
     validate_with_schema(
         "descriptor_community_export_response.json",
         descriptor_community_export_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "model_settings_response.json",
+        model_settings_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "model_settings_update_request.json",
+        model_settings_update_request.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "model_settings_mutation_response.json",
+        model_settings_mutation_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "model_settings_test_request.json",
+        model_settings_test_request.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "model_settings_test_response.json",
+        model_settings_test_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "monitoring_settings_response.json",
+        monitoring_settings_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "monitoring_settings_update_request.json",
+        monitoring_settings_update_request.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "monitoring_settings_mutation_response.json",
+        monitoring_settings_mutation_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "credential_vault_response.json",
+        credential_vault_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "credential_vault_mutation_response.json",
+        credential_vault_mutation_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "credential_vault_test_response.json",
+        credential_vault_test_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "credential_vault_change_password_request.json",
+        credential_vault_change_password_request.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "notification_settings_response.json",
+        notification_settings_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "notification_settings_update_request.json",
+        notification_settings_update_request.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "notification_settings_mutation_response.json",
+        notification_settings_mutation_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "notification_settings_test_request.json",
+        notification_settings_test_request.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "notification_settings_test_response.json",
+        notification_settings_test_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "system_settings_response.json",
+        system_settings_response.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "system_settings_update_request.json",
+        system_settings_update_request.model_dump(mode="json"),
+    )
+    validate_with_schema(
+        "system_settings_mutation_response.json",
+        system_settings_mutation_response.model_dump(mode="json"),
     )
     validate_with_schema(
         "quarantined_descriptor_queue_item_response.json",

@@ -1,0 +1,37 @@
+id: transmission
+name: Transmission
+category: downloads
+project_url: https://transmissionbt.com/
+icon: transmission.svg
+match:
+  image_patterns:
+    - "lscr.io/linuxserver/transmission*"
+    - "linuxserver/transmission*"
+    - "*transmission*"
+  container_name_patterns:
+    - "transmission*"
+endpoints:
+  web_ui:
+    port: 9091
+    path: /
+log_signals:
+  errors:
+    - "Couldn't bind port"
+    - "Error opening torrent file"
+    - "No space left on device"
+  warnings:
+    - "Tracker gave HTTP response code"
+    - "RPC Server Adding address to whitelist"
+typical_dependencies:
+  shares:
+    - downloads
+    - appdata
+common_failure_modes:
+  - trigger: "No space left on device"
+    likely_cause: "The downloads target is full or not writable"
+    check_first:
+      - downloads share capacity
+      - downloads share permissions
+investigation_context: |
+  Transmission failures are usually tied to downloads storage health, tracker
+  reachability, or an incorrectly exposed RPC/web UI port.

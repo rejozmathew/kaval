@@ -1,0 +1,468 @@
+{
+  "$defs": {
+    "MonitoringSettingsCheckResponse": {
+      "additionalProperties": false,
+      "description": "One global monitoring-check settings row.",
+      "properties": {
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "default_enabled": {
+          "title": "Default Enabled",
+          "type": "boolean"
+        },
+        "default_interval_seconds": {
+          "minimum": 1,
+          "title": "Default Interval Seconds",
+          "type": "integer"
+        },
+        "default_probe_timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Probe Timeout Seconds"
+        },
+        "default_restart_delta_threshold": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Restart Delta Threshold"
+        },
+        "default_tls_warning_days": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default Tls Warning Days"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "interval_seconds": {
+          "minimum": 1,
+          "title": "Interval Seconds",
+          "type": "integer"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "probe_timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Probe Timeout Seconds"
+        },
+        "restart_delta_threshold": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Restart Delta Threshold"
+        },
+        "tls_warning_days": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tls Warning Days"
+        }
+      },
+      "required": [
+        "check_id",
+        "label",
+        "description",
+        "enabled",
+        "interval_seconds",
+        "default_enabled",
+        "default_interval_seconds"
+      ],
+      "title": "MonitoringSettingsCheckResponse",
+      "type": "object"
+    },
+    "MonitoringSettingsEffectiveCheckResponse": {
+      "additionalProperties": false,
+      "description": "The effective cadence state for one service/check pair.",
+      "properties": {
+        "accelerated_now": {
+          "title": "Accelerated Now",
+          "type": "boolean"
+        },
+        "base_interval_seconds": {
+          "minimum": 1,
+          "title": "Base Interval Seconds",
+          "type": "integer"
+        },
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "effective_interval_seconds": {
+          "minimum": 1,
+          "title": "Effective Interval Seconds",
+          "type": "integer"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "incident_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Incident Ids",
+          "type": "array"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "probe_timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Probe Timeout Seconds"
+        },
+        "restart_delta_threshold": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Restart Delta Threshold"
+        },
+        "source": {
+          "$ref": "#/$defs/MonitoringSettingsResolutionSource"
+        },
+        "threshold_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MonitoringSettingsResolutionSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tls_warning_days": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tls Warning Days"
+        }
+      },
+      "required": [
+        "check_id",
+        "label",
+        "enabled",
+        "base_interval_seconds",
+        "effective_interval_seconds",
+        "source",
+        "accelerated_now"
+      ],
+      "title": "MonitoringSettingsEffectiveCheckResponse",
+      "type": "object"
+    },
+    "MonitoringSettingsEffectiveServiceResponse": {
+      "additionalProperties": false,
+      "description": "The effective cadence rows for one service.",
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/MonitoringSettingsEffectiveCheckResponse"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "service_id": {
+          "title": "Service Id",
+          "type": "string"
+        },
+        "service_name": {
+          "title": "Service Name",
+          "type": "string"
+        },
+        "service_status": {
+          "$ref": "#/$defs/ServiceStatus"
+        }
+      },
+      "required": [
+        "service_id",
+        "service_name",
+        "service_status"
+      ],
+      "title": "MonitoringSettingsEffectiveServiceResponse",
+      "type": "object"
+    },
+    "MonitoringSettingsResolutionSource": {
+      "description": "Where one effective monitoring setting currently comes from.",
+      "enum": [
+        "global_default",
+        "service_override"
+      ],
+      "title": "MonitoringSettingsResolutionSource",
+      "type": "string"
+    },
+    "MonitoringSettingsScopeResponse": {
+      "additionalProperties": false,
+      "description": "One complete staged or active monitoring-settings snapshot.",
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/MonitoringSettingsCheckResponse"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "effective_services": {
+          "items": {
+            "$ref": "#/$defs/MonitoringSettingsEffectiveServiceResponse"
+          },
+          "title": "Effective Services",
+          "type": "array"
+        },
+        "service_overrides": {
+          "items": {
+            "$ref": "#/$defs/MonitoringSettingsServiceOverrideResponse"
+          },
+          "title": "Service Overrides",
+          "type": "array"
+        }
+      },
+      "title": "MonitoringSettingsScopeResponse",
+      "type": "object"
+    },
+    "MonitoringSettingsServiceOverrideResponse": {
+      "additionalProperties": false,
+      "description": "One persisted service-scoped monitoring override row.",
+      "properties": {
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "check_label": {
+          "title": "Check Label",
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "interval_seconds": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interval Seconds"
+        },
+        "probe_timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Probe Timeout Seconds"
+        },
+        "restart_delta_threshold": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Restart Delta Threshold"
+        },
+        "service_id": {
+          "title": "Service Id",
+          "type": "string"
+        },
+        "service_name": {
+          "title": "Service Name",
+          "type": "string"
+        },
+        "service_status": {
+          "$ref": "#/$defs/ServiceStatus"
+        },
+        "tls_warning_days": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tls Warning Days"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "service_id",
+        "service_name",
+        "service_status",
+        "check_id",
+        "check_label",
+        "updated_at"
+      ],
+      "title": "MonitoringSettingsServiceOverrideResponse",
+      "type": "object"
+    },
+    "ServiceStatus": {
+      "description": "Supported service health states.",
+      "enum": [
+        "healthy",
+        "degraded",
+        "down",
+        "unknown",
+        "stopped"
+      ],
+      "title": "ServiceStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Monitoring-settings payload with explicit staged and active snapshots.",
+  "properties": {
+    "active": {
+      "$ref": "#/$defs/MonitoringSettingsScopeResponse"
+    },
+    "apply_required": {
+      "title": "Apply Required",
+      "type": "boolean"
+    },
+    "config_path": {
+      "title": "Config Path",
+      "type": "string"
+    },
+    "last_applied_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Last Applied At"
+    },
+    "load_error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Load Error"
+    },
+    "staged": {
+      "$ref": "#/$defs/MonitoringSettingsScopeResponse"
+    }
+  },
+  "required": [
+    "config_path",
+    "apply_required",
+    "last_applied_at",
+    "active",
+    "staged"
+  ],
+  "title": "MonitoringSettingsResponse",
+  "type": "object"
+}

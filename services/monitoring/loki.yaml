@@ -1,0 +1,36 @@
+id: loki
+name: Loki
+category: monitoring
+project_url: https://grafana.com/oss/loki/
+icon: loki.svg
+match:
+  image_patterns:
+    - "grafana/loki*"
+    - "*loki*"
+  container_name_patterns:
+    - "loki*"
+endpoints:
+  health_api:
+    port: 3100
+    path: /ready
+    healthy_when: status_ok
+log_signals:
+  errors:
+    - "failed to flush chunks"
+    - "error initialising module"
+    - "mkdir .* permission denied"
+  warnings:
+    - "dropping chunk"
+    - "error getting ingester clients"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "failed to flush chunks"
+    likely_cause: "The Loki write path or backing storage is unavailable"
+    check_first:
+      - appdata volume
+      - storage permissions
+investigation_context: |
+  Loki depends on writable local storage and healthy internal modules. Query or
+  ingest failures are often storage-permission or config boot issues.

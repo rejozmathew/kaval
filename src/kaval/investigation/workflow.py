@@ -42,11 +42,16 @@ from kaval.integrations.adapter_facts import (
 )
 from kaval.integrations.service_adapters import AdapterStatus
 from kaval.investigation.cloud_model import (
+    CloudEscalationPolicy,
+    CloudEscalationReason,
     CloudInvestigationSynthesizer,
+    CloudModelConfig,
     CloudModelError,
     CloudPromptRedactionError,
     CloudTransport,
     build_cloud_safe_prompt_bundle,
+    describe_cloud_escalation_reason,
+    encode_cloud_escalation_reasons,
     evaluate_cloud_escalation_policy,
     load_cloud_escalation_policy_from_env,
     load_cloud_model_config_from_env,
@@ -59,6 +64,7 @@ from kaval.investigation.evidence import (
     merge_adapter_evidence,
 )
 from kaval.investigation.local_model import (
+    LocalModelConfig,
     LocalModelError,
     OpenAICompatibleInvestigationSynthesizer,
     load_local_model_config_from_env,
@@ -111,6 +117,9 @@ from kaval.models import (
 )
 
 type DockerSnapshotProvider = Callable[[], DockerDiscoverySnapshot | None]
+type LocalModelConfigLoader = Callable[[], LocalModelConfig | None]
+type CloudModelConfigLoader = Callable[[], CloudModelConfig | None]
+type CloudEscalationPolicyLoader = Callable[[], CloudEscalationPolicy]
 
 
 def _build_default_adapter_registry() -> AdapterRegistry:
@@ -217,6 +226,11 @@ class InvestigationWorkflow:
     dockerhub_research_client: DockerHubResearchClient | None = None
     local_model_transport: LocalModelTransport | None = None
     cloud_model_transport: CloudTransport | None = None
+    local_model_config_loader: LocalModelConfigLoader = load_local_model_config_from_env
+    cloud_model_config_loader: CloudModelConfigLoader = load_cloud_model_config_from_env
+    cloud_escalation_policy_loader: CloudEscalationPolicyLoader = (
+        load_cloud_escalation_policy_from_env
+    )
     _graph: Any = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -368,7 +382,7 @@ class InvestigationWorkflow:
             )
 
         try:
-            local_model_config = load_local_model_config_from_env()
+            local_model_config = self.local_model_config_loader()
         except ValueError:
             return _fallback_synthesis(
                 state=state,
@@ -402,7 +416,7 @@ class InvestigationWorkflow:
     ) -> InvestigationSynthesis:
         """Optionally escalate a successful local synthesis to the configured cloud model."""
         try:
-            policy = load_cloud_escalation_policy_from_env()
+            policy = self.cloud_escalation_policy_loader()
         except ValueError:
             return _with_degraded_reason(
                 local_synthesis,
@@ -420,13 +434,22 @@ class InvestigationWorkflow:
             policy=policy,
             offline=state["research"].skipped_offline,
         )
+        encoded_reason = encode_cloud_escalation_reasons(decision.trigger_reasons)
         if decision.blocked_reason is not None:
-            return _with_degraded_reason(local_synthesis, decision.blocked_reason)
+            return _with_degraded_reason(
+                local_synthesis,
+                decision.blocked_reason,
+                cloud_escalation_reason=encoded_reason,
+            )
         if not decision.should_use_cloud:
-            return local_synthesis
+            if encoded_reason is None:
+                return local_synthesis
+            return local_synthesis.model_copy(
+                update={"cloud_escalation_reason": encoded_reason}
+            )
 
         try:
-            cloud_model_config = load_cloud_model_config_from_env()
+            cloud_model_config = self.cloud_model_config_loader()
         except ValueError:
             return _with_degraded_reason(
                 local_synthesis,
@@ -434,6 +457,7 @@ class InvestigationWorkflow:
                     decision.trigger_reasons,
                     "Cloud model config was invalid; local synthesis retained.",
                 ),
+                cloud_escalation_reason=encoded_reason,
             )
         if cloud_model_config is None:
             return _with_degraded_reason(
@@ -442,6 +466,7 @@ class InvestigationWorkflow:
                     decision.trigger_reasons,
                     "Cloud model was not configured; local synthesis retained.",
                 ),
+                cloud_escalation_reason=encoded_reason,
             )
 
         try:
@@ -457,6 +482,7 @@ class InvestigationWorkflow:
                     decision.trigger_reasons,
                     "Cloud-safe redaction failed; local synthesis retained.",
                 ),
+                cloud_escalation_reason=encoded_reason,
             )
 
         try:
@@ -471,6 +497,7 @@ class InvestigationWorkflow:
                     decision.trigger_reasons,
                     "Cloud model request failed; local synthesis retained.",
                 ),
+                cloud_escalation_reason=encoded_reason,
             )
 
         return cloud_synthesis.model_copy(
@@ -488,6 +515,17 @@ class InvestigationWorkflow:
                     if cloud_synthesis.degraded_mode_note is not None
                     else local_synthesis.degraded_mode_note
                 ),
+                "local_input_tokens": local_synthesis.local_input_tokens,
+                "local_output_tokens": local_synthesis.local_output_tokens,
+                "cloud_input_tokens": cloud_synthesis.cloud_input_tokens,
+                "cloud_output_tokens": cloud_synthesis.cloud_output_tokens,
+                "estimated_cloud_cost_usd": cloud_synthesis.estimated_cloud_cost_usd,
+                "estimated_total_cost_usd": round(
+                    local_synthesis.estimated_total_cost_usd
+                    + cloud_synthesis.estimated_total_cost_usd,
+                    6,
+                ),
+                "cloud_escalation_reason": encoded_reason,
             }
         )
 
@@ -506,6 +544,13 @@ class InvestigationWorkflow:
             confidence=state["synthesis"].inference.confidence,
             model_used=state["synthesis"].model_used,
             cloud_model_calls=state["synthesis"].cloud_model_calls,
+            local_input_tokens=state["synthesis"].local_input_tokens,
+            local_output_tokens=state["synthesis"].local_output_tokens,
+            cloud_input_tokens=state["synthesis"].cloud_input_tokens,
+            cloud_output_tokens=state["synthesis"].cloud_output_tokens,
+            estimated_cloud_cost_usd=state["synthesis"].estimated_cloud_cost_usd,
+            estimated_total_cost_usd=state["synthesis"].estimated_total_cost_usd,
+            cloud_escalation_reason=state["synthesis"].cloud_escalation_reason,
             journal_entries_referenced=[
                 entry.id for entry in state["evidence"].operational_memory.journal_entries
             ],
@@ -1228,6 +1273,8 @@ def _combine_degraded_notes(existing_note: str | None, extra_note: str) -> str:
 def _with_degraded_reason(
     synthesis: InvestigationSynthesis,
     degraded_reason: str,
+    *,
+    cloud_escalation_reason: str | None = None,
 ) -> InvestigationSynthesis:
     """Append one degraded-mode reason to an existing synthesis payload."""
     return synthesis.model_copy(
@@ -1235,14 +1282,22 @@ def _with_degraded_reason(
             "degraded_mode_note": _combine_degraded_notes(
                 synthesis.degraded_mode_note,
                 degraded_reason,
-            )
+            ),
+            "cloud_escalation_reason": cloud_escalation_reason
+            if cloud_escalation_reason is not None
+            else synthesis.cloud_escalation_reason,
         }
     )
 
 
-def _cloud_retained_reason(trigger_reasons: tuple[str, ...], detail: str) -> str:
+def _cloud_retained_reason(
+    trigger_reasons: tuple[CloudEscalationReason, ...],
+    detail: str,
+) -> str:
     """Render one explicit note about why cloud escalation fell back to local output."""
-    joined_reasons = ", ".join(trigger_reasons)
+    joined_reasons = ", ".join(
+        describe_cloud_escalation_reason(reason) for reason in trigger_reasons
+    )
     return (
         "Cloud escalation criteria matched "
         f"({joined_reasons}), but {detail}"

@@ -1,0 +1,38 @@
+id: seafile
+name: Seafile
+category: cloud
+project_url: https://www.seafile.com/
+icon: seafile.svg
+match:
+  image_patterns:
+    - "seafileltd/seafile-mc*"
+    - "*seafile*"
+  container_name_patterns:
+    - "seafile*"
+endpoints:
+  web_ui:
+    port: 80
+    path: /
+log_signals:
+  errors:
+    - "Failed to connect to database"
+    - "Memcached connection error"
+    - "Permission denied"
+  warnings:
+    - "failed to sync"
+    - "Background task is blocked"
+typical_dependencies:
+  containers:
+    - mariadb
+  shares:
+    - appdata
+    - data
+common_failure_modes:
+  - trigger: "Failed to connect to database"
+    likely_cause: "The configured database backend is unavailable"
+    check_first:
+      - mariadb
+      - database credentials
+investigation_context: |
+  Seafile depends on its database and persistent data path. Sync failures are
+  commonly caused by backend database errors or missing storage mounts.

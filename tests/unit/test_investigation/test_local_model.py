@@ -12,6 +12,7 @@ from kaval.investigation.local_model import (
     LocalModelConfig,
     OpenAICompatibleInvestigationSynthesizer,
     load_local_model_config_from_env,
+    probe_local_model_connection,
 )
 from kaval.investigation.prompts import InvestigationPromptBundle, build_investigation_prompt_bundle
 from kaval.models import (
@@ -110,7 +111,11 @@ def test_synthesizer_shapes_request_and_parses_structured_json_response() -> Non
                             "content": f"```json\n{json.dumps(structured_response)}\n```"
                         }
                     }
-                ]
+                ],
+                "usage": {
+                    "prompt_tokens": 312,
+                    "completion_tokens": 88,
+                },
             }
         ).encode("utf-8")
 
@@ -145,9 +150,49 @@ def test_synthesizer_shapes_request_and_parses_structured_json_response() -> Non
 
     assert result.model_used == ModelUsed.LOCAL
     assert result.cloud_model_calls == 0
+    assert result.local_input_tokens == 312
+    assert result.local_output_tokens == 88
+    assert result.estimated_total_cost_usd == 0.0
     assert result.inference.root_cause == "DelugeVPN VPN tunnel dropped"
     assert result.recommendation.action_type == "restart_container"
     assert result.recommendation.target == "delugevpn"
+
+
+def test_local_model_connection_probe_uses_small_json_probe() -> None:
+    """The explicit connection test should accept a minimal JSON acknowledgement."""
+    captured_request: dict[str, object] = {}
+
+    def transport(http_request: request.Request, timeout_seconds: float) -> bytes:
+        body = json.loads(cast(bytes, http_request.data).decode("utf-8"))
+        captured_request["url"] = http_request.full_url
+        captured_request["timeout"] = timeout_seconds
+        captured_request["body"] = body
+        return json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"connection_ok": true}',
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    probe_local_model_connection(
+        config=LocalModelConfig(
+            base_url="http://localhost:11434",
+            model="qwen3:8b",
+            timeout_seconds=8.0,
+        ),
+        transport=transport,
+    )
+
+    assert captured_request["url"] == "http://localhost:11434/v1/chat/completions"
+    assert captured_request["timeout"] == 8.0
+    body = cast(dict[str, object], captured_request["body"])
+    assert body["messages"][0]["content"] == "Return JSON only."
+    assert body["messages"][1]["content"] == '{"connection_ok": true}'
 
 
 def build_prompt_inputs(

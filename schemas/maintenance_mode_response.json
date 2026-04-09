@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "MaintenanceScope": {
+      "description": "Supported maintenance window scopes.",
+      "enum": [
+        "global",
+        "service"
+      ],
+      "title": "MaintenanceScope",
+      "type": "string"
+    },
+    "MaintenanceWindowResponse": {
+      "additionalProperties": false,
+      "description": "One active maintenance window visible to the operator.",
+      "properties": {
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "minutes_remaining": {
+          "minimum": 0,
+          "title": "Minutes Remaining",
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/$defs/MaintenanceScope"
+        },
+        "service_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Service Id"
+        },
+        "service_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Service Name"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "started_at",
+        "expires_at",
+        "minutes_remaining"
+      ],
+      "title": "MaintenanceWindowResponse",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Current active global and per-service maintenance windows.",
+  "properties": {
+    "global_window": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MaintenanceWindowResponse"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "self_health_guardrail": {
+      "title": "Self Health Guardrail",
+      "type": "string"
+    },
+    "service_windows": {
+      "items": {
+        "$ref": "#/$defs/MaintenanceWindowResponse"
+      },
+      "title": "Service Windows",
+      "type": "array"
+    }
+  },
+  "required": [
+    "self_health_guardrail"
+  ],
+  "title": "MaintenanceModeResponse",
+  "type": "object"
+}

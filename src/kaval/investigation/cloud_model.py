@@ -7,6 +7,7 @@ import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Callable, Literal, cast
 from urllib import error, request
 
@@ -32,6 +33,21 @@ _CLOUD_REDACTION_NOTE = (
     "Privacy note: some internal identifiers, internal URLs, and secrets were redacted "
     "before this cloud-model call. Placeholder consistency still reflects the same entity."
 )
+_USD_PER_MILLION_TOKENS = 1_000_000.0
+_KNOWN_CLOUD_MODEL_RATES: tuple[tuple[CloudProvider, str, float, float], ...] = (
+    ("anthropic", "claude-sonnet-4", 3.0, 15.0),
+    ("openai", "gpt-4o-mini", 0.15, 0.60),
+)
+
+
+class CloudEscalationReason(StrEnum):
+    """Stable persisted reasons for cloud-escalation decisions."""
+
+    FINDING_COUNT_THRESHOLD = "finding_count_threshold"
+    LOCAL_CONFIDENCE_THRESHOLD = "local_confidence_threshold"
+    MULTIPLE_DOMAINS_AFFECTED = "multiple_domains_affected"
+    CHANGELOG_RESEARCH_NEEDED = "changelog_research_needed"
+    USER_REQUESTED_DEEP_ANALYSIS = "user_requested_deep_analysis"
 
 
 class CloudModelError(RuntimeError):
@@ -60,6 +76,8 @@ class CloudModelConfig:
     base_url: str
     timeout_seconds: float = 45.0
     max_output_tokens: int = 1600
+    input_cost_per_million_tokens_usd: float = 0.0
+    output_cost_per_million_tokens_usd: float = 0.0
 
     def __post_init__(self) -> None:
         """Normalize cloud endpoints and numeric controls."""
@@ -76,8 +94,43 @@ class CloudModelConfig:
         if self.max_output_tokens <= 0:
             msg = "max_output_tokens must be positive"
             raise ValueError(msg)
+        if self.input_cost_per_million_tokens_usd < 0.0:
+            msg = "input_cost_per_million_tokens_usd must be non-negative"
+            raise ValueError(msg)
+        if self.output_cost_per_million_tokens_usd < 0.0:
+            msg = "output_cost_per_million_tokens_usd must be non-negative"
+            raise ValueError(msg)
         object.__setattr__(self, "base_url", normalized_base_url)
         object.__setattr__(self, "api_key", self.api_key.strip())
+        if (
+            self.input_cost_per_million_tokens_usd == 0.0
+            and self.output_cost_per_million_tokens_usd == 0.0
+        ):
+            input_rate, output_rate = _resolve_known_cloud_model_rates(
+                provider=self.provider,
+                model=self.model,
+            )
+            object.__setattr__(
+                self,
+                "input_cost_per_million_tokens_usd",
+                input_rate,
+            )
+            object.__setattr__(
+                self,
+                "output_cost_per_million_tokens_usd",
+                output_rate,
+            )
+
+    def estimate_cost_usd(self, *, input_tokens: int, output_tokens: int) -> float:
+        """Estimate one cloud request cost from provider-reported token counts."""
+        estimated_cost = (
+            (max(input_tokens, 0) / _USD_PER_MILLION_TOKENS)
+            * self.input_cost_per_million_tokens_usd
+        ) + (
+            (max(output_tokens, 0) / _USD_PER_MILLION_TOKENS)
+            * self.output_cost_per_million_tokens_usd
+        )
+        return round(estimated_cost, 6)
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +166,7 @@ class CloudEscalationDecision:
     """Outcome of evaluating the explicit cloud escalation policy."""
 
     should_use_cloud: bool
-    trigger_reasons: tuple[str, ...] = ()
+    trigger_reasons: tuple[CloudEscalationReason, ...] = ()
     blocked_reason: str | None = None
 
 
@@ -171,6 +224,14 @@ class ChatCompletionResponse(_ProviderModel):
     """The subset of an OpenAI-compatible response used by the synthesizer."""
 
     choices: list[ChatCompletionChoice]
+    usage: "_OpenAICompatibleUsage | None" = None
+
+
+class _OpenAICompatibleUsage(_ProviderModel):
+    """Optional token usage returned by OpenAI-compatible providers."""
+
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 class AnthropicMessagePart(_ProviderModel):
@@ -184,6 +245,14 @@ class AnthropicMessageResponse(_ProviderModel):
     """The subset of Anthropic's response used by the synthesizer."""
 
     content: list[AnthropicMessagePart]
+    usage: "_AnthropicUsage | None" = None
+
+
+class _AnthropicUsage(_ProviderModel):
+    """Optional token usage returned by Anthropic's messages API."""
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,10 +266,24 @@ class CloudInvestigationSynthesizer:
         """Request structured investigation output from the configured cloud model."""
         http_request = self._build_request(prompt_bundle)
         response_body = self._transport()(http_request, self.config.timeout_seconds)
-        content = self._extract_response_content(response_body)
+        content, input_tokens, output_tokens = self._extract_response_content_and_usage(
+            response_body
+        )
         structured_payload = _extract_json_object(content)
         structured_payload["model_used"] = ModelUsed.CLOUD.value
         structured_payload["cloud_model_calls"] = 1
+        structured_payload["local_input_tokens"] = 0
+        structured_payload["local_output_tokens"] = 0
+        structured_payload["cloud_input_tokens"] = input_tokens
+        structured_payload["cloud_output_tokens"] = output_tokens
+        structured_payload["estimated_cloud_cost_usd"] = self.config.estimate_cost_usd(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+        structured_payload["estimated_total_cost_usd"] = structured_payload[
+            "estimated_cloud_cost_usd"
+        ]
+        structured_payload["cloud_escalation_reason"] = None
         return InvestigationSynthesis.model_validate(structured_payload)
 
     def _build_request(self, prompt_bundle: CloudSafePromptBundle) -> request.Request:
@@ -246,8 +329,11 @@ class CloudInvestigationSynthesizer:
         """Return the configured transport or the production default transport."""
         return self.transport or _default_transport
 
-    def _extract_response_content(self, response_body: bytes) -> str:
-        """Decode and normalize provider responses into text content."""
+    def _extract_response_content_and_usage(
+        self,
+        response_body: bytes,
+    ) -> tuple[str, int, int]:
+        """Decode provider responses into text content plus usage totals."""
         try:
             raw_payload = json.loads(response_body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -260,13 +346,19 @@ class CloudInvestigationSynthesizer:
                 raise CloudModelResponseError(
                     "cloud model response shape was invalid"
                 ) from exc
-            return _extract_openai_content(openai_response)
+            return (
+                _extract_openai_content(openai_response),
+                *_extract_openai_usage(openai_response),
+            )
 
         try:
             anthropic_response = AnthropicMessageResponse.model_validate(raw_payload)
         except ValidationError as exc:
             raise CloudModelResponseError("cloud model response shape was invalid") from exc
-        return _extract_anthropic_content(anthropic_response)
+        return (
+            _extract_anthropic_content(anthropic_response),
+            *_extract_anthropic_usage(anthropic_response),
+        )
 
 
 def build_cloud_safe_prompt_bundle(
@@ -311,22 +403,18 @@ def evaluate_cloud_escalation_policy(
     offline: bool,
 ) -> CloudEscalationDecision:
     """Evaluate the explicit cloud-escalation policy for one investigation run."""
-    trigger_reasons: list[str] = []
+    trigger_reasons: list[CloudEscalationReason] = []
     relevant_findings = _relevant_findings(incident=incident, findings=findings)
     if len(relevant_findings) > policy.finding_count_gt:
-        trigger_reasons.append(
-            f"finding_count>{policy.finding_count_gt}"
-        )
+        trigger_reasons.append(CloudEscalationReason.FINDING_COUNT_THRESHOLD)
     if local_synthesis.inference.confidence < policy.local_confidence_lt:
-        trigger_reasons.append(
-            f"local_confidence<{policy.local_confidence_lt:.2f}"
-        )
+        trigger_reasons.append(CloudEscalationReason.LOCAL_CONFIDENCE_THRESHOLD)
     if policy.escalate_on_multiple_domains and _has_multiple_domains(relevant_findings):
-        trigger_reasons.append("multiple_domains_affected")
+        trigger_reasons.append(CloudEscalationReason.MULTIPLE_DOMAINS_AFFECTED)
     if policy.escalate_on_changelog_research and changelog_research_available:
-        trigger_reasons.append("changelog_research_needed")
+        trigger_reasons.append(CloudEscalationReason.CHANGELOG_RESEARCH_NEEDED)
     if policy.escalate_on_user_request and trigger == InvestigationTrigger.USER_REQUEST:
-        trigger_reasons.append("user_requested_deep_analysis")
+        trigger_reasons.append(CloudEscalationReason.USER_REQUESTED_DEEP_ANALYSIS)
 
     if not trigger_reasons:
         return CloudEscalationDecision(should_use_cloud=False)
@@ -468,6 +556,76 @@ def load_cloud_escalation_policy_from_env(
         raise ValueError("cloud escalation policy environment values were invalid") from exc
 
 
+def probe_cloud_model_connection(
+    *,
+    config: CloudModelConfig,
+    transport: CloudTransport | None = None,
+) -> None:
+    """Run one small explicit connectivity check against the cloud model endpoint."""
+    headers = {"Content-Type": "application/json"}
+    system_prompt = "Return JSON only."
+    user_prompt = '{"connection_ok": true}'
+    if config.provider in {"openai", "openai_compatible"}:
+        headers["Authorization"] = f"Bearer {config.api_key}"
+        payload = {
+            "model": config.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.0,
+        }
+        http_request = request.Request(
+            f"{config.base_url}/v1/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        response_body = (transport or _default_transport)(
+            http_request,
+            config.timeout_seconds,
+        )
+        try:
+            openai_response = ChatCompletionResponse.model_validate(
+                json.loads(response_body.decode("utf-8"))
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
+            raise CloudModelResponseError("cloud model response shape was invalid") from exc
+        content = _extract_openai_content(openai_response)
+    else:
+        headers["x-api-key"] = config.api_key
+        headers["anthropic-version"] = "2023-06-01"
+        payload = {
+            "model": config.model,
+            "max_tokens": min(config.max_output_tokens, 32),
+            "messages": [{"role": "user", "content": user_prompt}],
+            "system": system_prompt,
+        }
+        http_request = request.Request(
+            f"{config.base_url}/v1/messages",
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        response_body = (transport or _default_transport)(
+            http_request,
+            config.timeout_seconds,
+        )
+        try:
+            anthropic_response = AnthropicMessageResponse.model_validate(
+                json.loads(response_body.decode("utf-8"))
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
+            raise CloudModelResponseError("cloud model response shape was invalid") from exc
+        content = _extract_anthropic_content(anthropic_response)
+
+    response_json = _extract_json_object(content)
+    if response_json.get("connection_ok") is not True:
+        raise CloudModelResponseError(
+            "cloud model test did not return the expected JSON acknowledgement"
+        )
+
+
 def _default_transport(http_request: request.Request, timeout_seconds: float) -> bytes:
     """Send one HTTP request to the configured cloud endpoint."""
     try:
@@ -497,6 +655,47 @@ def _extract_anthropic_content(response_payload: AnthropicMessageResponse) -> st
     if text_parts:
         return "\n".join(text_parts)
     raise CloudModelResponseError("cloud model returned no usable message content")
+
+
+def _extract_openai_usage(response_payload: ChatCompletionResponse) -> tuple[int, int]:
+    """Return prompt and completion token counts from OpenAI-compatible usage."""
+    usage = response_payload.usage
+    if usage is None:
+        return 0, 0
+    return max(int(usage.prompt_tokens or 0), 0), max(int(usage.completion_tokens or 0), 0)
+
+
+def _extract_anthropic_usage(response_payload: AnthropicMessageResponse) -> tuple[int, int]:
+    """Return input and output token counts from Anthropic usage blocks."""
+    usage = response_payload.usage
+    if usage is None:
+        return 0, 0
+    return max(int(usage.input_tokens or 0), 0), max(int(usage.output_tokens or 0), 0)
+
+
+def describe_cloud_escalation_reason(reason: CloudEscalationReason | str) -> str:
+    """Return one operator-readable label for a persisted escalation reason."""
+    normalized = str(reason)
+    labels = {
+        CloudEscalationReason.FINDING_COUNT_THRESHOLD.value: "Finding count threshold",
+        CloudEscalationReason.LOCAL_CONFIDENCE_THRESHOLD.value: "Low local confidence",
+        CloudEscalationReason.MULTIPLE_DOMAINS_AFFECTED.value: "Multiple domains affected",
+        CloudEscalationReason.CHANGELOG_RESEARCH_NEEDED.value: "Changelog research needed",
+        CloudEscalationReason.USER_REQUESTED_DEEP_ANALYSIS.value: (
+            "User requested deep analysis"
+        ),
+    }
+    return labels.get(normalized, normalized.replace("_", " "))
+
+
+def encode_cloud_escalation_reasons(
+    reasons: Sequence[CloudEscalationReason | str],
+) -> str | None:
+    """Encode one stable persisted cloud-escalation reason string."""
+    normalized = [str(reason).strip() for reason in reasons if str(reason).strip()]
+    if not normalized:
+        return None
+    return "|".join(normalized)
 
 
 def _extract_json_object(content: str) -> dict[str, JsonValue]:
@@ -575,3 +774,16 @@ def _has_multiple_domains(findings: Sequence[Finding]) -> bool:
     """Return whether the investigation spans more than one logical domain."""
     domains = {finding.domain for finding in findings if finding.domain}
     return len(domains) > 1
+
+
+def _resolve_known_cloud_model_rates(
+    *,
+    provider: CloudProvider,
+    model: str,
+) -> tuple[float, float]:
+    """Return deterministic cost rates for first-party provider/model pairs."""
+    normalized_model = model.strip().casefold()
+    for known_provider, model_prefix, input_rate, output_rate in _KNOWN_CLOUD_MODEL_RATES:
+        if known_provider == provider and normalized_model.startswith(model_prefix.casefold()):
+            return input_rate, output_rate
+    return 0.0, 0.0

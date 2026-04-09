@@ -7,7 +7,13 @@ from datetime import datetime
 
 from kaval.discovery.docker import DockerContainerSnapshot
 from kaval.models import Evidence, EvidenceKind, Finding, Service, ServiceType, Severity
-from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
+from kaval.monitoring.checks.base import (
+    CheckContext,
+    MonitoringCheck,
+    build_finding,
+    iter_target_services,
+)
+from kaval.monitoring_thresholds import RESTART_DELTA_THRESHOLD_DEFAULT
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +32,7 @@ class RestartStormCheck(MonitoringCheck):
         self,
         interval_seconds: int = 60,
         *,
-        restart_delta_threshold: int = 3,
+        restart_delta_threshold: int = RESTART_DELTA_THRESHOLD_DEFAULT,
         window_seconds: int = 300,
     ) -> None:
         """Store the check identity, schedule interval, and restart threshold."""
@@ -51,16 +57,19 @@ class RestartStormCheck(MonitoringCheck):
         containers_by_id = {
             container.id: container for container in context.docker_snapshot.containers
         }
-        active_service_ids: set[str] = set()
+        active_service_ids = {
+            service.id
+            for service in context.services
+            if service.type == ServiceType.CONTAINER and service.container_id is not None
+        }
         findings: list[Finding] = []
-        for service in sorted(context.services, key=lambda service: service.id):
+        for service in sorted(iter_target_services(context), key=lambda service: service.id):
             if service.type != ServiceType.CONTAINER or service.container_id is None:
                 continue
             container = containers_by_id.get(service.container_id)
             if container is None:
                 continue
 
-            active_service_ids.add(service.id)
             observation = self._observations.get(service.id)
             if observation is not None:
                 finding = _finding_for_restart_storm(

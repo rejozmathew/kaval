@@ -16,7 +16,13 @@ from kaval.models import (
     Service,
     Severity,
 )
-from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
+from kaval.monitoring.checks.base import (
+    CheckContext,
+    MonitoringCheck,
+    build_finding,
+    iter_target_services,
+)
+from kaval.monitoring_thresholds import PROBE_TIMEOUT_SECONDS_DEFAULT
 
 type EndpointProber = Callable[[str, float], "EndpointProbeResult"]
 
@@ -40,7 +46,7 @@ class EndpointProbeCheck(MonitoringCheck):
         self,
         interval_seconds: int = 120,
         *,
-        timeout_seconds: float = 5.0,
+        timeout_seconds: float = PROBE_TIMEOUT_SECONDS_DEFAULT,
         probe: EndpointProber | None = None,
     ) -> None:
         """Store the check identity, schedule interval, and probe transport."""
@@ -52,7 +58,7 @@ class EndpointProbeCheck(MonitoringCheck):
     def run(self, context: CheckContext) -> list[Finding]:
         """Probe declared HTTP/HTTPS service endpoints and emit failure findings."""
         findings: list[Finding] = []
-        for service in sorted(context.services, key=lambda service: service.id):
+        for service in sorted(iter_target_services(context), key=lambda service: service.id):
             for endpoint in _probeable_endpoints(service):
                 url = _endpoint_url(endpoint)
                 try:

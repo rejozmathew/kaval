@@ -1,0 +1,36 @@
+id: portainer
+name: Portainer
+category: system
+project_url: https://www.portainer.io/
+icon: portainer.svg
+match:
+  image_patterns:
+    - "portainer/portainer-ce*"
+    - "portainer/portainer-ee*"
+    - "*portainer*"
+  container_name_patterns:
+    - "portainer*"
+endpoints:
+  web_ui:
+    port: 9000
+    path: /
+log_signals:
+  errors:
+    - "failed creating TLS config"
+    - "failed to retrieve endpoints"
+    - "permission denied"
+  warnings:
+    - "unable to verify endpoint"
+    - "snapshot error"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "failed to retrieve endpoints"
+    likely_cause: "Portainer cannot reach its configured Docker or edge endpoint"
+    check_first:
+      - Docker connectivity
+      - endpoint configuration
+investigation_context: |
+  Portainer is an admin surface for Docker and edge endpoints. Failures usually
+  come from endpoint connectivity, TLS setup, or local persistent state issues.

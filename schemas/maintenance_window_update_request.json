@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "description": "Requested duration for one new or updated maintenance window.",
+  "properties": {
+    "duration_minutes": {
+      "maximum": 1440,
+      "minimum": 1,
+      "title": "Duration Minutes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "duration_minutes"
+  ],
+  "title": "MaintenanceWindowUpdateRequest",
+  "type": "object"
+}

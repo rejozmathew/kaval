@@ -34,6 +34,8 @@ from kaval.models import (
     Evidence,
     EvidenceKind,
     Finding,
+    FindingFeedbackReason,
+    FindingFeedbackRecord,
     FindingStatus,
     HardwareProfile,
     Incident,
@@ -43,9 +45,13 @@ from kaval.models import (
     InvestigationTrigger,
     JournalConfidence,
     JournalEntry,
+    MaintenanceScope,
+    MaintenanceWindowRecord,
     ModelUsed,
     NetworkingProfile,
     Service,
+    ServiceCheckOverride,
+    ServiceCheckOverrideScope,
     ServiceInsightLevel,
     ServicesSummary,
     ServiceStatus,
@@ -146,6 +152,28 @@ def build_incident() -> Incident:
     )
 
 
+def build_finding_feedback_record() -> FindingFeedbackRecord:
+    """Create a reusable finding-feedback record payload."""
+    return FindingFeedbackRecord(
+        id="ffb-1",
+        finding_id="find-1",
+        service_id="svc-radarr",
+        finding_domain="endpoint_probe",
+        reason=FindingFeedbackReason.FALSE_POSITIVE,
+        recorded_at=ts(14, 30),
+    )
+
+
+def build_maintenance_window_record() -> MaintenanceWindowRecord:
+    """Create a reusable maintenance window payload."""
+    return MaintenanceWindowRecord(
+        scope=MaintenanceScope.SERVICE,
+        service_id="svc-radarr",
+        started_at=ts(15, 0),
+        expires_at=ts(16, 0),
+    )
+
+
 def build_investigation() -> Investigation:
     """Create a reusable investigation payload."""
     return Investigation(
@@ -159,6 +187,13 @@ def build_investigation() -> Investigation:
         confidence=0.9,
         model_used=ModelUsed.LOCAL,
         cloud_model_calls=0,
+        local_input_tokens=220,
+        local_output_tokens=61,
+        cloud_input_tokens=0,
+        cloud_output_tokens=0,
+        estimated_cloud_cost_usd=0.0,
+        estimated_total_cost_usd=0.0,
+        cloud_escalation_reason=None,
         journal_entries_referenced=[],
         user_notes_referenced=[],
         recurrence_count=3,
@@ -388,6 +423,8 @@ def test_bootstrap_applies_baseline_migration(tmp_path: Path) -> None:
         assert "webhook_payloads" in tables
         assert "webhook_event_states" in tables
         assert "user_note_versions" in tables
+        assert "finding_feedback_records" in tables
+        assert "maintenance_windows" in tables
         assert database.applied_migrations() == [
             "0001_phase0_baseline",
             "0002_phase2b_credential_requests",
@@ -397,6 +434,9 @@ def test_bootstrap_applies_baseline_migration(tmp_path: Path) -> None:
             "0006_phase3b_webhook_event_states",
             "0007_phase3b_user_note_versions",
             "0008_phase3c_dependency_overrides",
+            "0009_phase3c_service_check_overrides",
+            "0010_phase3c_finding_feedback_records",
+            "0011_phase3c_maintenance_windows",
         ]
         assert database.migrations_current() is True
     finally:
@@ -427,6 +467,63 @@ def test_findings_and_incidents_support_crud(tmp_path: Path) -> None:
         database.delete_incident("inc-1")
         assert database.get_finding("find-1") is None
         assert database.get_incident("inc-1") is None
+    finally:
+        database.close()
+
+
+def test_database_persists_finding_feedback_records(tmp_path: Path) -> None:
+    """Finding feedback should persist as ordered append-only records."""
+    database = build_database(tmp_path)
+    finding_feedback_record = build_finding_feedback_record()
+    try:
+        database.upsert_finding_feedback_record(finding_feedback_record)
+        updated_record = finding_feedback_record.model_copy(
+            update={
+                "reason": FindingFeedbackReason.ALREADY_AWARE,
+                "recorded_at": ts(14, 31),
+            }
+        )
+        database.upsert_finding_feedback_record(updated_record)
+
+        assert database.list_finding_feedback_records() == [updated_record]
+    finally:
+        database.close()
+
+
+def test_database_persists_maintenance_windows(tmp_path: Path) -> None:
+    """Maintenance windows should persist by scope identity."""
+    database = build_database(tmp_path)
+    maintenance_window = build_maintenance_window_record()
+    try:
+        database.upsert_maintenance_window(maintenance_window)
+        database.upsert_maintenance_window(
+            MaintenanceWindowRecord(
+                scope=MaintenanceScope.GLOBAL,
+                started_at=ts(15, 5),
+                expires_at=ts(15, 35),
+            )
+        )
+
+        assert database.list_maintenance_windows() == [
+            MaintenanceWindowRecord(
+                scope=MaintenanceScope.GLOBAL,
+                started_at=ts(15, 5),
+                expires_at=ts(15, 35),
+            ),
+            maintenance_window,
+        ]
+
+        database.delete_maintenance_window(
+            scope=MaintenanceScope.SERVICE,
+            service_id="svc-radarr",
+        )
+        assert database.list_maintenance_windows() == [
+            MaintenanceWindowRecord(
+                scope=MaintenanceScope.GLOBAL,
+                started_at=ts(15, 5),
+                expires_at=ts(15, 35),
+            )
+        ]
     finally:
         database.close()
 
@@ -697,6 +794,58 @@ def test_database_applies_absent_dependency_overrides_after_service_refresh(
         assert stored_source.dependencies == []
         assert stored_target is not None
         assert stored_target.dependents == []
+    finally:
+        database.close()
+
+
+def test_database_replaces_service_check_overrides_by_scope(tmp_path: Path) -> None:
+    """Service-scoped monitoring overrides should round-trip separately per scope."""
+    database = build_database(tmp_path)
+    active_override = ServiceCheckOverride(
+        scope=ServiceCheckOverrideScope.ACTIVE,
+        service_id="svc-delugevpn",
+        check_id="endpoint_probe",
+        enabled=True,
+        interval_seconds=120,
+        updated_at=ts(18, 10),
+    )
+    staged_override = ServiceCheckOverride(
+        scope=ServiceCheckOverrideScope.STAGED,
+        service_id="svc-delugevpn",
+        check_id="endpoint_probe",
+        enabled=False,
+        interval_seconds=45,
+        updated_at=ts(18, 11),
+    )
+
+    try:
+        database.replace_service_check_overrides(
+            scope=ServiceCheckOverrideScope.ACTIVE,
+            overrides=[active_override],
+        )
+        database.replace_service_check_overrides(
+            scope=ServiceCheckOverrideScope.STAGED,
+            overrides=[staged_override],
+        )
+
+        assert database.list_service_check_overrides(
+            scope=ServiceCheckOverrideScope.ACTIVE
+        ) == [active_override]
+        assert database.list_service_check_overrides(
+            scope=ServiceCheckOverrideScope.STAGED
+        ) == [staged_override]
+
+        database.replace_service_check_overrides(
+            scope=ServiceCheckOverrideScope.ACTIVE,
+            overrides=[],
+        )
+
+        assert database.list_service_check_overrides(
+            scope=ServiceCheckOverrideScope.ACTIVE
+        ) == []
+        assert database.list_service_check_overrides(
+            scope=ServiceCheckOverrideScope.STAGED
+        ) == [staged_override]
     finally:
         database.close()
 

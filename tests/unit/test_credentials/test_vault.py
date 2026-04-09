@@ -9,12 +9,14 @@ import pytest
 
 from kaval.credentials import (
     AdapterCredentialState,
+    CredentialMaterialNotFoundError,
     CredentialMaterialService,
     CredentialRequestManager,
     CredentialRequestMode,
     CredentialRequestStatus,
     CredentialVault,
     CredentialVaultLockedError,
+    CredentialVaultPassphraseError,
     VolatileCredentialStore,
 )
 from kaval.database import KavalDatabase
@@ -80,6 +82,96 @@ def test_vault_encrypts_and_retrieves_secret_after_unlock(tmp_path: Path) -> Non
         assert vault.get_secret(reference_id, now=ts(18, 3)) == "radarr-secret-value"
     finally:
         database.close()
+
+
+def test_vault_upserts_and_deletes_managed_secret_references(tmp_path: Path) -> None:
+    """Managed secret references should stay stable across updates and support deletion."""
+    database_path = seed_database(tmp_path / "vault-managed.db")
+    vault = CredentialVault(database_path=database_path, auto_lock_minutes=5)
+    vault.unlock("correct horse battery staple", now=ts(18, 0))
+
+    reference_id = vault.upsert_managed_secret(
+        reference_id="vault:settings:models:cloud_api_key",
+        secret_value="first-secret",
+        service_id="settings.models.cloud",
+        credential_key="api_key",
+        submitted_by="admin_ui",
+        now=ts(18, 1),
+    )
+    updated_reference_id = vault.upsert_managed_secret(
+        reference_id=reference_id,
+        secret_value="second-secret",
+        service_id="settings.models.cloud",
+        credential_key="api_key",
+        submitted_by="admin_ui",
+        now=ts(18, 2),
+    )
+
+    assert updated_reference_id == reference_id
+    assert vault.get_secret(reference_id, now=ts(18, 3)) == "second-secret"
+
+    vault.delete_secret(reference_id)
+    with pytest.raises(CredentialMaterialNotFoundError, match=reference_id):
+        vault.get_secret(reference_id, now=ts(18, 4))
+
+
+def test_vault_tracks_last_used_and_last_tested_metadata(tmp_path: Path) -> None:
+    """Vault reads and explicit tests should update secret-free usage metadata."""
+    database_path = seed_database(tmp_path / "vault-metadata.db")
+    vault = CredentialVault(database_path=database_path, auto_lock_minutes=5)
+    vault.unlock("correct horse battery staple", now=ts(18, 0))
+
+    reference_id = vault.upsert_managed_secret(
+        reference_id="vault:settings:models:local_api_key",
+        secret_value="local-secret",
+        service_id="settings.models.local",
+        credential_key="api_key",
+        submitted_by="admin_ui",
+        now=ts(18, 1),
+    )
+
+    assert vault.get_secret(reference_id, now=ts(18, 2)) == "local-secret"
+    results = vault.test_credentials(now=ts(18, 3))
+    stored_record = next(
+        record for record in vault.list_credentials() if record.reference_id == reference_id
+    )
+
+    assert len(results) == 1
+    assert results[0].ok is True
+    assert stored_record.last_used_at == ts(18, 2)
+    assert stored_record.last_tested_at == ts(18, 3)
+
+
+def test_vault_can_rotate_master_passphrase(tmp_path: Path) -> None:
+    """Changing the master passphrase should keep stored credentials readable."""
+    database_path = seed_database(tmp_path / "vault-rotate.db")
+    vault = CredentialVault(database_path=database_path, auto_lock_minutes=5)
+    vault.unlock("correct horse battery staple", now=ts(18, 0))
+
+    reference_id = vault.upsert_managed_secret(
+        reference_id="vault:settings:models:cloud_api_key",
+        secret_value="cloud-secret",
+        service_id="settings.models.cloud",
+        credential_key="api_key",
+        submitted_by="admin_ui",
+        now=ts(18, 1),
+    )
+
+    status = vault.change_master_passphrase(
+        current_master_passphrase="correct horse battery staple",
+        new_master_passphrase="correct horse battery stable",
+        now=ts(18, 2),
+    )
+    vault.lock()
+
+    with pytest.raises(CredentialVaultPassphraseError):
+        vault.unlock("correct horse battery staple", now=ts(18, 3))
+
+    unlocked_status = vault.unlock("correct horse battery stable", now=ts(18, 4))
+
+    assert status.unlocked is True
+    assert unlocked_status.unlocked is True
+    assert vault.get_secret(reference_id, now=ts(18, 5)) == "cloud-secret"
 
 
 def test_vault_auto_locks_after_timeout(tmp_path: Path) -> None:

@@ -190,6 +190,7 @@ def test_build_service_descriptor_community_export_omits_local_fields() -> None:
     export = build_service_descriptor_community_export(
         loaded.descriptor.model_copy(
             update={
+                "plugin_dependencies": ["community.applications"],
                 "source": DescriptorSource.USER,
                 "verified": True,
                 "generated_at": datetime(2026, 4, 8, 9, 30, tzinfo=UTC),
@@ -219,6 +220,31 @@ def test_build_service_descriptor_community_export_omits_local_fields() -> None:
     assert "dns_targets:" not in export.yaml_text
     assert "inspection:" not in export.yaml_text
     assert "credential_hints:" not in export.yaml_text
+    assert "plugin_dependencies:" in export.yaml_text
+
+
+def test_load_service_descriptor_rejects_duplicate_plugin_dependencies(tmp_path: Path) -> None:
+    """Plugin dependency metadata should be explicit and unique."""
+    descriptor_path = tmp_path / "radarr.yaml"
+    descriptor_path.write_text(
+        "\n".join(
+            [
+                "id: radarr",
+                "name: Radarr",
+                "category: arr",
+                "match:",
+                "  image_patterns:",
+                "    - lscr.io/linuxserver/radarr*",
+                "plugin_dependencies:",
+                "  - community.applications",
+                "  - Community.Applications",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DescriptorLoadError, match="plugin_dependencies must be unique"):
+        load_service_descriptor(descriptor_path)
 
 
 def test_shipped_pihole_descriptor_exposes_dns_target_metadata() -> None:

@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from secrets import token_bytes
+from sqlite3 import Connection
 from uuid import uuid4
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -48,6 +49,10 @@ class CredentialVaultPassphraseError(CredentialVaultError):
     """Raised when the supplied master passphrase is invalid."""
 
 
+class CredentialVaultNotInitializedError(CredentialVaultError):
+    """Raised when a vault mutation requires prior initialization."""
+
+
 class CredentialMaterialNotFoundError(CredentialVaultError):
     """Raised when a stored credential reference does not exist or has expired."""
 
@@ -82,6 +87,15 @@ class AdapterCredentialResolution:
     missing_keys: tuple[str, ...] = ()
     detail: str | None = None
     credentials: dict[str, str] = field(default_factory=dict, repr=False)
+
+
+@dataclass(slots=True)
+class VaultCredentialTestResult:
+    """Result of one explicit vault readability test."""
+
+    record: VaultCredentialRecord
+    ok: bool
+    message: str
 
 
 @dataclass(slots=True)
@@ -195,11 +209,10 @@ class CredentialVault:
             config = database.get_vault_config()
             if config is None:
                 config = self._initialize_vault(database, master_passphrase, now=effective_now)
-            derived_key = _derive_fernet_key(master_passphrase, config.salt_b64)
-            try:
-                Fernet(derived_key).decrypt(config.verifier_token.encode("utf-8"))
-            except InvalidToken as exc:
-                raise CredentialVaultPassphraseError("master passphrase is invalid") from exc
+            derived_key = _verified_fernet_key(
+                master_passphrase,
+                config=config,
+            )
         finally:
             database.close()
 
@@ -243,6 +256,51 @@ class CredentialVault:
             database.close()
         return reference_id
 
+    def list_credentials(self) -> list[VaultCredentialRecord]:
+        """List stored vault credentials without decrypting their secret values."""
+        database = self._database()
+        try:
+            return database.list_vault_credentials()
+        finally:
+            database.close()
+
+    def upsert_managed_secret(
+        self,
+        *,
+        reference_id: str,
+        secret_value: str,
+        service_id: str,
+        credential_key: str,
+        submitted_by: str,
+        request_id: str | None = None,
+        incident_id: str | None = None,
+        now: datetime | None = None,
+    ) -> str:
+        """Encrypt and persist one stable-reference managed secret."""
+        effective_now = now or datetime.now(tz=UTC)
+        fernet = self._active_fernet(effective_now)
+        database = self._database()
+        try:
+            existing_record = database.get_vault_credential(reference_id)
+            created_at = (
+                effective_now if existing_record is None else existing_record.created_at
+            )
+            record = VaultCredentialRecord(
+                reference_id=reference_id,
+                request_id=request_id or f"managed:{service_id}:{credential_key}",
+                incident_id=incident_id or "managed",
+                service_id=service_id,
+                credential_key=credential_key,
+                ciphertext=fernet.encrypt(secret_value.encode("utf-8")).decode("utf-8"),
+                submitted_by=submitted_by,
+                created_at=created_at,
+                updated_at=effective_now,
+            )
+            database.upsert_vault_credential(record)
+        finally:
+            database.close()
+        return reference_id
+
     def get_secret(self, reference_id: str, *, now: datetime | None = None) -> str:
         """Decrypt one stored vault credential by opaque reference."""
         effective_now = now or datetime.now(tz=UTC)
@@ -250,17 +308,130 @@ class CredentialVault:
         database = self._database()
         try:
             record = database.get_vault_credential(reference_id)
+            if record is None:
+                msg = f"credential material not found: {reference_id}"
+                raise CredentialMaterialNotFoundError(msg)
+            try:
+                secret_value = fernet.decrypt(record.ciphertext.encode("utf-8")).decode(
+                    "utf-8"
+                )
+            except InvalidToken as exc:
+                raise CredentialVaultPassphraseError(
+                    "stored vault credential could not be decrypted"
+                ) from exc
+            updated_record = record.model_copy(update={"last_used_at": effective_now})
+            connection = database.connection()
+            with connection:
+                _upsert_vault_credential_record(connection, updated_record)
+            return secret_value
         finally:
             database.close()
-        if record is None:
-            msg = f"credential material not found: {reference_id}"
-            raise CredentialMaterialNotFoundError(msg)
+
+    def delete_secret(self, reference_id: str) -> None:
+        """Delete one stored vault secret reference without decrypting it."""
+        database = self._database()
         try:
-            return fernet.decrypt(record.ciphertext.encode("utf-8")).decode("utf-8")
-        except InvalidToken as exc:
-            raise CredentialVaultPassphraseError(
-                "stored vault credential could not be decrypted"
-            ) from exc
+            database.delete_vault_credential(reference_id)
+        finally:
+            database.close()
+
+    def test_credentials(
+        self,
+        *,
+        now: datetime | None = None,
+    ) -> list[VaultCredentialTestResult]:
+        """Test whether each stored credential can be decrypted with the current key."""
+        effective_now = now or datetime.now(tz=UTC)
+        fernet = self._active_fernet(effective_now)
+        database = self._database()
+        try:
+            records = database.list_vault_credentials()
+            results: list[VaultCredentialTestResult] = []
+            connection = database.connection()
+            with connection:
+                for record in records:
+                    ok = True
+                    message = "Stored credential decrypted successfully."
+                    try:
+                        fernet.decrypt(record.ciphertext.encode("utf-8"))
+                    except InvalidToken:
+                        ok = False
+                        message = "Stored credential could not be decrypted."
+                    tested_record = record.model_copy(update={"last_tested_at": effective_now})
+                    _upsert_vault_credential_record(connection, tested_record)
+                    results.append(
+                        VaultCredentialTestResult(
+                            record=tested_record,
+                            ok=ok,
+                            message=message,
+                        )
+                    )
+            return results
+        finally:
+            database.close()
+
+    def change_master_passphrase(
+        self,
+        *,
+        current_master_passphrase: str,
+        new_master_passphrase: str,
+        now: datetime | None = None,
+    ) -> VaultStatus:
+        """Re-encrypt all stored credentials under a new master passphrase."""
+        effective_now = now or datetime.now(tz=UTC)
+        if not current_master_passphrase:
+            msg = "current_master_passphrase must not be empty"
+            raise ValueError(msg)
+        if not new_master_passphrase:
+            msg = "new_master_passphrase must not be empty"
+            raise ValueError(msg)
+
+        database = self._database()
+        try:
+            config = database.get_vault_config()
+            if config is None:
+                raise CredentialVaultNotInitializedError("vault is not initialized")
+            current_key = _verified_fernet_key(
+                current_master_passphrase,
+                config=config,
+            )
+            next_config, next_key = _build_vault_config_record(
+                new_master_passphrase,
+                now=effective_now,
+            )
+            current_fernet = Fernet(current_key)
+            next_fernet = Fernet(next_key)
+            rotated_records: list[VaultCredentialRecord] = []
+            for record in database.list_vault_credentials():
+                try:
+                    secret_value = current_fernet.decrypt(
+                        record.ciphertext.encode("utf-8")
+                    ).decode("utf-8")
+                except InvalidToken as exc:
+                    raise CredentialVaultError(
+                        "stored vault credential could not be decrypted"
+                    ) from exc
+                rotated_records.append(
+                    record.model_copy(
+                        update={
+                            "ciphertext": next_fernet.encrypt(
+                                secret_value.encode("utf-8")
+                            ).decode("utf-8"),
+                            "updated_at": effective_now,
+                        }
+                    )
+                )
+            connection = database.connection()
+            with connection:
+                _upsert_vault_config_record(connection, next_config)
+                for record in rotated_records:
+                    _upsert_vault_credential_record(connection, record)
+        finally:
+            database.close()
+
+        self._unlock_key = next_key
+        self._unlock_expires_at = effective_now + timedelta(minutes=self.auto_lock_minutes)
+        return self.status(now=effective_now)
 
     def _initialize_vault(
         self,
@@ -270,16 +441,7 @@ class CredentialVault:
         now: datetime,
     ) -> VaultConfigRecord:
         """Create the initial vault metadata using the supplied passphrase."""
-        salt_b64 = base64.b64encode(token_bytes(16)).decode("ascii")
-        derived_key = _derive_fernet_key(master_passphrase, salt_b64)
-        config = VaultConfigRecord(
-            salt_b64=salt_b64,
-            verifier_token=Fernet(derived_key)
-            .encrypt(_VERIFIER_PLAINTEXT)
-            .decode("utf-8"),
-            created_at=now,
-            updated_at=now,
-        )
+        config, _ = _build_vault_config_record(master_passphrase, now=now)
         database.upsert_vault_config(config)
         return config
 
@@ -433,6 +595,116 @@ class CredentialMaterialService:
     def lock_vault(self) -> VaultStatus:
         """Explicitly lock the vault and forget the in-memory unlock key."""
         return self.vault.lock()
+
+    def list_vault_credentials(self) -> list[VaultCredentialRecord]:
+        """List stored vault credentials without exposing their values."""
+        return self.vault.list_credentials()
+
+    def test_vault_credentials(
+        self,
+        *,
+        now: datetime | None = None,
+    ) -> list[VaultCredentialTestResult]:
+        """Run an explicit readability test across all stored vault credentials."""
+        return self.vault.test_credentials(now=now)
+
+    def change_vault_master_passphrase(
+        self,
+        *,
+        current_master_passphrase: str,
+        new_master_passphrase: str,
+        now: datetime | None = None,
+    ) -> VaultStatus:
+        """Rotate the vault master passphrase and re-encrypt stored secrets."""
+        return self.vault.change_master_passphrase(
+            current_master_passphrase=current_master_passphrase,
+            new_master_passphrase=new_master_passphrase,
+            now=now,
+        )
+
+
+def _build_vault_config_record(
+    master_passphrase: str,
+    *,
+    now: datetime,
+) -> tuple[VaultConfigRecord, bytes]:
+    """Build one persisted vault config record and its derived Fernet key."""
+    salt_b64 = base64.b64encode(token_bytes(16)).decode("ascii")
+    derived_key = _derive_fernet_key(master_passphrase, salt_b64)
+    return (
+        VaultConfigRecord(
+            salt_b64=salt_b64,
+            verifier_token=Fernet(derived_key)
+            .encrypt(_VERIFIER_PLAINTEXT)
+            .decode("utf-8"),
+            created_at=now,
+            updated_at=now,
+        ),
+        derived_key,
+    )
+
+
+def _verified_fernet_key(
+    master_passphrase: str,
+    *,
+    config: VaultConfigRecord,
+) -> bytes:
+    """Validate one passphrase against persisted config and return the derived key."""
+    derived_key = _derive_fernet_key(master_passphrase, config.salt_b64)
+    try:
+        Fernet(derived_key).decrypt(config.verifier_token.encode("utf-8"))
+    except InvalidToken as exc:
+        raise CredentialVaultPassphraseError("master passphrase is invalid") from exc
+    return derived_key
+
+
+def _upsert_vault_config_record(connection: Connection, record: VaultConfigRecord) -> None:
+    """Persist one vault config record on an existing transaction."""
+    connection.execute(
+        """
+        INSERT INTO vault_config (singleton_key, updated_at, payload)
+        VALUES (?, ?, ?)
+        ON CONFLICT(singleton_key) DO UPDATE SET
+            updated_at = excluded.updated_at,
+            payload = excluded.payload
+        """,
+        (
+            1,
+            record.updated_at.isoformat(),
+            record.model_dump_json(),
+        ),
+    )
+
+
+def _upsert_vault_credential_record(
+    connection: Connection,
+    record: VaultCredentialRecord,
+) -> None:
+    """Persist one vault credential record on an existing transaction."""
+    connection.execute(
+        """
+        INSERT INTO vault_credentials (
+            reference_id,
+            request_id,
+            service_id,
+            updated_at,
+            payload
+        )
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(reference_id) DO UPDATE SET
+            request_id = excluded.request_id,
+            service_id = excluded.service_id,
+            updated_at = excluded.updated_at,
+            payload = excluded.payload
+        """,
+        (
+            record.reference_id,
+            record.request_id,
+            record.service_id,
+            record.updated_at.isoformat(),
+            record.model_dump_json(),
+        ),
+    )
 
 
 def _derive_fernet_key(master_passphrase: str, salt_b64: str) -> bytes:

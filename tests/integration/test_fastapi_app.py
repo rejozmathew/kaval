@@ -7,12 +7,13 @@ import json
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 from fastapi.testclient import TestClient
 
 from kaval.api import create_app
 from kaval.credentials import build_credential_request_callback_id
-from kaval.credentials.models import CredentialRequestMode
+from kaval.credentials.models import CredentialRequestMode, VaultCredentialRecord
 from kaval.database import KavalDatabase
 from kaval.discovery.descriptors import (
     load_service_descriptors,
@@ -30,6 +31,8 @@ from kaval.models import (
     Endpoint,
     EndpointProtocol,
     Finding,
+    FindingFeedbackReason,
+    FindingFeedbackRecord,
     FindingStatus,
     HardwareProfile,
     Incident,
@@ -41,6 +44,8 @@ from kaval.models import (
     JournalEntry,
     ModelUsed,
     NetworkingProfile,
+    PluginImpactService,
+    PluginProfile,
     Service,
     ServicesSummary,
     ServiceStatus,
@@ -67,9 +72,190 @@ def ts(hour: int, minute: int = 0) -> datetime:
     return datetime(2026, 3, 31, hour, minute, tzinfo=UTC)
 
 
+class FrozenApiDateTime(datetime):
+    """Deterministic datetime shim for audit-retention endpoint tests."""
+
+    @classmethod
+    def now(cls, tz: object | None = None) -> datetime:
+        """Return a fixed current time for retention-aware API reads."""
+        frozen = datetime(2026, 4, 8, 12, 0, tzinfo=UTC)
+        if tz is None:
+            return frozen.replace(tzinfo=None)
+        return frozen.astimezone(tz)
+
+
 def load_webhook_fixture(name: str) -> dict[str, object]:
     """Load one webhook payload fixture used by FastAPI webhook tests."""
     return json.loads((WEBHOOK_FIXTURES_DIR / name).read_text(encoding="utf-8"))
+
+
+def build_model_settings_payload(
+    *,
+    local_enabled: bool,
+    local_model: str | None,
+    local_api_key: str | None = None,
+    cloud_enabled: bool = False,
+    cloud_provider: str = "anthropic",
+    cloud_model: str | None = None,
+    cloud_api_key: str | None = None,
+) -> dict[str, object]:
+    """Build a complete model-settings request payload for API tests."""
+    return {
+        "local": {
+            "enabled": local_enabled,
+            "model": local_model,
+            "base_url": "http://localhost:11434",
+            "timeout_seconds": 12.0,
+            "api_key": local_api_key,
+            "clear_stored_api_key": False,
+        },
+        "cloud": {
+            "enabled": cloud_enabled,
+            "provider": cloud_provider,
+            "model": cloud_model,
+            "base_url": (
+                "https://api.anthropic.com"
+                if cloud_provider == "anthropic"
+                else "https://api.openai.com"
+            ),
+            "timeout_seconds": 25.0,
+            "max_output_tokens": 800,
+            "api_key": cloud_api_key,
+            "clear_stored_api_key": False,
+        },
+        "escalation": {
+            "finding_count_gt": 4,
+            "local_confidence_lt": 0.55,
+            "escalate_on_multiple_domains": True,
+            "escalate_on_changelog_research": True,
+            "escalate_on_user_request": False,
+            "max_cloud_calls_per_day": 20,
+            "max_cloud_calls_per_incident": 3,
+        },
+    }
+
+
+def build_notification_settings_payload(
+    *,
+    channels: list[dict[str, object]],
+    quiet_hours_enabled: bool = True,
+) -> dict[str, object]:
+    """Build a complete notification-settings request payload for API tests."""
+    return {
+        "channels": channels,
+        "routing": {
+            "critical": "immediate",
+            "high": "immediate_with_dedup",
+            "medium": "hourly_digest",
+            "low": "dashboard_only",
+            "dedup_window_minutes": 15,
+            "digest_window_minutes": 60,
+        },
+        "quiet_hours": {
+            "enabled": quiet_hours_enabled,
+            "start_time_local": "22:00",
+            "end_time_local": "07:00",
+            "timezone": "UTC",
+        },
+    }
+
+
+def build_monitoring_settings_payload(
+    *,
+    endpoint_probe_interval: int = 120,
+    endpoint_probe_timeout_seconds: float = 5.0,
+    restart_delta_threshold: int = 3,
+    tls_cert_enabled: bool = True,
+    tls_warning_days: int = 7,
+    service_overrides: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    """Build a complete monitoring-settings request payload for API tests."""
+    return {
+        "checks": [
+            {
+                "check_id": "container_health",
+                "enabled": True,
+                "interval_seconds": 60,
+            },
+            {
+                "check_id": "restart_storm",
+                "enabled": True,
+                "interval_seconds": 60,
+                "restart_delta_threshold": restart_delta_threshold,
+            },
+            {
+                "check_id": "endpoint_probe",
+                "enabled": True,
+                "interval_seconds": endpoint_probe_interval,
+                "probe_timeout_seconds": endpoint_probe_timeout_seconds,
+            },
+            {
+                "check_id": "vm_health",
+                "enabled": True,
+                "interval_seconds": 120,
+            },
+            {
+                "check_id": "tls_cert",
+                "enabled": tls_cert_enabled,
+                "interval_seconds": 21600,
+                "tls_warning_days": tls_warning_days,
+            },
+            {
+                "check_id": "dns_resolution",
+                "enabled": True,
+                "interval_seconds": 300,
+            },
+            {
+                "check_id": "log_pattern",
+                "enabled": True,
+                "interval_seconds": 300,
+            },
+            {
+                "check_id": "unraid_system",
+                "enabled": True,
+                "interval_seconds": 600,
+            },
+            {
+                "check_id": "dependency_chain",
+                "enabled": True,
+                "interval_seconds": 600,
+            },
+        ],
+        "service_overrides": service_overrides or [],
+    }
+
+
+def build_system_settings_payload(
+    *,
+    log_level: str,
+    audit_detail_retention_days: int = 90,
+    audit_summary_retention_days: int = 365,
+) -> dict[str, object]:
+    """Build a complete system-settings request payload for API tests."""
+    return {
+        "log_level": log_level,
+        "audit_detail_retention_days": audit_detail_retention_days,
+        "audit_summary_retention_days": audit_summary_retention_days,
+    }
+
+
+class FakeAppriseAdapter:
+    """Deterministic Apprise adapter for notification-settings API tests."""
+
+    def __init__(self) -> None:
+        """Initialize the captured destination and notification lists."""
+        self.added_urls: list[str] = []
+        self.notifications: list[dict[str, str]] = []
+
+    def add(self, servers: str) -> bool:
+        """Capture one configured Apprise destination URL."""
+        self.added_urls.append(servers)
+        return True
+
+    def notify(self, *, title: str, body: str) -> bool:
+        """Capture one notification payload and report success."""
+        self.notifications.append({"title": title, "body": body})
+        return True
 
 
 def test_fastapi_core_endpoints_expose_phase1_state(
@@ -122,6 +308,11 @@ def test_fastapi_core_endpoints_expose_phase1_state(
     investigations_payload = investigations_response.json()
     assert investigations_response.status_code == 200
     assert [investigation["id"] for investigation in investigations_payload] == ["inv-1"]
+    assert investigations_payload[0]["cloud_model_calls"] == 0
+    assert investigations_payload[0]["local_input_tokens"] == 0
+    assert investigations_payload[0]["cloud_input_tokens"] == 0
+    assert investigations_payload[0]["estimated_total_cost_usd"] == 0.0
+    assert investigations_payload[0]["cloud_escalation_reason"] is None
 
     changes_payload = changes_response.json()
     assert changes_response.status_code == 200
@@ -215,6 +406,21 @@ def test_fastapi_core_endpoints_expose_phase1_state(
     assert system_profile_response.status_code == 200
     assert profile_payload["hostname"] == "zactower"
     assert profile_payload["services_summary"]["matched_descriptors"] == 1
+    assert profile_payload["plugins"] == [
+        {
+            "name": "community.applications",
+            "version": "2026.03.30",
+            "enabled": True,
+            "update_available": False,
+            "impacted_services": [
+                {
+                    "service_id": "svc-delugevpn",
+                    "service_name": "DelugeVPN",
+                    "descriptor_id": "downloads/delugevpn",
+                }
+            ],
+        }
+    ]
 
     notes_payload = user_notes_response.json()
     assert user_notes_response.status_code == 200
@@ -294,6 +500,75 @@ def test_graph_edge_confirmation_logs_a_config_change(
     assert graph_edges == [payload["edge"]]
     latest_change = changes_response.json()[-1]
     assert latest_change["id"] == payload["audit_change"]["id"]
+
+
+def test_graph_endpoint_preserves_vm_service_shape_for_vm_graph_ui(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """VM graph entries should preserve the identity fields the frontend renders."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    database = KavalDatabase(database_path)
+    database.upsert_service(
+        Service(
+            id="svc-vm-ubuntu",
+            name="Ubuntu Server",
+            type=ServiceType.VM,
+            category="virtualization",
+            status=ServiceStatus.HEALTHY,
+            descriptor_id=None,
+            descriptor_source=None,
+            container_id=None,
+            vm_id="vm-ubuntu",
+            image=None,
+            endpoints=[
+                Endpoint(
+                    name="Home Assistant",
+                    protocol=EndpointProtocol.HTTP,
+                    host="ubuntu-vm",
+                    port=8123,
+                    path="/",
+                    url=None,
+                    auth_required=True,
+                    expected_status=200,
+                )
+            ],
+            dns_targets=[],
+            dependencies=[],
+            dependents=[],
+            last_check=ts(12, 6),
+            active_findings=0,
+            active_incidents=0,
+        )
+    )
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        graph_response = client.get("/api/v1/graph")
+
+    assert graph_response.status_code == 200
+    vm_service = next(
+        service
+        for service in graph_response.json()["services"]
+        if service["id"] == "svc-vm-ubuntu"
+    )
+    assert vm_service["type"] == "vm"
+    assert vm_service["vm_id"] == "vm-ubuntu"
+    assert vm_service["endpoints"] == [
+        {
+            "name": "Home Assistant",
+            "protocol": "http",
+            "host": "ubuntu-vm",
+            "port": 8123,
+            "path": "/",
+            "url": None,
+            "auth_required": True,
+            "expected_status": 200,
+        }
+    ]
 
 
 def test_graph_edge_edit_and_remove_routes_update_the_effective_graph(
@@ -614,6 +889,131 @@ def test_service_detail_endpoint_surfaces_unconfigured_configured_and_locked_ada
         },
     ]
     assert "radarr-secret-value" not in locked_detail.text
+
+
+def test_service_check_suppression_route_updates_service_detail_monitoring_and_audit(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Per-service suppression should be visible in service detail and audit history."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        initial_detail = client.get("/api/v1/services/svc-delugevpn/detail")
+        suppress_response = client.put(
+            "/api/v1/services/svc-delugevpn/checks/endpoint_probe/suppression",
+            json={"suppressed": True},
+        )
+        monitoring_response = client.get("/api/v1/settings/monitoring")
+        unsuppress_response = client.put(
+            "/api/v1/services/svc-delugevpn/checks/endpoint_probe/suppression",
+            json={"suppressed": False},
+        )
+        changes_response = client.get("/api/v1/changes")
+
+    assert initial_detail.status_code == 200
+    initial_check = next(
+        item
+        for item in initial_detail.json()["monitoring_section"]["checks"]
+        if item["check_id"] == "endpoint_probe"
+    )
+    assert initial_check["suppressed"] is False
+    assert initial_check["effective_enabled"] is True
+    assert initial_check["source"] == "global_default"
+
+    assert suppress_response.status_code == 200
+    suppress_payload = suppress_response.json()
+    suppressed_check = next(
+        item
+        for item in suppress_payload["detail"]["monitoring_section"]["checks"]
+        if item["check_id"] == "endpoint_probe"
+    )
+    assert suppressed_check["suppressed"] is True
+    assert suppressed_check["effective_enabled"] is False
+    assert suppressed_check["source"] == "service_override"
+    assert suppressed_check["override_enabled"] is False
+    assert suppress_payload["audit_change"]["type"] == "config_change"
+    assert suppress_payload["audit_change"]["service_id"] == "svc-delugevpn"
+    assert "Endpoint probe" in suppress_payload["audit_change"]["description"]
+
+    assert monitoring_response.status_code == 200
+    monitoring_payload = monitoring_response.json()
+    assert any(
+        item["service_id"] == "svc-delugevpn"
+        and item["check_id"] == "endpoint_probe"
+        and item["enabled"] is False
+        for item in monitoring_payload["active"]["service_overrides"]
+    )
+    assert any(
+        item["service_id"] == "svc-delugevpn"
+        and item["check_id"] == "endpoint_probe"
+        and item["enabled"] is False
+        for item in monitoring_payload["staged"]["service_overrides"]
+    )
+
+    assert unsuppress_response.status_code == 200
+    unsuppress_payload = unsuppress_response.json()
+    restored_check = next(
+        item
+        for item in unsuppress_payload["detail"]["monitoring_section"]["checks"]
+        if item["check_id"] == "endpoint_probe"
+    )
+    assert restored_check["suppressed"] is False
+    assert restored_check["effective_enabled"] is True
+    assert restored_check["source"] == "global_default"
+    assert restored_check["override_enabled"] is None
+
+    change_ids = {item["id"] for item in changes_response.json()}
+    assert suppress_payload["audit_change"]["id"] in change_ids
+    assert unsuppress_payload["audit_change"]["id"] in change_ids
+
+
+def test_service_check_suppression_route_rejects_explicit_enabled_service_override(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Service-detail suppression should not trample explicit enabled overrides."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    database_path = tmp_path / "kaval.db"
+    settings_path = tmp_path / "kaval.yaml"
+    seed_api_database(database_path)
+    app = create_app(
+        database_path=database_path,
+        settings_path=settings_path,
+    )
+
+    with TestClient(app) as client:
+        client.put(
+            "/api/v1/settings/monitoring",
+            json=build_monitoring_settings_payload(
+                tls_cert_enabled=False,
+                service_overrides=[
+                    {
+                        "service_id": "svc-delugevpn",
+                        "check_id": "endpoint_probe",
+                        "enabled": True,
+                        "interval_seconds": 45,
+                    }
+                ],
+            ),
+        )
+        client.post("/api/v1/settings/monitoring/apply")
+        response = client.put(
+            "/api/v1/services/svc-delugevpn/checks/endpoint_probe/suppression",
+            json={"suppressed": True},
+        )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": (
+            "service check has an explicit enabled override; edit monitoring settings instead"
+        )
+    }
 
 
 def test_service_descriptor_view_endpoint_returns_rendered_descriptor_sections(
@@ -1414,6 +1814,762 @@ def test_capability_health_endpoint_uses_persisted_runtime_signals(
     assert layers["executor_process"]["summary"] == "Executor process is healthy."
 
 
+def test_model_settings_api_stages_applies_and_tests_local_model(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Model settings should persist staged changes, require apply, and drive runtime insight."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    monkeypatch.delenv("KAVAL_CLOUD_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_CLOUD_MODEL_ENABLED", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    database_path = tmp_path / "kaval.db"
+    settings_path = tmp_path / "kaval.yaml"
+    seed_api_database(database_path)
+
+    def local_transport(http_request, timeout_seconds):
+        body = json.loads(cast(bytes, http_request.data).decode("utf-8"))
+        assert timeout_seconds == 12.0
+        assert http_request.full_url == "http://localhost:11434/v1/chat/completions"
+        assert body["messages"][1]["content"] == '{"connection_ok": true}'
+        return json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"connection_ok": true}',
+                        }
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    app = create_app(
+        database_path=database_path,
+        settings_path=settings_path,
+        local_model_transport=local_transport,
+    )
+
+    with TestClient(app) as client:
+        unlock_response = client.post(
+            "/api/v1/vault/unlock",
+            json={"master_passphrase": "correct horse battery staple"},
+        )
+        initial_settings = client.get("/api/v1/settings/models")
+        save_response = client.put(
+            "/api/v1/settings/models",
+            json=build_model_settings_payload(
+                local_enabled=True,
+                local_model="qwen3:14b",
+                local_api_key="local-secret",
+            ),
+        )
+        services_before_apply = client.get("/api/v1/services")
+        apply_response = client.post("/api/v1/settings/models/apply")
+        services_after_apply = client.get("/api/v1/services")
+        capability_response = client.get("/api/v1/capability-health")
+        test_response = client.post(
+            "/api/v1/settings/models/test",
+            json={"target": "local", "scope": "active"},
+        )
+
+    assert unlock_response.status_code == 200
+    assert initial_settings.status_code == 200
+    assert initial_settings.json()["active"]["local"]["configured"] is False
+
+    assert save_response.status_code == 200
+    save_payload = save_response.json()
+    assert save_payload["settings"]["apply_required"] is True
+    assert save_payload["settings"]["active"]["local"]["configured"] is False
+    assert save_payload["settings"]["staged"]["local"]["configured"] is True
+    assert save_payload["settings"]["staged"]["local"]["api_key_source"] == "vault"
+    assert "local-secret" not in json.dumps(save_payload)
+
+    persisted_text = settings_path.read_text(encoding="utf-8")
+    assert "local-secret" not in persisted_text
+    assert "api_key_ref: vault:settings:models:local_api_key" in persisted_text
+
+    assert services_before_apply.status_code == 200
+    assert services_before_apply.json()[0]["insight"] == {"level": 2}
+
+    assert apply_response.status_code == 200
+    apply_payload = apply_response.json()
+    assert apply_payload["settings"]["apply_required"] is False
+    assert apply_payload["settings"]["active"]["local"]["configured"] is True
+
+    assert services_after_apply.status_code == 200
+    assert services_after_apply.json()[0]["insight"] == {"level": 3}
+
+    assert capability_response.status_code == 200
+    capability_layers = {
+        layer["layer"]: layer for layer in capability_response.json()["layers"]
+    }
+    assert capability_layers["local_model"]["display_state"] == "unavailable"
+    assert capability_layers["local_model"]["summary"] == "Local model health is unavailable."
+
+    assert test_response.status_code == 200
+    assert test_response.json() == {
+        "target": "local",
+        "scope": "active",
+        "ok": True,
+        "checked_at": test_response.json()["checked_at"],
+        "message": "Local model endpoint accepted the explicit settings test.",
+    }
+
+
+def test_model_settings_api_supports_staged_cloud_connection_tests(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Cloud model settings should support explicit staged testing before apply."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    monkeypatch.delenv("KAVAL_CLOUD_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_CLOUD_MODEL_ENABLED", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    database_path = tmp_path / "kaval.db"
+    settings_path = tmp_path / "kaval.yaml"
+    seed_api_database(database_path)
+
+    def cloud_transport(http_request, timeout_seconds):
+        headers = {key.lower(): value for key, value in http_request.header_items()}
+        body = json.loads(cast(bytes, http_request.data).decode("utf-8"))
+        assert timeout_seconds == 25.0
+        assert http_request.full_url == "https://api.anthropic.com/v1/messages"
+        assert headers["x-api-key"] == "cloud-secret"
+        assert body["system"] == "Return JSON only."
+        assert body["messages"] == [{"role": "user", "content": '{"connection_ok": true}'}]
+        return json.dumps(
+            {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": '{"connection_ok": true}',
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    app = create_app(
+        database_path=database_path,
+        settings_path=settings_path,
+        cloud_model_transport=cloud_transport,
+    )
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/v1/vault/unlock",
+            json={"master_passphrase": "correct horse battery staple"},
+        )
+        save_response = client.put(
+            "/api/v1/settings/models",
+            json=build_model_settings_payload(
+                local_enabled=False,
+                local_model=None,
+                cloud_enabled=True,
+                cloud_provider="anthropic",
+                cloud_model="claude-sonnet-4-20250514",
+                cloud_api_key="cloud-secret",
+            ),
+        )
+        staged_test_response = client.post(
+            "/api/v1/settings/models/test",
+            json={"target": "cloud", "scope": "staged"},
+        )
+        active_test_response = client.post(
+            "/api/v1/settings/models/test",
+            json={"target": "cloud", "scope": "active"},
+        )
+        settings_response = client.get("/api/v1/settings/models")
+
+    assert save_response.status_code == 200
+    assert staged_test_response.status_code == 200
+    assert staged_test_response.json()["ok"] is True
+    assert (
+        staged_test_response.json()["message"]
+        == "Cloud model endpoint accepted the explicit settings test."
+    )
+    assert active_test_response.status_code == 200
+    assert active_test_response.json()["ok"] is False
+    assert (
+        active_test_response.json()["message"]
+        == "Selected cloud model settings are not configured."
+    )
+    assert settings_response.status_code == 200
+    settings_payload = settings_response.json()
+    assert settings_payload["active"]["cloud"]["configured"] is False
+    assert settings_payload["staged"]["cloud"]["configured"] is True
+    assert settings_payload["staged"]["cloud"]["api_key_source"] == "vault"
+    assert "cloud-secret" not in json.dumps(settings_payload)
+
+
+def test_notification_settings_api_stages_applies_and_tests_channels(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Notification settings should stage, explicitly test, and later apply channels."""
+    monkeypatch.delenv("KAVAL_NOTIFICATION_URLS", raising=False)
+    database_path = tmp_path / "kaval.db"
+    settings_path = tmp_path / "kaval.yaml"
+    seed_api_database(database_path)
+    adapter = FakeAppriseAdapter()
+
+    app = create_app(
+        database_path=database_path,
+        settings_path=settings_path,
+        notification_bus_adapter_factory=lambda: adapter,
+    )
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/v1/vault/unlock",
+            json={"master_passphrase": "correct horse battery staple"},
+        )
+        initial_settings = client.get("/api/v1/settings/notifications")
+        save_response = client.put(
+            "/api/v1/settings/notifications",
+            json=build_notification_settings_payload(
+                channels=[
+                    {
+                        "id": None,
+                        "name": "Primary Discord",
+                        "enabled": True,
+                        "destination": "discord://tokenA/tokenB",
+                    }
+                ]
+            ),
+        )
+        capability_before_apply = client.get("/api/v1/capability-health")
+        staged_channel_id = save_response.json()["settings"]["staged"]["channels"][0]["id"]
+        test_response = client.post(
+            "/api/v1/settings/notifications/test",
+            json={"channel_id": staged_channel_id, "scope": "staged"},
+        )
+        apply_response = client.post("/api/v1/settings/notifications/apply")
+        capability_after_apply = client.get("/api/v1/capability-health")
+        settings_response = client.get("/api/v1/settings/notifications")
+
+    assert initial_settings.status_code == 200
+    assert initial_settings.json()["active"]["configured_channel_count"] == 0
+
+    assert save_response.status_code == 200
+    save_payload = save_response.json()
+    assert save_payload["settings"]["apply_required"] is True
+    assert save_payload["settings"]["active"]["configured_channel_count"] == 0
+    assert save_payload["settings"]["staged"]["configured_channel_count"] == 1
+    assert save_payload["settings"]["staged"]["channels"][0]["destination_source"] == "vault"
+    assert save_payload["settings"]["staged"]["quiet_hours"]["timezone"] == "UTC"
+    assert "discord://tokenA/tokenB" not in json.dumps(save_payload)
+
+    assert capability_before_apply.status_code == 200
+    capability_before_layers = {
+        layer["layer"]: layer for layer in capability_before_apply.json()["layers"]
+    }
+    assert capability_before_layers["notification_channels"]["display_state"] == "disabled"
+
+    assert test_response.status_code == 200
+    assert test_response.json()["ok"] is True
+    assert (
+        test_response.json()["message"]
+        == "Explicit notification channel test delivered successfully."
+    )
+    assert adapter.added_urls == ["discord://tokenA/tokenB"]
+    assert adapter.notifications[0]["title"] == "Kaval notification settings test"
+
+    assert apply_response.status_code == 200
+    apply_payload = apply_response.json()
+    assert apply_payload["settings"]["apply_required"] is False
+    assert apply_payload["settings"]["active"]["configured_channel_count"] == 1
+
+    assert capability_after_apply.status_code == 200
+    capability_after_layers = {
+        layer["layer"]: layer for layer in capability_after_apply.json()["layers"]
+    }
+    assert capability_after_layers["notification_channels"]["display_state"] == "unavailable"
+    assert (
+        capability_after_layers["notification_channels"]["summary"]
+        == "Notification channel health is unavailable."
+    )
+
+    assert settings_response.status_code == 200
+    assert settings_response.json()["active"]["channels"][0]["name"] == "Primary Discord"
+
+
+def test_monitoring_settings_api_stages_applies_and_reports_effective_intervals(
+    tmp_path: Path,
+) -> None:
+    """Monitoring settings should stage and apply global plus service-scoped cadence changes."""
+    database_path = tmp_path / "kaval.db"
+    settings_path = tmp_path / "kaval.yaml"
+    seed_api_database(database_path)
+    app = create_app(
+        database_path=database_path,
+        settings_path=settings_path,
+    )
+
+    with TestClient(app) as client:
+        initial_settings = client.get("/api/v1/settings/monitoring")
+        save_response = client.put(
+            "/api/v1/settings/monitoring",
+            json=build_monitoring_settings_payload(
+                endpoint_probe_interval=240,
+                endpoint_probe_timeout_seconds=7.5,
+                restart_delta_threshold=5,
+                tls_cert_enabled=False,
+                tls_warning_days=14,
+                service_overrides=[
+                    {
+                        "service_id": "svc-delugevpn",
+                        "check_id": "endpoint_probe",
+                        "enabled": True,
+                        "interval_seconds": 45,
+                        "probe_timeout_seconds": 2.5,
+                    },
+                    {
+                        "service_id": "svc-delugevpn",
+                        "check_id": "restart_storm",
+                        "enabled": None,
+                        "interval_seconds": None,
+                        "restart_delta_threshold": 6,
+                    },
+                ],
+            ),
+        )
+        apply_response = client.post("/api/v1/settings/monitoring/apply")
+        settings_response = client.get("/api/v1/settings/monitoring")
+
+    assert initial_settings.status_code == 200
+    initial_payload = initial_settings.json()
+    assert initial_payload["apply_required"] is False
+    assert initial_payload["active"]["checks"][2] == {
+        "check_id": "endpoint_probe",
+        "label": "Endpoint probe",
+        "description": (
+            "Probe declared HTTP and HTTPS endpoints that do not require auth."
+        ),
+        "enabled": True,
+        "interval_seconds": 120,
+        "tls_warning_days": None,
+        "restart_delta_threshold": None,
+        "probe_timeout_seconds": 5.0,
+        "default_enabled": True,
+        "default_interval_seconds": 120,
+        "default_tls_warning_days": None,
+        "default_restart_delta_threshold": None,
+        "default_probe_timeout_seconds": 5.0,
+    }
+    assert initial_payload["active"]["checks"][1]["restart_delta_threshold"] == 3
+    assert initial_payload["active"]["checks"][4]["tls_warning_days"] == 7
+
+    assert save_response.status_code == 200
+    save_payload = save_response.json()
+    assert save_payload["settings"]["apply_required"] is True
+    assert save_payload["settings"]["active"]["checks"][2]["interval_seconds"] == 120
+    assert save_payload["settings"]["staged"]["checks"][2]["interval_seconds"] == 240
+    assert save_payload["settings"]["staged"]["checks"][2]["probe_timeout_seconds"] == 7.5
+    assert save_payload["settings"]["staged"]["checks"][1]["restart_delta_threshold"] == 5
+    assert save_payload["settings"]["staged"]["checks"][4]["enabled"] is False
+    assert save_payload["settings"]["staged"]["checks"][4]["tls_warning_days"] == 14
+    assert save_payload["settings"]["staged"]["service_overrides"][0]["service_id"] == (
+        "svc-delugevpn"
+    )
+    assert (
+        save_payload["settings"]["staged"]["service_overrides"][0][
+            "probe_timeout_seconds"
+        ]
+        == 2.5
+    )
+    staged_delugevpn = next(
+        item
+        for item in save_payload["settings"]["staged"]["effective_services"]
+        if item["service_id"] == "svc-delugevpn"
+    )
+    staged_endpoint_probe = next(
+        item for item in staged_delugevpn["checks"] if item["check_id"] == "endpoint_probe"
+    )
+    staged_restart_storm = next(
+        item for item in staged_delugevpn["checks"] if item["check_id"] == "restart_storm"
+    )
+    assert staged_endpoint_probe["enabled"] is True
+    assert staged_endpoint_probe["base_interval_seconds"] == 45
+    assert staged_endpoint_probe["effective_interval_seconds"] == 45
+    assert staged_endpoint_probe["source"] == "service_override"
+    assert staged_endpoint_probe["probe_timeout_seconds"] == 2.5
+    assert staged_endpoint_probe["threshold_source"] == "service_override"
+    assert staged_restart_storm["restart_delta_threshold"] == 6
+    assert staged_restart_storm["threshold_source"] == "service_override"
+
+    persisted_text = settings_path.read_text(encoding="utf-8")
+    assert "monitoring:" in persisted_text
+    assert "check_id: endpoint_probe" in persisted_text
+    assert "interval_seconds: 240" in persisted_text
+    assert "probe_timeout_seconds: 7.5" in persisted_text
+    assert "tls_warning_days: 14" in persisted_text
+
+    assert apply_response.status_code == 200
+    apply_payload = apply_response.json()
+    assert apply_payload["settings"]["apply_required"] is False
+    active_delugevpn = next(
+        item
+        for item in apply_payload["settings"]["active"]["effective_services"]
+        if item["service_id"] == "svc-delugevpn"
+    )
+    active_endpoint_probe = next(
+        item for item in active_delugevpn["checks"] if item["check_id"] == "endpoint_probe"
+    )
+    active_restart_storm = next(
+        item for item in active_delugevpn["checks"] if item["check_id"] == "restart_storm"
+    )
+    assert active_endpoint_probe["effective_interval_seconds"] == 45
+    assert active_endpoint_probe["probe_timeout_seconds"] == 2.5
+    assert active_restart_storm["restart_delta_threshold"] == 6
+
+    assert settings_response.status_code == 200
+    active_override_checks = {
+        item["check_id"] for item in settings_response.json()["active"]["service_overrides"]
+    }
+    assert active_override_checks == {"endpoint_probe", "restart_storm"}
+
+
+def test_findings_review_endpoint_surfaces_repeated_dismissal_suggestions(
+    tmp_path: Path,
+) -> None:
+    """Repeated dismissals should surface advisory suppression or threshold suggestions."""
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+    try:
+        for index in range(5):
+            dismissed_at = ts(12, 10 + index)
+            dismissed_finding = build_endpoint_probe_finding(
+                finding_id=f"find-endpoint-dismissed-{index}",
+                status=FindingStatus.DISMISSED,
+                created_at=ts(12, 5 + index),
+                resolved_at=dismissed_at,
+                incident_id=None,
+            )
+            database.upsert_finding(dismissed_finding)
+            database.upsert_finding_feedback_record(
+                FindingFeedbackRecord(
+                    id=f"ffb-endpoint-{index}",
+                    finding_id=dismissed_finding.id,
+                    service_id=dismissed_finding.service_id,
+                    finding_domain=dismissed_finding.domain,
+                    reason=FindingFeedbackReason.FALSE_POSITIVE,
+                    recorded_at=dismissed_at,
+                )
+            )
+        database.upsert_finding(
+            build_endpoint_probe_finding(
+                finding_id="find-endpoint-active",
+                status=FindingStatus.GROUPED,
+                created_at=ts(12, 30),
+                resolved_at=None,
+                incident_id="inc-1",
+            )
+        )
+    finally:
+        database.close()
+
+    app = create_app(database_path=database_path)
+    with TestClient(app) as client:
+        response = client.get("/api/v1/findings/review")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["suggestions"] == [
+        {
+            "service_id": "svc-delugevpn",
+            "service_name": "DelugeVPN",
+            "check_id": "endpoint_probe",
+            "check_label": "Endpoint probe",
+            "dismissal_count": 5,
+            "action": "adjust_threshold_or_suppress",
+            "message": (
+                "You've dismissed 5 endpoint probe findings for DelugeVPN. "
+                "Consider adjusting the threshold or suppressing this check."
+            ),
+        }
+    ]
+    active_item = next(
+        item
+        for item in payload["active_findings"]
+        if item["finding"]["id"] == "find-endpoint-active"
+    )
+    assert active_item["service_name"] == "DelugeVPN"
+    assert active_item["domain_label"] == "Endpoint probe"
+    assert active_item["dismissal_count_for_pattern"] == 5
+    assert active_item["suggestion"]["action"] == "adjust_threshold_or_suppress"
+    assert payload["recently_dismissed"][0]["dismissal_reason"] == "false_positive"
+
+
+def test_dismiss_finding_endpoint_records_feedback_and_updates_incident_state(
+    tmp_path: Path,
+) -> None:
+    """Explicit finding dismissal should persist feedback and dismiss orphaned incidents."""
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        dismiss_response = client.post(
+            "/api/v1/findings/find-1/dismiss",
+            json={"reason": "already_aware"},
+        )
+        incidents_response = client.get("/api/v1/incidents")
+        changes_response = client.get("/api/v1/changes")
+
+    assert dismiss_response.status_code == 200
+    payload = dismiss_response.json()
+    assert payload["finding"]["status"] == "dismissed"
+    assert payload["finding"]["resolved_at"] is not None
+    assert payload["review"]["active_findings"] == []
+    assert payload["review"]["recently_dismissed"][0]["finding"]["id"] == "find-1"
+    assert payload["review"]["recently_dismissed"][0]["dismissal_reason"] == "already_aware"
+    assert payload["audit_change"]["type"] == "config_change"
+    assert payload["audit_change"]["service_id"] == "svc-delugevpn"
+    assert "reason=already_aware" in (payload["audit_change"]["new_value"] or "")
+
+    assert incidents_response.status_code == 200
+    assert incidents_response.json()[0]["status"] == "dismissed"
+
+    assert changes_response.status_code == 200
+    assert changes_response.json()[-1]["description"] == (
+        "Dismissed finding 'Download client unavailable' as already aware."
+    )
+
+
+def test_maintenance_mode_api_sets_and_clears_global_and_service_windows(
+    tmp_path: Path,
+) -> None:
+    """Maintenance mode should expose deterministic global and per-service operations."""
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        initial_response = client.get("/api/v1/maintenance")
+        enable_global_response = client.put(
+            "/api/v1/maintenance/global",
+            json={"duration_minutes": 30},
+        )
+        enable_service_response = client.put(
+            "/api/v1/services/svc-delugevpn/maintenance",
+            json={"duration_minutes": 120},
+        )
+        current_response = client.get("/api/v1/maintenance")
+        clear_global_response = client.delete("/api/v1/maintenance/global")
+        clear_service_response = client.delete("/api/v1/services/svc-delugevpn/maintenance")
+
+    assert initial_response.status_code == 200
+    initial_payload = initial_response.json()
+    assert initial_payload["global_window"] is None
+    assert initial_payload["service_windows"] == []
+    assert "critical Kaval self-health" in initial_payload["self_health_guardrail"]
+
+    assert enable_global_response.status_code == 200
+    enable_global_payload = enable_global_response.json()
+    assert enable_global_payload["maintenance"]["global_window"]["scope"] == "global"
+    assert enable_global_payload["maintenance"]["global_window"]["minutes_remaining"] == 30
+    assert enable_global_payload["audit_change"]["description"] == (
+        "Enabled global maintenance for 30 minutes."
+    )
+
+    assert enable_service_response.status_code == 200
+    enable_service_payload = enable_service_response.json()
+    assert enable_service_payload["maintenance"]["service_windows"] == [
+        {
+            "scope": "service",
+            "service_id": "svc-delugevpn",
+            "service_name": "DelugeVPN",
+            "started_at": enable_service_payload["maintenance"]["service_windows"][0]["started_at"],
+            "expires_at": enable_service_payload["maintenance"]["service_windows"][0]["expires_at"],
+            "minutes_remaining": 120,
+        }
+    ]
+    assert enable_service_payload["audit_change"]["service_id"] == "svc-delugevpn"
+
+    assert current_response.status_code == 200
+    current_payload = current_response.json()
+    assert current_payload["global_window"]["minutes_remaining"] == 30
+    assert current_payload["service_windows"][0]["service_id"] == "svc-delugevpn"
+
+    assert clear_global_response.status_code == 200
+    assert clear_global_response.json()["maintenance"]["global_window"] is None
+
+    assert clear_service_response.status_code == 200
+    assert clear_service_response.json()["maintenance"]["service_windows"] == []
+
+
+def test_recommendations_endpoint_surfaces_ranked_real_state_actions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Recommendations should be derived from current state and ordered predictably."""
+    monkeypatch.setenv("KAVAL_LOCAL_MODEL_ENABLED", "true")
+    monkeypatch.setenv("KAVAL_LOCAL_MODEL_NAME", "qwen3:14b")
+    monkeypatch.delenv("KAVAL_CLOUD_MODEL_ENABLED", raising=False)
+    monkeypatch.delenv("KAVAL_CLOUD_MODEL_NAME", raising=False)
+
+    database_path = tmp_path / "kaval.db"
+    seed_api_database(database_path)
+    add_unmatched_container_service(database_path)
+    add_stale_vault_credential(database_path)
+    add_noisy_check_feedback(database_path)
+    app = create_app(database_path=database_path)
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/recommendations")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["kind"] for item in payload["items"]] == [
+        "missing_descriptor",
+        "stale_credential",
+        "noisy_check",
+        "cloud_model",
+    ]
+    assert payload["items"][0]["action"] == {
+        "label": "Review custom-app",
+        "target": "service_detail",
+        "service_id": "svc-custom-app",
+    }
+    assert payload["items"][1]["action"]["target"] == "credential_vault"
+    assert "DelugeVPN" in payload["items"][1]["detail"]
+    assert payload["items"][2]["action"] == {
+        "label": "Review noise controls",
+        "target": "finding_review",
+        "service_id": "svc-delugevpn",
+    }
+    assert payload["items"][3]["action"]["target"] == "model_settings"
+
+
+def test_system_settings_api_stages_applies_and_reports_runtime_about_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """System settings should stage, apply, and expose bounded about/admin metadata."""
+    monkeypatch.setenv("KAVAL_CORE_LOG_LEVEL", "warning")
+    database_path = tmp_path / "kaval.db"
+    settings_path = tmp_path / "kaval.yaml"
+    seed_api_database(database_path)
+    app = create_app(
+        database_path=database_path,
+        settings_path=settings_path,
+    )
+
+    with TestClient(app) as client:
+        client.put(
+            "/api/v1/settings/models",
+            json=build_model_settings_payload(
+                local_enabled=True,
+                local_model="qwen3:14b",
+            ),
+        )
+        client.post("/api/v1/settings/models/apply")
+        initial_settings = client.get("/api/v1/settings/system")
+        save_response = client.put(
+            "/api/v1/settings/system",
+            json=build_system_settings_payload(
+                log_level="debug",
+                audit_detail_retention_days=120,
+                audit_summary_retention_days=400,
+            ),
+        )
+        apply_response = client.post("/api/v1/settings/system/apply")
+
+    assert initial_settings.status_code == 200
+    initial_payload = initial_settings.json()
+    assert initial_payload["active"]["log_level"] == "warning"
+    assert initial_payload["active"]["audit_detail_retention_days"] == 90
+    assert initial_payload["active"]["audit_summary_retention_days"] == 365
+    assert initial_payload["about"]["runtime_log_level"] == "warning"
+    assert initial_payload["about"]["api_version"] == "0.1.0"
+    assert initial_payload["about"]["model_status"]["local_model_configured"] is True
+    assert initial_payload["database"]["quick_check_ok"] is True
+    assert initial_payload["database"]["migrations_current"] is True
+    assert "sensitive" in initial_payload["transfer_guidance"]["exports"][0]["warning"].casefold()
+    assert initial_payload["transfer_guidance"]["exports"][0]["available"] is False
+    assert initial_payload["transfer_guidance"]["imports"][0]["available"] is False
+
+    assert save_response.status_code == 200
+    save_payload = save_response.json()
+    assert save_payload["settings"]["apply_required"] is True
+    assert save_payload["settings"]["active"]["log_level"] == "warning"
+    assert save_payload["settings"]["staged"]["log_level"] == "debug"
+    assert save_payload["settings"]["staged"]["audit_detail_retention_days"] == 120
+    assert save_payload["settings"]["staged"]["audit_summary_retention_days"] == 400
+    assert save_payload["audit_change"]["type"] == "config_change"
+
+    assert apply_response.status_code == 200
+    apply_payload = apply_response.json()
+    assert apply_payload["settings"]["apply_required"] is False
+    assert apply_payload["settings"]["active"]["log_level"] == "debug"
+    assert apply_payload["settings"]["active"]["audit_detail_retention_days"] == 120
+    assert apply_payload["settings"]["active"]["audit_summary_retention_days"] == 400
+    assert apply_payload["settings"]["about"]["runtime_log_level"] == "debug"
+    assert app.state.runtime_log_level == "debug"
+
+    persisted_text = settings_path.read_text(encoding="utf-8")
+    assert "system:" in persisted_text
+    assert "log_level: debug" in persisted_text
+    assert "audit_detail_retention_days: 120" in persisted_text
+    assert "audit_summary_retention_days: 400" in persisted_text
+
+
+def test_changes_endpoint_respects_active_audit_summary_retention(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """The changes endpoint should hide events older than the active summary window."""
+    monkeypatch.setattr(api_app_module, "datetime", FrozenApiDateTime)
+    database_path = tmp_path / "kaval.db"
+    settings_path = tmp_path / "kaval.yaml"
+    seed_api_database(database_path)
+    database = KavalDatabase(database_path)
+    database.upsert_change(
+        Change(
+            id="chg-old",
+            type=ChangeType.CONFIG_CHANGE,
+            service_id=None,
+            description="Saved staged system settings via /data/kaval.yaml.",
+            old_value="log_level=info",
+            new_value="log_level=debug",
+            timestamp=datetime(2026, 2, 1, 8, 0, tzinfo=UTC),
+            correlated_incidents=[],
+        )
+    )
+    app = create_app(
+        database_path=database_path,
+        settings_path=settings_path,
+    )
+
+    with TestClient(app) as client:
+        initial_response = client.get("/api/v1/changes")
+        client.put(
+            "/api/v1/settings/system",
+            json=build_system_settings_payload(
+                log_level="info",
+                audit_detail_retention_days=7,
+                audit_summary_retention_days=30,
+            ),
+        )
+        client.post("/api/v1/settings/system/apply")
+        retained_response = client.get("/api/v1/changes")
+
+    assert initial_response.status_code == 200
+    assert "chg-old" in {change["id"] for change in initial_response.json()}
+
+    assert retained_response.status_code == 200
+    retained_ids = {change["id"] for change in retained_response.json()}
+    assert "chg-1" in retained_ids
+    assert "chg-old" not in retained_ids
+
+
 def test_effectiveness_endpoint_reports_equal_weighted_v1_breakdown(
     tmp_path: Path,
     monkeypatch,
@@ -1573,6 +2729,113 @@ def test_fastapi_vault_endpoints_support_vault_mode_submission(tmp_path: Path) -
     assert relock_response.status_code == 200
     assert relock_response.json()["initialized"] is True
     assert relock_response.json()["unlocked"] is False
+
+
+def test_credential_vault_settings_api_lists_tests_and_rotates_credentials(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Vault management settings should expose safe metadata and explicit actions only."""
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_NAME", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_ENABLED", raising=False)
+    monkeypatch.delenv("KAVAL_LOCAL_MODEL_API_KEY", raising=False)
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    database_path = tmp_path / "kaval.db"
+    settings_path = tmp_path / "kaval.yaml"
+    seed_api_database(database_path)
+    add_radarr_service(database_path)
+    app = create_app(database_path=database_path, settings_path=settings_path)
+
+    with TestClient(app) as client:
+        unlock_response = client.post(
+            "/api/v1/settings/vault/unlock",
+            json={"master_passphrase": "correct horse battery staple"},
+        )
+        client.put(
+            "/api/v1/settings/models",
+            json=build_model_settings_payload(
+                local_enabled=True,
+                local_model="qwen3:14b",
+                local_api_key="local-secret",
+            ),
+        )
+        create_response = client.post(
+            "/api/v1/credential-requests",
+            json={
+                "incident_id": "inc-1",
+                "investigation_id": "inv-1",
+                "service_id": "svc-radarr",
+                "credential_key": "api_key",
+                "reason": "Need diagnostics API access.",
+            },
+        )
+        request_id = create_response.json()["id"]
+        client.post(
+            f"/api/v1/credential-requests/{request_id}/choice",
+            json={
+                "mode": "vault",
+                "decided_by": "user_via_telegram",
+            },
+        )
+        client.post(
+            f"/api/v1/credential-requests/{request_id}/submit",
+            json={
+                "secret_value": "radarr-secret-value",
+                "submitted_by": "user_via_telegram",
+            },
+        )
+        list_response = client.get("/api/v1/settings/vault")
+        test_response = client.post("/api/v1/settings/vault/test")
+        change_password_response = client.post(
+            "/api/v1/settings/vault/change-password",
+            json={
+                "current_master_passphrase": "correct horse battery staple",
+                "new_master_passphrase": "correct horse battery stable",
+            },
+        )
+        old_unlock_response = client.post(
+            "/api/v1/vault/unlock",
+            json={"master_passphrase": "correct horse battery staple"},
+        )
+        lock_response = client.post("/api/v1/settings/vault/lock")
+        new_unlock_response = client.post(
+            "/api/v1/vault/unlock",
+            json={"master_passphrase": "correct horse battery stable"},
+        )
+
+    assert unlock_response.status_code == 200
+    assert unlock_response.json()["vault"]["status"]["initialized"] is True
+    assert unlock_response.json()["vault"]["status"]["unlocked"] is True
+
+    assert list_response.status_code == 200
+    list_payload = list_response.json()
+    assert "local-secret" not in json.dumps(list_payload)
+    assert "radarr-secret-value" not in json.dumps(list_payload)
+    assert {item["service_name"] for item in list_payload["credentials"]} == {
+        "Local model settings",
+        "Radarr",
+    }
+
+    assert test_response.status_code == 200
+    test_payload = test_response.json()
+    assert test_payload["ok"] is True
+    assert test_payload["tested_credentials"] == 2
+    assert test_payload["readable_credentials"] == 2
+    assert test_payload["audit_change"]["type"] == "config_change"
+    assert "local-secret" not in json.dumps(test_payload)
+    assert "radarr-secret-value" not in json.dumps(test_payload)
+    assert all(
+        item["last_tested_at"] is not None for item in test_payload["vault"]["credentials"]
+    )
+
+    assert change_password_response.status_code == 200
+    assert change_password_response.json()["vault"]["status"]["unlocked"] is True
+    assert change_password_response.json()["audit_change"]["type"] == "config_change"
+    assert old_unlock_response.status_code == 403
+    assert lock_response.status_code == 200
+    assert lock_response.json()["vault"]["status"]["unlocked"] is False
+    assert new_unlock_response.status_code == 200
+    assert new_unlock_response.json()["unlocked"] is True
 
 
 def test_system_profile_endpoint_returns_not_found_when_missing(tmp_path: Path) -> None:
@@ -1771,6 +3034,50 @@ def add_unmatched_container_service(database_path: Path) -> None:
         database.close()
 
 
+def add_stale_vault_credential(database_path: Path) -> None:
+    """Add one stale stored credential for recommendations coverage."""
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+    try:
+        database.upsert_vault_credential(
+            VaultCredentialRecord(
+                reference_id="vault:delugevpn-api",
+                request_id="credreq-delugevpn-api",
+                incident_id="inc-1",
+                service_id="svc-delugevpn",
+                credential_key="api_key",
+                ciphertext="gAAAAABvaultciphertext",
+                submitted_by="user_via_telegram",
+                created_at=ts(8, 0).replace(month=2, day=20),
+                updated_at=ts(8, 0).replace(month=2, day=20),
+                last_used_at=ts(10, 0),
+                last_tested_at=ts(8, 0).replace(month=2, day=22),
+            )
+        )
+    finally:
+        database.close()
+
+
+def add_noisy_check_feedback(database_path: Path) -> None:
+    """Add repeated dismissal feedback for one noisy check recommendation."""
+    database = KavalDatabase(path=database_path)
+    database.bootstrap()
+    try:
+        for index in range(5):
+            database.upsert_finding_feedback_record(
+                FindingFeedbackRecord(
+                    id=f"ffb-delugevpn-{index}",
+                    finding_id=f"find-delugevpn-{index}",
+                    service_id="svc-delugevpn",
+                    finding_domain="endpoint_probe",
+                    reason=FindingFeedbackReason.FALSE_POSITIVE,
+                    recorded_at=ts(9, index),
+                )
+            )
+    finally:
+        database.close()
+
+
 def seed_capability_runtime_signals(database_path: Path) -> None:
     """Seed runtime telemetry for capability-health endpoint tests."""
     now = datetime.now(tz=UTC)
@@ -1889,6 +3196,33 @@ def build_finding() -> Finding:
     )
 
 
+def build_endpoint_probe_finding(
+    *,
+    finding_id: str,
+    status: FindingStatus,
+    created_at: datetime,
+    resolved_at: datetime | None,
+    incident_id: str | None,
+) -> Finding:
+    """Build one endpoint-probe finding used by finding-feedback tests."""
+    return Finding(
+        id=finding_id,
+        title="DelugeVPN endpoint probe failed",
+        severity=Severity.MEDIUM,
+        domain="endpoint_probe",
+        service_id="svc-delugevpn",
+        summary="The DelugeVPN web UI did not respond within the configured timeout.",
+        evidence=[],
+        impact="The service may be down or timing out.",
+        confidence=0.82,
+        status=status,
+        incident_id=incident_id,
+        related_changes=[],
+        created_at=created_at,
+        resolved_at=resolved_at,
+    )
+
+
 def build_incident() -> Incident:
     """Build one persisted incident for API tests."""
     return Incident(
@@ -1997,6 +3331,21 @@ def build_system_profile() -> SystemProfile:
                 type=None,
                 quirks=None,
                 gpu_passthrough=False,
+            )
+        ],
+        plugins=[
+            PluginProfile(
+                name="community.applications",
+                version="2026.03.30",
+                enabled=True,
+                update_available=False,
+                impacted_services=[
+                    PluginImpactService(
+                        service_id="svc-delugevpn",
+                        service_name="DelugeVPN",
+                        descriptor_id="downloads/delugevpn",
+                    )
+                ],
             )
         ],
         last_updated=ts(12, 3),

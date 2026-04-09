@@ -8,6 +8,11 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from kaval.monitoring_thresholds import (
+    monitoring_threshold_fields_present,
+    validate_monitoring_threshold_fields,
+)
+
 type JsonValue = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 
 ConfidenceScore = Field(ge=0.0, le=1.0)
@@ -53,6 +58,15 @@ class FindingStatus(StrEnum):
     RESOLVED = "resolved"
     DISMISSED = "dismissed"
     STALE = "stale"
+
+
+class FindingFeedbackReason(StrEnum):
+    """Explicit operator reasons for dismissing one finding as noise."""
+
+    FALSE_POSITIVE = "false_positive"
+    EXPECTED_BEHAVIOR = "expected_behavior"
+    NOT_IMPORTANT = "not_important"
+    ALREADY_AWARE = "already_aware"
 
 
 class CauseConfirmationSource(StrEnum):
@@ -439,6 +453,17 @@ class Finding(KavalModel):
         return self
 
 
+class FindingFeedbackRecord(KavalModel):
+    """One append-only operator feedback event for a dismissed finding."""
+
+    id: str
+    finding_id: str
+    service_id: str
+    finding_domain: str
+    reason: FindingFeedbackReason
+    recorded_at: datetime
+
+
 class EvidenceStep(KavalModel):
     """One step in the evidence gathering chain."""
 
@@ -473,6 +498,13 @@ class Investigation(KavalModel):
     confidence: float = ConfidenceScore
     model_used: ModelUsed
     cloud_model_calls: int = NonNegativeInt
+    local_input_tokens: int = Field(default=0, ge=0)
+    local_output_tokens: int = Field(default=0, ge=0)
+    cloud_input_tokens: int = Field(default=0, ge=0)
+    cloud_output_tokens: int = Field(default=0, ge=0)
+    estimated_cloud_cost_usd: float = Field(default=0.0, ge=0.0)
+    estimated_total_cost_usd: float = Field(default=0.0, ge=0.0)
+    cloud_escalation_reason: str | None = None
     journal_entries_referenced: list[str]
     user_notes_referenced: list[str]
     recurrence_count: int = NonNegativeInt
@@ -499,6 +531,23 @@ class Investigation(KavalModel):
             raise ValueError(msg)
         if self.model_used == ModelUsed.NONE and self.cloud_model_calls != 0:
             msg = "model_used=none cannot report cloud_model_calls"
+            raise ValueError(msg)
+        if self.cloud_model_calls == 0 and (
+            self.cloud_input_tokens != 0
+            or self.cloud_output_tokens != 0
+            or self.estimated_cloud_cost_usd != 0.0
+        ):
+            msg = "investigations without cloud calls cannot report cloud token or cost usage"
+            raise ValueError(msg)
+        if self.model_used == ModelUsed.NONE and (
+            self.local_input_tokens != 0
+            or self.local_output_tokens != 0
+            or self.estimated_total_cost_usd != 0.0
+        ):
+            msg = "model_used=none cannot report local token or total cost usage"
+            raise ValueError(msg)
+        if self.estimated_total_cost_usd < self.estimated_cloud_cost_usd:
+            msg = "estimated_total_cost_usd cannot be less than estimated_cloud_cost_usd"
             raise ValueError(msg)
         return self
 
@@ -527,6 +576,82 @@ class DependencyOverride(KavalModel):
     state: DependencyOverrideState
     description: str | None
     updated_at: datetime
+
+
+class ServiceCheckOverrideScope(StrEnum):
+    """Persisted monitoring-settings scope for one service-level override."""
+
+    ACTIVE = "active"
+    STAGED = "staged"
+
+
+class ServiceCheckOverride(KavalModel):
+    """One persisted service-scoped monitoring override."""
+
+    scope: ServiceCheckOverrideScope
+    service_id: str
+    check_id: str
+    enabled: bool | None = None
+    interval_seconds: int | None = Field(default=None, ge=1)
+    tls_warning_days: int | None = Field(default=None, ge=1)
+    restart_delta_threshold: int | None = Field(default=None, ge=1)
+    probe_timeout_seconds: float | None = Field(default=None, gt=0)
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def validate_override(self) -> Self:
+        """Require at least one explicit override field."""
+        validate_monitoring_threshold_fields(
+            self.check_id,
+            tls_warning_days=self.tls_warning_days,
+            restart_delta_threshold=self.restart_delta_threshold,
+            probe_timeout_seconds=self.probe_timeout_seconds,
+        )
+        if (
+            self.enabled is None
+            and self.interval_seconds is None
+            and not monitoring_threshold_fields_present(
+                tls_warning_days=self.tls_warning_days,
+                restart_delta_threshold=self.restart_delta_threshold,
+                probe_timeout_seconds=self.probe_timeout_seconds,
+            )
+        ):
+            msg = (
+                "service check override requires enabled, interval_seconds, "
+                "or threshold settings"
+            )
+            raise ValueError(msg)
+        return self
+
+
+class MaintenanceScope(StrEnum):
+    """Supported maintenance window scopes."""
+
+    GLOBAL = "global"
+    SERVICE = "service"
+
+
+class MaintenanceWindowRecord(KavalModel):
+    """One persisted time-bound maintenance window."""
+
+    scope: MaintenanceScope
+    service_id: str | None = None
+    started_at: datetime
+    expires_at: datetime
+
+    @model_validator(mode="after")
+    def validate_window(self) -> Self:
+        """Require valid scope shape and a positive maintenance duration."""
+        if self.scope is MaintenanceScope.GLOBAL and self.service_id is not None:
+            msg = "global maintenance windows must not set service_id"
+            raise ValueError(msg)
+        if self.scope is MaintenanceScope.SERVICE and not self.service_id:
+            msg = "service maintenance windows require service_id"
+            raise ValueError(msg)
+        if self.expires_at <= self.started_at:
+            msg = "maintenance expires_at must be after started_at"
+            raise ValueError(msg)
+        return self
 
 
 class ServiceInsight(KavalModel):
@@ -747,6 +872,24 @@ class ServicesSummary(KavalModel):
     matched_descriptors: int = NonNegativeInt
 
 
+class PluginImpactService(KavalModel):
+    """One service explicitly impacted by a persisted plugin facet."""
+
+    service_id: str
+    service_name: str
+    descriptor_id: str
+
+
+class PluginProfile(KavalModel):
+    """A read-only Unraid plugin facet stored in the system profile."""
+
+    name: str
+    version: str | None = None
+    enabled: bool | None = None
+    update_available: bool | None = None
+    impacted_services: list[PluginImpactService] = Field(default_factory=list)
+
+
 class VMProfile(KavalModel):
     """A VM entry in the operational memory system profile."""
 
@@ -768,6 +911,7 @@ class SystemProfile(KavalModel):
     networking: NetworkingProfile
     services_summary: ServicesSummary
     vms: list[VMProfile]
+    plugins: list[PluginProfile] = Field(default_factory=list)
     last_updated: datetime
 
 
@@ -978,6 +1122,8 @@ __all__ = [
     "ExecutorActionResult",
     "ExecutorActionStatus",
     "Finding",
+    "FindingFeedbackReason",
+    "FindingFeedbackRecord",
     "FindingStatus",
     "HardwareProfile",
     "INCIDENT_STATUS_TRANSITIONS",
@@ -992,6 +1138,8 @@ __all__ = [
     "JournalEntry",
     "JsonValue",
     "KavalModel",
+    "MaintenanceScope",
+    "MaintenanceWindowRecord",
     "ModelUsed",
     "NetworkingProfile",
     "NotificationAction",
@@ -1001,6 +1149,8 @@ __all__ = [
     "NotificationSourceType",
     "OperationalMemoryQuery",
     "OperationalMemoryResult",
+    "PluginImpactService",
+    "PluginProfile",
     "RedactionLevel",
     "RemediationProposal",
     "RemediationStatus",

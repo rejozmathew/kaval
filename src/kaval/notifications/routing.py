@@ -199,6 +199,20 @@ class IncidentAlertRouter:
             dedup_window=self.policy.dedup_window(),
         )
 
+    def reconfigure(
+        self,
+        *,
+        sender: NotificationSender,
+        policy: IncidentAlertRoutingPolicy,
+    ) -> None:
+        """Update the runtime sender and policy without discarding queued state."""
+        self.sender = sender
+        self.policy = policy
+        self._grouped_dispatcher = IncidentNotificationDispatcher(
+            sender=sender,
+            dedup_window=policy.dedup_window(),
+        )
+
     def route(
         self,
         *,

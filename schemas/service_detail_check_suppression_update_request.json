@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "description": "Writable request for one explicit per-service check suppression toggle.",
+  "properties": {
+    "suppressed": {
+      "title": "Suppressed",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "suppressed"
+  ],
+  "title": "ServiceDetailCheckSuppressionUpdateRequest",
+  "type": "object"
+}

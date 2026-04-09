@@ -1,0 +1,38 @@
+id: authelia
+name: Authelia
+category: identity
+project_url: https://www.authelia.com/
+icon: authelia.svg
+match:
+  image_patterns:
+    - "authelia/authelia*"
+    - "*authelia*"
+  container_name_patterns:
+    - "authelia*"
+endpoints:
+  web_ui:
+    port: 9091
+    path: /
+log_signals:
+  errors:
+    - "Error while attempting to connect to storage"
+    - "Error occurred running listener"
+    - "authentication backend connection failed"
+  warnings:
+    - "Regulation triggered"
+    - "Access to .* denied to user"
+typical_dependencies:
+  containers:
+    - redis
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "Error while attempting to connect to storage"
+    likely_cause: "The session or configuration backend is unavailable"
+    check_first:
+      - redis
+      - appdata volume
+investigation_context: |
+  Authelia is an identity gateway that commonly depends on a session backend
+  such as Redis. Authentication outages often stem from storage or backend
+  reachability rather than the web container itself.

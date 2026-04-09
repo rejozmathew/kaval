@@ -491,6 +491,13 @@
       "title": "Name",
       "type": "string"
     },
+    "plugin_dependencies": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Plugin Dependencies",
+      "type": "array"
+    },
     "project_url": {
       "anyOf": [
         {

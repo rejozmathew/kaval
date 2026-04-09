@@ -1,0 +1,779 @@
+{
+  "$defs": {
+    "DependencyConfidence": {
+      "description": "Confidence levels for dependency edges.",
+      "enum": [
+        "configured",
+        "runtime_observed",
+        "user_confirmed",
+        "inferred",
+        "auto_generated"
+      ],
+      "title": "DependencyConfidence",
+      "type": "string"
+    },
+    "DependencyEdge": {
+      "additionalProperties": false,
+      "description": "A directed dependency from one service to another.",
+      "properties": {
+        "confidence": {
+          "$ref": "#/$defs/DependencyConfidence"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "source": {
+          "$ref": "#/$defs/DependencySource"
+        },
+        "target_service_id": {
+          "title": "Target Service Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_service_id",
+        "confidence",
+        "source",
+        "description"
+      ],
+      "title": "DependencyEdge",
+      "type": "object"
+    },
+    "DependencySource": {
+      "description": "Sources used to infer a dependency edge.",
+      "enum": [
+        "docker_network",
+        "shared_volume",
+        "descriptor",
+        "user",
+        "llm"
+      ],
+      "title": "DependencySource",
+      "type": "string"
+    },
+    "DescriptorSource": {
+      "description": "Origins for service descriptors.",
+      "enum": [
+        "shipped",
+        "auto_generated",
+        "user"
+      ],
+      "title": "DescriptorSource",
+      "type": "string"
+    },
+    "DnsRecordType": {
+      "description": "Supported deterministic DNS record types for Phase 1.",
+      "enum": [
+        "A",
+        "AAAA"
+      ],
+      "title": "DnsRecordType",
+      "type": "string"
+    },
+    "DnsTarget": {
+      "additionalProperties": false,
+      "description": "A DNS record target that should resolve for a service.",
+      "properties": {
+        "expected_values": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Expected Values",
+          "type": "array"
+        },
+        "host": {
+          "title": "Host",
+          "type": "string"
+        },
+        "record_type": {
+          "$ref": "#/$defs/DnsRecordType"
+        }
+      },
+      "required": [
+        "host",
+        "record_type"
+      ],
+      "title": "DnsTarget",
+      "type": "object"
+    },
+    "Endpoint": {
+      "additionalProperties": false,
+      "description": "A network or application endpoint exposed by a service.",
+      "properties": {
+        "auth_required": {
+          "default": false,
+          "title": "Auth Required",
+          "type": "boolean"
+        },
+        "expected_status": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Status"
+        },
+        "host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Host"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Port"
+        },
+        "protocol": {
+          "$ref": "#/$defs/EndpointProtocol"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "name",
+        "protocol",
+        "port",
+        "expected_status"
+      ],
+      "title": "Endpoint",
+      "type": "object"
+    },
+    "EndpointProtocol": {
+      "description": "Supported endpoint protocols.",
+      "enum": [
+        "http",
+        "https",
+        "tcp"
+      ],
+      "title": "EndpointProtocol",
+      "type": "string"
+    },
+    "MonitoringSettingsResolutionSource": {
+      "description": "Where one effective monitoring setting currently comes from.",
+      "enum": [
+        "global_default",
+        "service_override"
+      ],
+      "title": "MonitoringSettingsResolutionSource",
+      "type": "string"
+    },
+    "Service": {
+      "additionalProperties": false,
+      "description": "A discovered service in the monitored environment.",
+      "properties": {
+        "active_findings": {
+          "minimum": 0,
+          "title": "Active Findings",
+          "type": "integer"
+        },
+        "active_incidents": {
+          "minimum": 0,
+          "title": "Active Incidents",
+          "type": "integer"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "container_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Container Id"
+        },
+        "dependencies": {
+          "items": {
+            "$ref": "#/$defs/DependencyEdge"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "dependents": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependents",
+          "type": "array"
+        },
+        "descriptor_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Descriptor Id"
+        },
+        "descriptor_source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DescriptorSource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dns_targets": {
+          "items": {
+            "$ref": "#/$defs/DnsTarget"
+          },
+          "title": "Dns Targets",
+          "type": "array"
+        },
+        "endpoints": {
+          "items": {
+            "$ref": "#/$defs/Endpoint"
+          },
+          "title": "Endpoints",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Image"
+        },
+        "insight": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServiceInsight"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "last_check": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Check"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/ServiceLifecycle"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ServiceStatus"
+        },
+        "type": {
+          "$ref": "#/$defs/ServiceType"
+        },
+        "vm_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Vm Id"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type",
+        "category",
+        "status",
+        "descriptor_id",
+        "descriptor_source",
+        "container_id",
+        "vm_id",
+        "image",
+        "endpoints",
+        "dependencies",
+        "dependents",
+        "last_check",
+        "active_findings",
+        "active_incidents"
+      ],
+      "title": "Service",
+      "type": "object"
+    },
+    "ServiceDetailAdapterConfigurationState": {
+      "description": "Configuration states shown in the minimum service-detail insight panel.",
+      "enum": [
+        "configured",
+        "unconfigured",
+        "locked"
+      ],
+      "title": "ServiceDetailAdapterConfigurationState",
+      "type": "string"
+    },
+    "ServiceDetailAdapterHealthState": {
+      "description": "Current health states currently derivable for one adapter.",
+      "enum": [
+        "healthy",
+        "degraded",
+        "unknown"
+      ],
+      "title": "ServiceDetailAdapterHealthState",
+      "type": "string"
+    },
+    "ServiceDetailAdapterResponse": {
+      "additionalProperties": false,
+      "description": "One adapter summary shown in the service detail insight section.",
+      "properties": {
+        "adapter_id": {
+          "title": "Adapter Id",
+          "type": "string"
+        },
+        "configuration_state": {
+          "$ref": "#/$defs/ServiceDetailAdapterConfigurationState"
+        },
+        "configuration_summary": {
+          "title": "Configuration Summary",
+          "type": "string"
+        },
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "health_state": {
+          "$ref": "#/$defs/ServiceDetailAdapterHealthState"
+        },
+        "health_summary": {
+          "title": "Health Summary",
+          "type": "string"
+        },
+        "missing_credentials": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Credentials",
+          "type": "array"
+        },
+        "supported_fact_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Fact Names",
+          "type": "array"
+        }
+      },
+      "required": [
+        "adapter_id",
+        "display_name",
+        "configuration_state",
+        "configuration_summary",
+        "health_state",
+        "health_summary"
+      ],
+      "title": "ServiceDetailAdapterResponse",
+      "type": "object"
+    },
+    "ServiceDetailImproveActionKind": {
+      "description": "Actionable improvement affordances for the minimum service detail view.",
+      "enum": [
+        "configure_local_model",
+        "configure_adapter",
+        "unlock_vault"
+      ],
+      "title": "ServiceDetailImproveActionKind",
+      "type": "string"
+    },
+    "ServiceDetailImproveActionResponse": {
+      "additionalProperties": false,
+      "description": "One improvement action shown in the service detail insight section.",
+      "properties": {
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ServiceDetailImproveActionKind"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "detail"
+      ],
+      "title": "ServiceDetailImproveActionResponse",
+      "type": "object"
+    },
+    "ServiceDetailInsightSectionResponse": {
+      "additionalProperties": false,
+      "description": "The minimum service-detail insight payload for Phase 3A.",
+      "properties": {
+        "adapter_available": {
+          "title": "Adapter Available",
+          "type": "boolean"
+        },
+        "adapters": {
+          "items": {
+            "$ref": "#/$defs/ServiceDetailAdapterResponse"
+          },
+          "title": "Adapters",
+          "type": "array"
+        },
+        "current_level": {
+          "title": "Current Level",
+          "type": "integer"
+        },
+        "fact_summary_available": {
+          "default": false,
+          "title": "Fact Summary Available",
+          "type": "boolean"
+        },
+        "improve_actions": {
+          "items": {
+            "$ref": "#/$defs/ServiceDetailImproveActionResponse"
+          },
+          "title": "Improve Actions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "current_level",
+        "adapter_available"
+      ],
+      "title": "ServiceDetailInsightSectionResponse",
+      "type": "object"
+    },
+    "ServiceDetailMonitoringCheckResponse": {
+      "additionalProperties": false,
+      "description": "One service-scoped monitoring row shown in service detail.",
+      "properties": {
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "effective_enabled": {
+          "title": "Effective Enabled",
+          "type": "boolean"
+        },
+        "effective_interval_seconds": {
+          "minimum": 1,
+          "title": "Effective Interval Seconds",
+          "type": "integer"
+        },
+        "inherited_enabled": {
+          "title": "Inherited Enabled",
+          "type": "boolean"
+        },
+        "inherited_interval_seconds": {
+          "minimum": 1,
+          "title": "Inherited Interval Seconds",
+          "type": "integer"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "override_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Override Enabled"
+        },
+        "override_interval_seconds": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Override Interval Seconds"
+        },
+        "override_updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Override Updated At"
+        },
+        "source": {
+          "$ref": "#/$defs/MonitoringSettingsResolutionSource"
+        },
+        "suppressed": {
+          "title": "Suppressed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "check_id",
+        "label",
+        "description",
+        "inherited_enabled",
+        "inherited_interval_seconds",
+        "effective_enabled",
+        "effective_interval_seconds",
+        "source",
+        "suppressed"
+      ],
+      "title": "ServiceDetailMonitoringCheckResponse",
+      "type": "object"
+    },
+    "ServiceDetailMonitoringSectionResponse": {
+      "additionalProperties": false,
+      "description": "Per-service monitoring and suppression state shown in service detail.",
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/ServiceDetailMonitoringCheckResponse"
+          },
+          "title": "Checks",
+          "type": "array"
+        }
+      },
+      "title": "ServiceDetailMonitoringSectionResponse",
+      "type": "object"
+    },
+    "ServiceInsight": {
+      "additionalProperties": false,
+      "description": "The current insight depth available for one service.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/ServiceInsightLevel"
+        }
+      },
+      "required": [
+        "level"
+      ],
+      "title": "ServiceInsight",
+      "type": "object"
+    },
+    "ServiceInsightLevel": {
+      "description": "Supported per-service insight levels.",
+      "enum": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "title": "ServiceInsightLevel",
+      "type": "integer"
+    },
+    "ServiceLifecycle": {
+      "additionalProperties": false,
+      "description": "Lifecycle metadata retained for one service across discovery cycles.",
+      "properties": {
+        "changed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Changed At"
+        },
+        "last_event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServiceLifecycleEventType"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "previous_descriptor_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Previous Descriptor Ids",
+          "type": "array"
+        },
+        "previous_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Previous Names",
+          "type": "array"
+        },
+        "state": {
+          "$ref": "#/$defs/ServiceLifecycleState",
+          "default": "active"
+        }
+      },
+      "title": "ServiceLifecycle",
+      "type": "object"
+    },
+    "ServiceLifecycleEventType": {
+      "description": "Lifecycle events derived from discovery and trusted context.",
+      "enum": [
+        "service_added",
+        "service_updated",
+        "service_restarted",
+        "service_removed_intentional",
+        "service_removed_unexpectedly",
+        "service_removed_during_maintenance",
+        "service_renamed_or_rematched"
+      ],
+      "title": "ServiceLifecycleEventType",
+      "type": "string"
+    },
+    "ServiceLifecycleState": {
+      "description": "Persistent lifecycle states for a discovered service.",
+      "enum": [
+        "active",
+        "missing",
+        "removed_intentional",
+        "removed_during_maintenance"
+      ],
+      "title": "ServiceLifecycleState",
+      "type": "string"
+    },
+    "ServiceStatus": {
+      "description": "Supported service health states.",
+      "enum": [
+        "healthy",
+        "degraded",
+        "down",
+        "unknown",
+        "stopped"
+      ],
+      "title": "ServiceStatus",
+      "type": "string"
+    },
+    "ServiceType": {
+      "description": "Supported service types.",
+      "enum": [
+        "container",
+        "vm",
+        "plugin",
+        "share",
+        "system",
+        "external",
+        "network"
+      ],
+      "title": "ServiceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A later-enrichable service-detail response contract.",
+  "properties": {
+    "insight_section": {
+      "$ref": "#/$defs/ServiceDetailInsightSectionResponse"
+    },
+    "monitoring_section": {
+      "$ref": "#/$defs/ServiceDetailMonitoringSectionResponse"
+    },
+    "service": {
+      "$ref": "#/$defs/Service"
+    }
+  },
+  "required": [
+    "service",
+    "insight_section",
+    "monitoring_section"
+  ],
+  "title": "ServiceDetailResponse",
+  "type": "object"
+}

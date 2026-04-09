@@ -1,0 +1,403 @@
+{
+  "$defs": {
+    "SystemSettingsAboutModelStatusResponse": {
+      "additionalProperties": false,
+      "description": "Current runtime model status surfaced on the system about card.",
+      "properties": {
+        "cloud_model_configured": {
+          "title": "Cloud Model Configured",
+          "type": "boolean"
+        },
+        "cloud_model_enabled": {
+          "title": "Cloud Model Enabled",
+          "type": "boolean"
+        },
+        "cloud_model_summary": {
+          "title": "Cloud Model Summary",
+          "type": "string"
+        },
+        "escalation_summary": {
+          "title": "Escalation Summary",
+          "type": "string"
+        },
+        "local_model_configured": {
+          "title": "Local Model Configured",
+          "type": "boolean"
+        },
+        "local_model_enabled": {
+          "title": "Local Model Enabled",
+          "type": "boolean"
+        },
+        "local_model_summary": {
+          "title": "Local Model Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "local_model_enabled",
+        "local_model_configured",
+        "local_model_summary",
+        "cloud_model_enabled",
+        "cloud_model_configured",
+        "cloud_model_summary",
+        "escalation_summary"
+      ],
+      "title": "SystemSettingsAboutModelStatusResponse",
+      "type": "object"
+    },
+    "SystemSettingsAboutResponse": {
+      "additionalProperties": false,
+      "description": "Current runtime/build metadata surfaced on the system about card.",
+      "properties": {
+        "api_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Summary"
+        },
+        "api_title": {
+          "title": "Api Title",
+          "type": "string"
+        },
+        "api_version": {
+          "title": "Api Version",
+          "type": "string"
+        },
+        "checked_at": {
+          "format": "date-time",
+          "title": "Checked At",
+          "type": "string"
+        },
+        "database_path": {
+          "title": "Database Path",
+          "type": "string"
+        },
+        "model_status": {
+          "$ref": "#/$defs/SystemSettingsAboutModelStatusResponse"
+        },
+        "runtime_log_level": {
+          "$ref": "#/$defs/SystemSettingsLogLevel"
+        },
+        "services_dir": {
+          "title": "Services Dir",
+          "type": "string"
+        },
+        "settings_path": {
+          "title": "Settings Path",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "uptime_seconds": {
+          "minimum": 0,
+          "title": "Uptime Seconds",
+          "type": "number"
+        },
+        "web_bundle_present": {
+          "title": "Web Bundle Present",
+          "type": "boolean"
+        },
+        "web_dist_dir": {
+          "title": "Web Dist Dir",
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_title",
+        "api_version",
+        "checked_at",
+        "started_at",
+        "uptime_seconds",
+        "runtime_log_level",
+        "settings_path",
+        "database_path",
+        "services_dir",
+        "web_dist_dir",
+        "web_bundle_present",
+        "model_status"
+      ],
+      "title": "SystemSettingsAboutResponse",
+      "type": "object"
+    },
+    "SystemSettingsDatabaseStatusResponse": {
+      "additionalProperties": false,
+      "description": "Read-only database status surfaced through the system settings panel.",
+      "properties": {
+        "exists": {
+          "title": "Exists",
+          "type": "boolean"
+        },
+        "journal_mode": {
+          "title": "Journal Mode",
+          "type": "string"
+        },
+        "migrations_current": {
+          "title": "Migrations Current",
+          "type": "boolean"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "quick_check_ok": {
+          "title": "Quick Check Ok",
+          "type": "boolean"
+        },
+        "quick_check_result": {
+          "title": "Quick Check Result",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "exists",
+        "size_bytes",
+        "migrations_current",
+        "quick_check_ok",
+        "quick_check_result",
+        "journal_mode"
+      ],
+      "title": "SystemSettingsDatabaseStatusResponse",
+      "type": "object"
+    },
+    "SystemSettingsExportGuidanceResponse": {
+      "additionalProperties": false,
+      "description": "One bounded export warning surfaced in the system settings panel.",
+      "properties": {
+        "available": {
+          "default": false,
+          "title": "Available",
+          "type": "boolean"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "sensitivity": {
+          "$ref": "#/$defs/SystemSettingsSensitivity"
+        },
+        "target": {
+          "$ref": "#/$defs/SystemSettingsExportTarget"
+        },
+        "warning": {
+          "title": "Warning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "label",
+        "sensitivity",
+        "warning"
+      ],
+      "title": "SystemSettingsExportGuidanceResponse",
+      "type": "object"
+    },
+    "SystemSettingsExportTarget": {
+      "description": "Bounded export targets exposed by the Phase 3C system settings panel.",
+      "enum": [
+        "operational_memory",
+        "settings",
+        "descriptors"
+      ],
+      "title": "SystemSettingsExportTarget",
+      "type": "string"
+    },
+    "SystemSettingsImportGuidanceResponse": {
+      "additionalProperties": false,
+      "description": "One bounded import warning surfaced in the system settings panel.",
+      "properties": {
+        "available": {
+          "default": false,
+          "title": "Available",
+          "type": "boolean"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/SystemSettingsImportTarget"
+        },
+        "warning": {
+          "title": "Warning",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "label",
+        "warning"
+      ],
+      "title": "SystemSettingsImportGuidanceResponse",
+      "type": "object"
+    },
+    "SystemSettingsImportTarget": {
+      "description": "Bounded import targets exposed by the Phase 3C system settings panel.",
+      "enum": [
+        "descriptors",
+        "notes",
+        "configuration_backup"
+      ],
+      "title": "SystemSettingsImportTarget",
+      "type": "string"
+    },
+    "SystemSettingsLogLevel": {
+      "description": "Supported runtime log levels for admin-editable system settings.",
+      "enum": [
+        "critical",
+        "error",
+        "warning",
+        "info",
+        "debug",
+        "trace"
+      ],
+      "title": "SystemSettingsLogLevel",
+      "type": "string"
+    },
+    "SystemSettingsScopeResponse": {
+      "additionalProperties": false,
+      "description": "One staged or active system-settings snapshot.",
+      "properties": {
+        "audit_detail_retention_days": {
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Audit Detail Retention Days",
+          "type": "integer"
+        },
+        "audit_summary_retention_days": {
+          "maximum": 3650,
+          "minimum": 1,
+          "title": "Audit Summary Retention Days",
+          "type": "integer"
+        },
+        "log_level": {
+          "$ref": "#/$defs/SystemSettingsLogLevel"
+        }
+      },
+      "required": [
+        "log_level",
+        "audit_detail_retention_days",
+        "audit_summary_retention_days"
+      ],
+      "title": "SystemSettingsScopeResponse",
+      "type": "object"
+    },
+    "SystemSettingsSensitivity": {
+      "description": "Sensitivity classifications shown for backup/export guidance.",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "SystemSettingsSensitivity",
+      "type": "string"
+    },
+    "SystemSettingsTransferGuidanceResponse": {
+      "additionalProperties": false,
+      "description": "Import/export guidance shown without enabling Phase 4 transfer flows.",
+      "properties": {
+        "exports": {
+          "items": {
+            "$ref": "#/$defs/SystemSettingsExportGuidanceResponse"
+          },
+          "title": "Exports",
+          "type": "array"
+        },
+        "imports": {
+          "items": {
+            "$ref": "#/$defs/SystemSettingsImportGuidanceResponse"
+          },
+          "title": "Imports",
+          "type": "array"
+        },
+        "phase_guardrail": {
+          "title": "Phase Guardrail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "phase_guardrail"
+      ],
+      "title": "SystemSettingsTransferGuidanceResponse",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "System-settings payload with explicit staged and active snapshots.",
+  "properties": {
+    "about": {
+      "$ref": "#/$defs/SystemSettingsAboutResponse"
+    },
+    "active": {
+      "$ref": "#/$defs/SystemSettingsScopeResponse"
+    },
+    "apply_required": {
+      "title": "Apply Required",
+      "type": "boolean"
+    },
+    "config_path": {
+      "title": "Config Path",
+      "type": "string"
+    },
+    "database": {
+      "$ref": "#/$defs/SystemSettingsDatabaseStatusResponse"
+    },
+    "last_applied_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Last Applied At"
+    },
+    "load_error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Load Error"
+    },
+    "staged": {
+      "$ref": "#/$defs/SystemSettingsScopeResponse"
+    },
+    "transfer_guidance": {
+      "$ref": "#/$defs/SystemSettingsTransferGuidanceResponse"
+    }
+  },
+  "required": [
+    "config_path",
+    "apply_required",
+    "last_applied_at",
+    "active",
+    "staged",
+    "database",
+    "transfer_guidance",
+    "about"
+  ],
+  "title": "SystemSettingsResponse",
+  "type": "object"
+}

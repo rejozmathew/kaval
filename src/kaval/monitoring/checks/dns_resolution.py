@@ -17,7 +17,12 @@ from kaval.models import (
     Service,
     Severity,
 )
-from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
+from kaval.monitoring.checks.base import (
+    CheckContext,
+    MonitoringCheck,
+    build_finding,
+    iter_target_services,
+)
 
 type DnsResolver = Callable[[str, DnsRecordType], list[str]]
 
@@ -43,7 +48,7 @@ class DNSResolutionCheck(MonitoringCheck):
     def run(self, context: CheckContext) -> list[Finding]:
         """Resolve declared DNS targets and emit deterministic findings."""
         findings: list[Finding] = []
-        for service in sorted(context.services, key=lambda service: service.id):
+        for service in sorted(iter_target_services(context), key=lambda service: service.id):
             for dns_target in sorted(
                 service.dns_targets,
                 key=lambda dns_target: (dns_target.host, dns_target.record_type.value),

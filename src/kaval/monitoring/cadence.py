@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from datetime import datetime, timedelta
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import Field, model_validator
 
@@ -15,6 +15,7 @@ class MonitoringCheckCadenceRule(KavalModel):
     """One named cadence rule for a monitoring check type."""
 
     check_id: str = Field(min_length=1)
+    enabled: bool = True
     interval_seconds: int = Field(ge=1)
     rationale: str | None = None
 
@@ -24,7 +25,16 @@ class ServiceMonitoringCadenceOverride(KavalModel):
 
     service_id: str = Field(min_length=1)
     check_id: str = Field(min_length=1)
-    interval_seconds: int = Field(ge=1)
+    enabled: bool | None = None
+    interval_seconds: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_override(self) -> ServiceMonitoringCadenceOverride:
+        """Require at least one explicit service-level override."""
+        if self.enabled is None and self.interval_seconds is None:
+            msg = "service cadence override requires enabled or interval_seconds"
+            raise ValueError(msg)
+        return self
 
 
 class IncidentAccelerationPolicy(KavalModel):
@@ -69,11 +79,21 @@ class MonitoringCadenceDecision(KavalModel):
     """Resolved cadence for one scheduler decision point."""
 
     check_id: str = Field(min_length=1)
+    enabled: bool = True
     base_interval_seconds: int = Field(ge=1)
     effective_interval_seconds: int = Field(ge=1)
     accelerated: bool = False
     incident_ids: list[str] = Field(default_factory=list)
     scoped_service_ids: list[str] = Field(default_factory=list)
+
+
+class MonitoringCheckExecution(KavalModel):
+    """Resolved enabled-state and interval for one check scope."""
+
+    check_id: str = Field(min_length=1)
+    enabled: bool
+    interval_seconds: int = Field(ge=1)
+    source: Literal["global_default", "check_override", "service_override"]
 
 
 _DEFAULT_MONITORING_CHECK_CADENCES: tuple[MonitoringCheckCadenceRule, ...] = (
@@ -152,16 +172,11 @@ def resolve_check_interval(
     base_interval_seconds: int | None = None,
 ) -> int:
     """Resolve the effective non-service-specific interval for one check."""
-    override = _check_rule(config.check_overrides, check_id=check_id)
-    if override is not None:
-        return override.interval_seconds
-    if base_interval_seconds is not None:
-        return base_interval_seconds
-    default_rule = _check_rule(config.global_defaults, check_id=check_id)
-    if default_rule is not None:
-        return default_rule.interval_seconds
-    msg = f"no cadence rule found for check_id={check_id!r}"
-    raise ValueError(msg)
+    return resolve_check_execution(
+        config=config,
+        check_id=check_id,
+        base_interval_seconds=base_interval_seconds,
+    ).interval_seconds
 
 
 def resolve_service_check_interval(
@@ -172,17 +187,85 @@ def resolve_service_check_interval(
     base_interval_seconds: int | None = None,
 ) -> int:
     """Resolve the interval for one service-specific check execution."""
+    return resolve_service_check_execution(
+        config=config,
+        service_id=service_id,
+        check_id=check_id,
+        base_interval_seconds=base_interval_seconds,
+    ).interval_seconds
+
+
+def resolve_check_execution(
+    *,
+    config: MonitoringCadenceConfig,
+    check_id: str,
+    base_interval_seconds: int | None = None,
+    base_enabled: bool = True,
+) -> MonitoringCheckExecution:
+    """Resolve the enabled-state and interval for one check."""
+    override = _check_rule(config.check_overrides, check_id=check_id)
+    if override is not None:
+        return MonitoringCheckExecution(
+            check_id=check_id,
+            enabled=override.enabled,
+            interval_seconds=override.interval_seconds,
+            source="check_override",
+        )
+    default_rule = _check_rule(config.global_defaults, check_id=check_id)
+    if default_rule is not None:
+        return MonitoringCheckExecution(
+            check_id=check_id,
+            enabled=default_rule.enabled,
+            interval_seconds=default_rule.interval_seconds,
+            source="global_default",
+        )
+    if base_interval_seconds is not None:
+        return MonitoringCheckExecution(
+            check_id=check_id,
+            enabled=base_enabled,
+            interval_seconds=base_interval_seconds,
+            source="global_default",
+        )
+    msg = f"no cadence rule found for check_id={check_id!r}"
+    raise ValueError(msg)
+
+
+def resolve_service_check_execution(
+    *,
+    config: MonitoringCadenceConfig,
+    service_id: str,
+    check_id: str,
+    base_interval_seconds: int | None = None,
+    base_enabled: bool = True,
+) -> MonitoringCheckExecution:
+    """Resolve the enabled-state and interval for one service-specific check."""
     override = _service_rule(
         config.service_overrides,
         service_id=service_id,
         check_id=check_id,
     )
     if override is not None:
-        return override.interval_seconds
-    return resolve_check_interval(
+        parent = resolve_check_execution(
+            config=config,
+            check_id=check_id,
+            base_interval_seconds=base_interval_seconds,
+            base_enabled=base_enabled,
+        )
+        return MonitoringCheckExecution(
+            check_id=check_id,
+            enabled=parent.enabled if override.enabled is None else override.enabled,
+            interval_seconds=(
+                parent.interval_seconds
+                if override.interval_seconds is None
+                else override.interval_seconds
+            ),
+            source="service_override",
+        )
+    return resolve_check_execution(
         config=config,
         check_id=check_id,
         base_interval_seconds=base_interval_seconds,
+        base_enabled=base_enabled,
     )
 
 
@@ -220,11 +303,12 @@ def resolve_monitoring_cadence_decision(
     base_interval_seconds: int,
 ) -> MonitoringCadenceDecision:
     """Resolve the scheduler cadence for one check at one point in time."""
-    base_interval = resolve_check_interval(
+    execution = resolve_check_execution(
         config=config,
         check_id=check_id,
         base_interval_seconds=base_interval_seconds,
     )
+    base_interval = execution.interval_seconds
     applicable_incident_ids: list[str] = []
     scoped_service_ids: set[str] = set()
     current_service_ids = {service.id for service in services}
@@ -253,6 +337,7 @@ def resolve_monitoring_cadence_decision(
 
     return MonitoringCadenceDecision(
         check_id=check_id,
+        enabled=execution.enabled,
         base_interval_seconds=base_interval,
         effective_interval_seconds=effective_interval,
         accelerated=accelerated,

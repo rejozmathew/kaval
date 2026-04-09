@@ -120,6 +120,9 @@ def test_npm_tls_breakage_workflow_collects_tier2_research_without_restarting(
         assert result.synthesis.recommendation.action_type == "none"
         assert result.investigation.remediation is None
         assert result.investigation.recurrence_count == 1
+        assert result.investigation.local_input_tokens == 0
+        assert result.investigation.local_output_tokens == 0
+        assert result.investigation.estimated_total_cost_usd == 0.0
 
         persisted_incident = database.get_incident("inc-npm-tls")
         assert persisted_incident is not None
@@ -184,6 +187,13 @@ class NpmTlsSynthesizer:
                 "degraded_mode_note": None,
                 "model_used": ModelUsed.NONE.value,
                 "cloud_model_calls": 0,
+                "local_input_tokens": 0,
+                "local_output_tokens": 0,
+                "cloud_input_tokens": 0,
+                "cloud_output_tokens": 0,
+                "estimated_cloud_cost_usd": 0.0,
+                "estimated_total_cost_usd": 0.0,
+                "cloud_escalation_reason": None,
             }
         )
 

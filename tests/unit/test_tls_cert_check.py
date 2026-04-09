@@ -149,6 +149,39 @@ def test_tls_cert_check_skips_long_lived_certificates() -> None:
     assert findings == []
 
 
+def test_tls_cert_check_uses_configured_warning_threshold() -> None:
+    """Raising the warning threshold should surface findings earlier."""
+    services = [
+        _service(
+            service_id="svc-warning-window",
+            name="Warning Window Service",
+            endpoint=_endpoint(
+                name="web_ui",
+                protocol=EndpointProtocol.HTTPS,
+                host="warning-window-service",
+                port=443,
+            ),
+        )
+    ]
+
+    def fake_fetch(host: str, port: int, timeout_seconds: float) -> TLSCertificateInfo:
+        del host, port, timeout_seconds
+        return TLSCertificateInfo(
+            host="warning-window-service",
+            port=443,
+            not_valid_after=ts(20) + timedelta(days=10),
+        )
+
+    findings = TLSCertificateCheck(
+        warning_days=14,
+        fetch_certificate=fake_fetch,
+    ).run(CheckContext(services=services, now=ts(20)))
+
+    assert len(findings) == 1
+    assert findings[0].service_id == "svc-warning-window"
+    assert findings[0].title == "Warning Window Service certificate expires soon"
+
+
 def _service(*, service_id: str, name: str, endpoint: Endpoint) -> Service:
     """Build a minimal Service model for TLS check tests."""
     return Service(

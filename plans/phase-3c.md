@@ -416,14 +416,15 @@ Use these as likely touch surfaces, not as blanket permission:
 - **Stop if:** the underlying audit/event data model is not rich enough to support the required views.
 
 ### P3C-25 Model usage / cost dashboard
-- **Goal:** Expose model usage and cost information to operators.
-- **Primary touch surfaces:** `src/web/`, `src/kaval/api/`, investigation/model usage aggregation.
+- **Goal:** Expose model usage and cost information to operators using persisted per-investigation telemetry gathered at investigation time.
+- **Primary touch surfaces:** `src/web/`, `src/kaval/api/`, `src/kaval/models.py`, `src/kaval/investigation/`, investigation/model usage aggregation.
 - **Acceptance criteria:**
-  - dashboard shows today/week/month and per-incident breakdown
-  - escalation analysis and budget status reflect real counters
+  - investigations created after this task persist `local_input_tokens`, `local_output_tokens`, `cloud_input_tokens`, `cloud_output_tokens`, `estimated_cloud_cost_usd`, `estimated_total_cost_usd`, and `cloud_escalation_reason` alongside the existing model-usage fields
+  - dashboard shows today/week/month and per-incident breakdown only from persisted telemetry, with a deterministic empty state when no telemetry-backed investigations exist yet
+  - escalation analysis and budget status reflect persisted telemetry plus the existing active model-settings budget controls
   - no secret or provider token data leaks into the dashboard
-- **Validation focus:** integration tests, frontend build, security tests.
-- **Stop if:** the underlying usage-tracking data is too incomplete to render credible totals.
+- **Validation focus:** unit tests for telemetry persistence, integration tests, contract tests if API payloads change, frontend build, security tests.
+- **Stop if:** the implementation would require retrospective pricing guesses, provider price lookups, or inferred escalation reasons instead of the approved persisted telemetry contract.
 
 ### P3C-26 VM graph representation
 - **Goal:** Represent VMs distinctly in the graph and provide a guided VM setup prompt.
@@ -440,10 +441,13 @@ Use these as likely touch surfaces, not as blanket permission:
 - **Primary touch surfaces:** `src/web/`, `src/kaval/api/`, system profile/change timeline surfaces.
 - **Acceptance criteria:**
   - plugins appear in system/facet views
+  - plugin inventory and status are persisted as read-only plugin facets on the existing `SystemProfile` read path
+  - `plugin_update` change records come from deterministic discovery diffs for installed / removed / version_changed / state_changed transitions
   - plugin changes can annotate impacted services where known
+  - plugin-to-service impact annotations derive only from explicit descriptor `plugin_dependencies` metadata
   - plugins are not promoted to normal service nodes in the graph
 - **Validation focus:** integration tests, frontend build.
-- **Stop if:** plugin representation begins to conflict with the requirements-expansion classification.
+- **Stop if:** plugin representation begins to conflict with the requirements-expansion classification, requires inferred plugin impacts, or broadens into plugin management/actions.
 
 ### P3C-28 Descriptor expansion: 20 additional shipped descriptors
 - **Goal:** Increase shipped descriptor coverage to 35+ total.

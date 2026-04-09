@@ -18,7 +18,12 @@ from kaval.models import (
     ServiceType,
     Severity,
 )
-from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
+from kaval.monitoring.checks.base import (
+    CheckContext,
+    MonitoringCheck,
+    build_finding,
+    service_selected,
+)
 from kaval.monitoring.checks.endpoint_probe import (
     EndpointProbeError,
     EndpointProbeResult,
@@ -59,6 +64,8 @@ class VMHealthCheck(MonitoringCheck):
         findings: list[Finding] = []
         for vm in sorted(context.unraid_snapshot.vms, key=lambda vm: (vm.name.lower(), vm.id)):
             service = services_by_vm_id.get(vm.id, _fallback_vm_service(vm))
+            if not service_selected(context, service.id):
+                continue
             state_finding = _state_finding_for_vm(
                 service=service,
                 vm=vm,

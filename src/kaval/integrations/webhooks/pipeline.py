@@ -36,6 +36,7 @@ from kaval.integrations.webhooks.normalizers.generic_json import (
     GenericJsonNormalizerConfig,
     normalize_generic_json_payload,
 )
+from kaval.maintenance import filter_findings_for_maintenance
 from kaval.memory.redaction import redact_json_value
 from kaval.models import (
     Evidence,
@@ -177,10 +178,27 @@ class WebhookPipelineProcessor:
             services=services,
             created_at=received_at,
         )
+        findings = filter_findings_for_maintenance(
+            findings,
+            windows=database.list_maintenance_windows(),
+        )
         if created_services:
             for service in created_services:
                 database.upsert_service(service)
             services = list(services) + created_services
+        if not findings:
+            return WebhookPipelineResult(
+                event=match_result.event.model_copy(
+                    update={"processing_status": WebhookProcessingStatus.IGNORED}
+                ),
+                dedup_result=dedup_result,
+                match_result=match_result,
+                findings=[],
+                created_services=created_services,
+                incident_result=None,
+                resolved_findings=[],
+                resolved_incidents=[],
+            )
 
         incident_result = self.incident_manager.process_findings(
             database,

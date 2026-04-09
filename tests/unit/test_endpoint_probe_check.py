@@ -94,6 +94,24 @@ def test_endpoint_probe_check_flags_unhealthy_http_statuses() -> None:
     )
 
 
+def test_endpoint_probe_check_uses_configured_timeout() -> None:
+    """The configured probe timeout should flow into the transport."""
+    services = _services()
+    captured_timeouts: list[float] = []
+
+    def fake_probe(url: str, timeout_seconds: float) -> EndpointProbeResult:
+        del url
+        captured_timeouts.append(timeout_seconds)
+        return EndpointProbeResult(url="http://delugevpn:8112/", status_code=200)
+
+    findings = EndpointProbeCheck(timeout_seconds=2.5, probe=fake_probe).run(
+        CheckContext(services=services, docker_snapshot=None, now=ts(16, 15))
+    )
+
+    assert findings == []
+    assert captured_timeouts == [2.5, 2.5]
+
+
 def _services() -> list[object]:
     """Build the discovered services used by endpoint probe tests."""
     descriptors = load_service_descriptors([SERVICES_DIR])

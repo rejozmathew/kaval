@@ -14,6 +14,7 @@ from kaval.investigation.cloud_model import (
     build_cloud_safe_prompt_bundle,
     evaluate_cloud_escalation_policy,
     load_cloud_model_config_from_env,
+    probe_cloud_model_connection,
 )
 from kaval.investigation.prompts import InvestigationPromptBundle, InvestigationSynthesis
 from kaval.models import (
@@ -108,7 +109,11 @@ def test_cloud_synthesizer_shapes_anthropic_request_and_parses_response() -> Non
                         cloud_response_payload().model_dump(mode="json")
                     ),
                 }
-            ]
+            ],
+            "usage": {
+                "input_tokens": 420,
+                "output_tokens": 96,
+            },
         }
         return json.dumps(response).encode("utf-8")
 
@@ -137,7 +142,59 @@ def test_cloud_synthesizer_shapes_anthropic_request_and_parses_response() -> Non
 
     assert result.model_used.value == "cloud"
     assert result.cloud_model_calls == 1
+    assert result.cloud_input_tokens == 420
+    assert result.cloud_output_tokens == 96
+    assert result.estimated_cloud_cost_usd == 0.0027
+    assert result.estimated_total_cost_usd == 0.0027
     assert result.inference.confidence == 0.92
+
+
+def test_cloud_model_connection_probe_uses_small_anthropic_probe() -> None:
+    """The explicit cloud connection test should send a bounded JSON acknowledgement probe."""
+    captured_request: dict[str, object] = {}
+
+    def transport(http_request: request.Request, timeout_seconds: float) -> bytes:
+        headers = {key.lower(): value for key, value in http_request.header_items()}
+        body = json.loads(cast(bytes, http_request.data).decode("utf-8"))
+        captured_request.update(
+            {
+                "url": http_request.full_url,
+                "headers": headers,
+                "body": body,
+                "timeout": timeout_seconds,
+            }
+        )
+        return json.dumps(
+            {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": '{"connection_ok": true}',
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+    probe_cloud_model_connection(
+        config=CloudModelConfig(
+            provider="anthropic",
+            model="claude-sonnet-4-20250514",
+            api_key="anthropic-secret",
+            base_url="https://api.anthropic.com",
+            timeout_seconds=9.0,
+            max_output_tokens=200,
+        ),
+        transport=transport,
+    )
+
+    assert captured_request["url"] == "https://api.anthropic.com/v1/messages"
+    assert captured_request["timeout"] == 9.0
+    body = cast(dict[str, object], captured_request["body"])
+    assert body["system"] == "Return JSON only."
+    assert body["messages"] == [{"role": "user", "content": '{"connection_ok": true}'}]
+    assert body["max_tokens"] == 32
+    headers = cast(dict[str, str], captured_request["headers"])
+    assert headers["x-api-key"] == "anthropic-secret"
 
 
 def test_evaluate_cloud_escalation_policy_requires_explicit_trigger() -> None:
@@ -159,6 +216,43 @@ def test_evaluate_cloud_escalation_policy_requires_explicit_trigger() -> None:
     assert decision.should_use_cloud is False
     assert decision.blocked_reason is None
     assert decision.trigger_reasons == ()
+
+
+def test_evaluate_cloud_escalation_policy_returns_stable_reason_tokens() -> None:
+    """Matched escalation thresholds should persist stable reason identifiers."""
+    decision = evaluate_cloud_escalation_policy(
+        incident=build_incident(),
+        findings=[
+            build_finding(domain="downloads"),
+            build_finding(domain="networking"),
+            build_finding(domain="identity"),
+            build_finding(domain="storage"),
+        ],
+        investigations=[],
+        local_synthesis=cloud_response_payload().model_copy(
+            update={"model_used": "local", "cloud_model_calls": 0}
+        ),
+        changelog_research_available=True,
+        trigger=InvestigationTrigger.USER_REQUEST,
+        now=ts(14, 30),
+        policy=CloudEscalationPolicy(
+            finding_count_gt=3,
+            local_confidence_lt=0.95,
+            escalate_on_multiple_domains=True,
+            escalate_on_changelog_research=True,
+            escalate_on_user_request=True,
+        ),
+        offline=False,
+    )
+
+    assert decision.should_use_cloud is True
+    assert decision.trigger_reasons == (
+        "finding_count_threshold",
+        "local_confidence_threshold",
+        "multiple_domains_affected",
+        "changelog_research_needed",
+        "user_requested_deep_analysis",
+    )
 
 
 def build_cloud_safe_prompt_bundle_for_test() -> object:

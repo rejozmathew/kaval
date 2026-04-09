@@ -185,6 +185,89 @@
       "title": "NetworkingProfile",
       "type": "object"
     },
+    "PluginImpactService": {
+      "additionalProperties": false,
+      "description": "One service explicitly impacted by a persisted plugin facet.",
+      "properties": {
+        "descriptor_id": {
+          "title": "Descriptor Id",
+          "type": "string"
+        },
+        "service_id": {
+          "title": "Service Id",
+          "type": "string"
+        },
+        "service_name": {
+          "title": "Service Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "service_id",
+        "service_name",
+        "descriptor_id"
+      ],
+      "title": "PluginImpactService",
+      "type": "object"
+    },
+    "PluginProfile": {
+      "additionalProperties": false,
+      "description": "A read-only Unraid plugin facet stored in the system profile.",
+      "properties": {
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "impacted_services": {
+          "items": {
+            "$ref": "#/$defs/PluginImpactService"
+          },
+          "title": "Impacted Services",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "update_available": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Update Available"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PluginProfile",
+      "type": "object"
+    },
     "ServicesSummary": {
       "additionalProperties": false,
       "description": "Counts describing discovered services.",
@@ -306,6 +389,13 @@
     },
     "networking": {
       "$ref": "#/$defs/NetworkingProfile"
+    },
+    "plugins": {
+      "items": {
+        "$ref": "#/$defs/PluginProfile"
+      },
+      "title": "Plugins",
+      "type": "array"
     },
     "services_summary": {
       "$ref": "#/$defs/ServicesSummary"

@@ -1,0 +1,30 @@
+{
+  "$defs": {
+    "NotificationSettingsTestScope": {
+      "description": "Supported staged/active scopes for explicit notification settings tests.",
+      "enum": [
+        "active",
+        "staged"
+      ],
+      "title": "NotificationSettingsTestScope",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Explicit staged or active notification channel test request.",
+  "properties": {
+    "channel_id": {
+      "title": "Channel Id",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/NotificationSettingsTestScope",
+      "default": "staged"
+    }
+  },
+  "required": [
+    "channel_id"
+  ],
+  "title": "NotificationSettingsTestRequest",
+  "type": "object"
+}

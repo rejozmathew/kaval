@@ -1,0 +1,38 @@
+id: grafana
+name: Grafana
+category: monitoring
+project_url: https://grafana.com/
+icon: grafana.svg
+match:
+  image_patterns:
+    - "grafana/grafana*"
+    - "*grafana*"
+  container_name_patterns:
+    - "grafana*"
+endpoints:
+  web_ui:
+    port: 3000
+    path: /
+log_signals:
+  errors:
+    - "Failed to start plugin"
+    - "database is locked"
+    - "Failed to query data source"
+  warnings:
+    - "Alert rule evaluation failed"
+    - "Provisioned dashboard not found"
+typical_dependencies:
+  containers:
+    - prometheus
+    - loki
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "Failed to query data source"
+    likely_cause: "A configured metrics or logs backend is unavailable"
+    check_first:
+      - prometheus
+      - loki
+investigation_context: |
+  Grafana aggregates metrics and logs from upstream data sources. Most user-
+  visible failures trace back to datasource reachability or local sqlite issues.

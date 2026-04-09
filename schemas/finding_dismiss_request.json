@@ -1,0 +1,27 @@
+{
+  "$defs": {
+    "FindingFeedbackReason": {
+      "description": "Explicit operator reasons for dismissing one finding as noise.",
+      "enum": [
+        "false_positive",
+        "expected_behavior",
+        "not_important",
+        "already_aware"
+      ],
+      "title": "FindingFeedbackReason",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Explicit operator dismissal reason for one finding.",
+  "properties": {
+    "reason": {
+      "$ref": "#/$defs/FindingFeedbackReason"
+    }
+  },
+  "required": [
+    "reason"
+  ],
+  "title": "FindingDismissRequest",
+  "type": "object"
+}

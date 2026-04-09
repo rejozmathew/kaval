@@ -166,6 +166,7 @@ class ServiceDescriptor(KavalModel):
     dns_targets: list[DnsTarget] = Field(default_factory=list)
     log_signals: DescriptorLogSignals = Field(default_factory=DescriptorLogSignals)
     typical_dependencies: DescriptorDependencies = Field(default_factory=DescriptorDependencies)
+    plugin_dependencies: list[str] = Field(default_factory=list)
     common_failure_modes: list[DescriptorFailureMode] = Field(default_factory=list)
     investigation_context: str | None = None
     inspection: DescriptorInspection = Field(default_factory=DescriptorInspection)
@@ -173,6 +174,33 @@ class ServiceDescriptor(KavalModel):
     source: DescriptorSource = DescriptorSource.SHIPPED
     verified: bool = True
     generated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_plugin_dependencies(self) -> ServiceDescriptor:
+        """Keep plugin dependency metadata explicit, normalized, and unique."""
+        normalized_dependencies = [dependency.strip() for dependency in self.plugin_dependencies]
+        if any(not dependency for dependency in normalized_dependencies):
+            msg = "plugin_dependencies must not contain blank values"
+            raise ValueError(msg)
+        lowered = [dependency.casefold() for dependency in normalized_dependencies]
+        duplicates = sorted(
+            {
+                dependency
+                for dependency, lowered_dependency in zip(
+                    normalized_dependencies,
+                    lowered,
+                    strict=False,
+                )
+                if lowered.count(lowered_dependency) > 1
+            }
+        )
+        if duplicates:
+            duplicate_list = ", ".join(duplicates)
+            raise ValueError(
+                f"plugin_dependencies must be unique case-insensitively: {duplicate_list}"
+            )
+        self.plugin_dependencies = normalized_dependencies
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -308,6 +336,8 @@ def build_service_descriptor_community_export(
         dependencies["shares"] = list(descriptor.typical_dependencies.shares)
     if dependencies:
         payload["typical_dependencies"] = dependencies
+    if descriptor.plugin_dependencies:
+        payload["plugin_dependencies"] = list(descriptor.plugin_dependencies)
     if descriptor.common_failure_modes:
         payload["common_failure_modes"] = [
             item.model_dump(mode="json", exclude_none=True)
@@ -392,8 +422,23 @@ def load_service_descriptor(path: Path | str) -> LoadedServiceDescriptor:
     try:
         descriptor = ServiceDescriptor.model_validate(parsed)
     except ValidationError as exc:
-        raise DescriptorLoadError(f"descriptor validation failed for {descriptor_path}") from exc
+        summary = _descriptor_validation_error_message(exc)
+        raise DescriptorLoadError(
+            f"descriptor validation failed for {descriptor_path}: {summary}"
+        ) from exc
     return LoadedServiceDescriptor(path=descriptor_path, descriptor=descriptor)
+
+
+def _descriptor_validation_error_message(exc: ValidationError) -> str:
+    """Summarize the first validation errors for readable loader failures."""
+    parts: list[str] = []
+    for error in exc.errors()[:3]:
+        location = ".".join(str(part) for part in error["loc"])
+        message = str(error["msg"])
+        if message.startswith("Value error, "):
+            message = message.removeprefix("Value error, ")
+        parts.append(message if not location else f"{location}: {message}")
+    return "; ".join(parts) or "unknown validation error"
 
 
 def load_service_descriptors(paths: Sequence[Path | str]) -> list[LoadedServiceDescriptor]:

@@ -6,7 +6,12 @@ from datetime import datetime
 
 from kaval.discovery.docker import DockerContainerSnapshot
 from kaval.models import Evidence, EvidenceKind, Finding, Service, ServiceType, Severity
-from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
+from kaval.monitoring.checks.base import (
+    CheckContext,
+    MonitoringCheck,
+    build_finding,
+    iter_target_services,
+)
 
 
 class ContainerHealthCheck(MonitoringCheck):
@@ -26,7 +31,7 @@ class ContainerHealthCheck(MonitoringCheck):
             container.id: container for container in context.docker_snapshot.containers
         }
         findings: list[Finding] = []
-        for service in sorted(context.services, key=lambda service: service.id):
+        for service in sorted(iter_target_services(context), key=lambda service: service.id):
             if service.type != ServiceType.CONTAINER or service.container_id is None:
                 continue
             container = containers_by_id.get(service.container_id)

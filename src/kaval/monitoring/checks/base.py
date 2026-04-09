@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Sequence
@@ -27,6 +28,7 @@ class CheckContext:
     services: list[Service]
     docker_snapshot: DockerDiscoverySnapshot | None = None
     unraid_snapshot: UnraidDiscoverySnapshot | None = None
+    target_service_ids: frozenset[str] | None = None
     now: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
 
 
@@ -39,6 +41,22 @@ class MonitoringCheck(ABC):
     @abstractmethod
     def run(self, context: CheckContext) -> list[Finding]:
         """Run the check against the current discovery context."""
+
+
+def iter_target_services(context: CheckContext) -> Iterable[Service]:
+    """Yield the services selected for the current check execution."""
+    if context.target_service_ids is None:
+        return context.services
+    return [
+        service
+        for service in context.services
+        if service.id in context.target_service_ids
+    ]
+
+
+def service_selected(context: CheckContext, service_id: str) -> bool:
+    """Return whether one service is in-scope for the current check execution."""
+    return context.target_service_ids is None or service_id in context.target_service_ids
 
 
 def build_finding(

@@ -1,0 +1,35 @@
+id: caddy
+name: Caddy
+category: networking
+project_url: https://caddyserver.com/
+icon: caddy.svg
+match:
+  image_patterns:
+    - "caddy*"
+    - "*caddy*"
+  container_name_patterns:
+    - "caddy*"
+endpoints:
+  web_ui:
+    port: 80
+    path: /
+log_signals:
+  errors:
+    - "obtaining certificate"
+    - "reverseproxy.statusError"
+    - "tls.obtain"
+  warnings:
+    - "autosaved config"
+    - "upstream roundtrip"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "reverseproxy.statusError"
+    likely_cause: "The configured upstream is unavailable or the proxy target is wrong"
+    check_first:
+      - upstream service health
+      - reverse proxy target configuration
+investigation_context: |
+  Caddy commonly serves as a reverse proxy. High-signal failures usually point
+  to certificate acquisition or unreachable upstream targets.

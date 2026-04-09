@@ -1,0 +1,54 @@
+{
+  "$defs": {
+    "ModelSettingsTestScope": {
+      "description": "Supported staged/active scopes for explicit model settings tests.",
+      "enum": [
+        "active",
+        "staged"
+      ],
+      "title": "ModelSettingsTestScope",
+      "type": "string"
+    },
+    "ModelSettingsTestTarget": {
+      "description": "Supported model-settings connectivity test targets.",
+      "enum": [
+        "local",
+        "cloud"
+      ],
+      "title": "ModelSettingsTestTarget",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Result of one explicit model-settings connectivity test.",
+  "properties": {
+    "checked_at": {
+      "format": "date-time",
+      "title": "Checked At",
+      "type": "string"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "scope": {
+      "$ref": "#/$defs/ModelSettingsTestScope"
+    },
+    "target": {
+      "$ref": "#/$defs/ModelSettingsTestTarget"
+    }
+  },
+  "required": [
+    "target",
+    "scope",
+    "ok",
+    "checked_at",
+    "message"
+  ],
+  "title": "ModelSettingsTestResponse",
+  "type": "object"
+}

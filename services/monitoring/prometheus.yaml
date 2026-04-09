@@ -1,0 +1,35 @@
+id: prometheus
+name: Prometheus
+category: monitoring
+project_url: https://prometheus.io/
+icon: prometheus.svg
+match:
+  image_patterns:
+    - "prom/prometheus*"
+    - "*prometheus*"
+  container_name_patterns:
+    - "prometheus*"
+endpoints:
+  web_ui:
+    port: 9090
+    path: /
+log_signals:
+  errors:
+    - "Error loading config"
+    - "Error on ingesting samples"
+    - "opening storage failed"
+  warnings:
+    - "Error sending alert"
+    - "context deadline exceeded"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "opening storage failed"
+    likely_cause: "The TSDB path is unavailable, corrupted, or out of space"
+    check_first:
+      - appdata volume
+      - storage capacity
+investigation_context: |
+  Prometheus failures usually come from invalid scrape configuration, TSDB
+  storage issues, or downstream alertmanager connectivity problems.

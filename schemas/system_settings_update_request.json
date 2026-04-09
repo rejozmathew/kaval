@@ -1,0 +1,43 @@
+{
+  "$defs": {
+    "SystemSettingsLogLevel": {
+      "description": "Supported runtime log levels for admin-editable system settings.",
+      "enum": [
+        "critical",
+        "error",
+        "warning",
+        "info",
+        "debug",
+        "trace"
+      ],
+      "title": "SystemSettingsLogLevel",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Writable staged system-settings payload.",
+  "properties": {
+    "audit_detail_retention_days": {
+      "maximum": 3650,
+      "minimum": 1,
+      "title": "Audit Detail Retention Days",
+      "type": "integer"
+    },
+    "audit_summary_retention_days": {
+      "maximum": 3650,
+      "minimum": 1,
+      "title": "Audit Summary Retention Days",
+      "type": "integer"
+    },
+    "log_level": {
+      "$ref": "#/$defs/SystemSettingsLogLevel"
+    }
+  },
+  "required": [
+    "log_level",
+    "audit_detail_retention_days",
+    "audit_summary_retention_days"
+  ],
+  "title": "SystemSettingsUpdateRequest",
+  "type": "object"
+}

@@ -4,20 +4,30 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import secrets
-from collections import defaultdict
-from collections.abc import AsyncIterator, Iterator, Sequence
+from collections import Counter, defaultdict
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated, Literal, cast
 from uuid import uuid4
 
 import yaml  # type: ignore[import-untyped]
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    WebSocket,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from starlette.websockets import WebSocketDisconnect
@@ -29,6 +39,13 @@ from kaval.api.schemas import (
     CreateUserNoteRequest,
     CredentialRequestChoiceRequest,
     CredentialSecretSubmissionRequest,
+    CredentialVaultChangePasswordRequest,
+    CredentialVaultCredentialResponse,
+    CredentialVaultEntrySource,
+    CredentialVaultMutationResponse,
+    CredentialVaultResponse,
+    CredentialVaultTestItemResponse,
+    CredentialVaultTestResponse,
     DescriptorCommunityExportResponse,
     DescriptorEditContainerDependencyRequest,
     DescriptorEditEndpointRequest,
@@ -44,12 +61,57 @@ from kaval.api.schemas import (
     DescriptorViewInspectionSurfaceResponse,
     DescriptorViewLogSignalsResponse,
     DescriptorViewMatchResponse,
+    FindingDismissRequest,
+    FindingDismissResponse,
+    FindingFeedbackSuggestionAction,
+    FindingFeedbackSuggestionResponse,
+    FindingReviewItemResponse,
+    FindingReviewResponse,
     GraphEdgeMutationResponse,
     GraphEdgeUpsertRequest,
     HealthResponse,
+    MaintenanceModeMutationResponse,
+    MaintenanceModeResponse,
+    MaintenanceWindowResponse,
+    MaintenanceWindowUpdateRequest,
+    ModelSettingsCloudScopeResponse,
+    ModelSettingsEscalationResponse,
+    ModelSettingsLocalScopeResponse,
+    ModelSettingsMutationResponse,
+    ModelSettingsResponse,
+    ModelSettingsScopeResponse,
+    ModelSettingsSecretSource,
+    ModelSettingsTestRequest,
+    ModelSettingsTestResponse,
+    ModelSettingsTestScope,
+    ModelSettingsTestTarget,
+    ModelSettingsUpdateRequest,
+    MonitoringSettingsCheckResponse,
+    MonitoringSettingsEffectiveCheckResponse,
+    MonitoringSettingsEffectiveServiceResponse,
+    MonitoringSettingsMutationResponse,
+    MonitoringSettingsResolutionSource,
+    MonitoringSettingsResponse,
+    MonitoringSettingsScopeResponse,
+    MonitoringSettingsServiceOverrideResponse,
+    MonitoringSettingsUpdateRequest,
+    NotificationSettingsChannelScopeResponse,
+    NotificationSettingsMutationResponse,
+    NotificationSettingsQuietHoursResponse,
+    NotificationSettingsResponse,
+    NotificationSettingsRoutingResponse,
+    NotificationSettingsScopeResponse,
+    NotificationSettingsSecretSource,
+    NotificationSettingsTestRequest,
+    NotificationSettingsTestResponse,
+    NotificationSettingsTestScope,
+    NotificationSettingsUpdateRequest,
     QuarantinedDescriptorActionResponse,
     QuarantinedDescriptorQueueItemResponse,
     RealtimeSnapshotResponse,
+    RecommendationActionResponse,
+    RecommendationItemResponse,
+    RecommendationsResponse,
     ServiceAdapterFactsItemResponse,
     ServiceAdapterFactsResponse,
     ServiceDescriptorGenerateResponse,
@@ -61,13 +123,31 @@ from kaval.api.schemas import (
     ServiceDetailAdapterConfigurationState,
     ServiceDetailAdapterHealthState,
     ServiceDetailAdapterResponse,
+    ServiceDetailCheckSuppressionMutationResponse,
+    ServiceDetailCheckSuppressionUpdateRequest,
     ServiceDetailImproveActionKind,
     ServiceDetailImproveActionResponse,
     ServiceDetailInsightSectionResponse,
+    ServiceDetailMonitoringCheckResponse,
+    ServiceDetailMonitoringSectionResponse,
     ServiceDetailResponse,
     ServiceGraphEdge,
     ServiceGraphNodeMeta,
     ServiceGraphResponse,
+    SystemSettingsAboutModelStatusResponse,
+    SystemSettingsAboutResponse,
+    SystemSettingsDatabaseStatusResponse,
+    SystemSettingsExportGuidanceResponse,
+    SystemSettingsExportTarget,
+    SystemSettingsImportGuidanceResponse,
+    SystemSettingsImportTarget,
+    SystemSettingsLogLevel,
+    SystemSettingsMutationResponse,
+    SystemSettingsResponse,
+    SystemSettingsScopeResponse,
+    SystemSettingsSensitivity,
+    SystemSettingsTransferGuidanceResponse,
+    SystemSettingsUpdateRequest,
     TelegramCredentialCallbackRequest,
     TelegramInboundUpdateRequest,
     TelegramInboundUpdateResponse,
@@ -77,7 +157,7 @@ from kaval.api.schemas import (
     WidgetOverallStatus,
     WidgetSummaryResponse,
 )
-from kaval.credentials.models import CredentialRequest, VaultStatus
+from kaval.credentials.models import CredentialRequest, VaultCredentialRecord, VaultStatus
 from kaval.credentials.request_flow import (
     CredentialRequestConflictError,
     CredentialRequestHintError,
@@ -91,8 +171,11 @@ from kaval.credentials.vault import (
     AdapterCredentialState,
     CredentialMaterialService,
     CredentialVault,
+    CredentialVaultError,
     CredentialVaultLockedError,
+    CredentialVaultNotInitializedError,
     CredentialVaultPassphraseError,
+    VaultCredentialTestResult,
     VolatileCredentialStore,
 )
 from kaval.database import KavalDatabase
@@ -130,6 +213,7 @@ from kaval.effectiveness import (
     build_effectiveness_report,
     maximum_achievable_insight_level,
 )
+from kaval.grouping import transition_incident
 from kaval.integrations import (
     AdapterFactFreshness,
     AdapterRefreshConfig,
@@ -169,14 +253,22 @@ from kaval.integrations.webhooks.pipeline import (
     WebhookPipelineProcessor,
     WebhookPipelineResult,
 )
-from kaval.investigation.cloud_model import load_cloud_model_config_from_env
+from kaval.investigation.cloud_model import (
+    CloudModelConfig,
+    CloudModelError,
+    CloudTransport,
+    probe_cloud_model_connection,
+)
 from kaval.investigation.local_model import (
+    LocalModelConfig,
+    LocalModelError,
     LocalModelResponseError,
     LocalModelTransportError,
     RequestTransport,
-    load_local_model_config_from_env,
+    probe_local_model_connection,
 )
 from kaval.investigation.workflow import InvestigationWorkflow
+from kaval.maintenance import active_maintenance_windows
 from kaval.memory.note_models import UserNoteVersion
 from kaval.memory.user_notes import UserNoteNotFoundError, UserNoteService
 from kaval.models import (
@@ -187,19 +279,43 @@ from kaval.models import (
     DependencyOverrideState,
     DescriptorSource,
     Finding,
+    FindingFeedbackReason,
+    FindingFeedbackRecord,
     FindingStatus,
     Incident,
     IncidentStatus,
     Investigation,
     InvestigationTrigger,
     JournalEntry,
+    MaintenanceScope,
+    MaintenanceWindowRecord,
+    NotificationPayload,
+    NotificationSourceType,
     RedactionLevel,
     Service,
+    ServiceCheckOverride,
+    ServiceCheckOverrideScope,
     ServiceStatus,
     ServiceType,
+    Severity,
     SystemProfile,
     UserNote,
     derive_service_insight,
+)
+from kaval.monitoring import (
+    MonitoringCadenceConfig,
+    default_monitoring_check_cadences,
+    resolve_monitoring_cadence_decision,
+    resolve_service_check_execution,
+)
+from kaval.monitoring.catalog import (
+    check_applies_to_service,
+    monitoring_check_catalog,
+    monitoring_check_entry,
+)
+from kaval.monitoring_thresholds import (
+    monitoring_threshold_defaults,
+    monitoring_threshold_summary,
 )
 from kaval.notifications import (
     IncidentAlertRouter,
@@ -207,12 +323,26 @@ from kaval.notifications import (
     TelegramInteractiveHandler,
     TelegramMemoryCommandError,
     TelegramMemoryCommandHandler,
-    load_notification_bus_config_from_env,
     load_telegram_config_from_env,
     load_telegram_webhook_config_from_env,
     supports_telegram_memory_command,
 )
+from kaval.notifications.bus import (
+    AppriseAdapter,
+    NotificationDeliveryResult,
+    NotificationDeliveryStatus,
+)
+from kaval.notifications.routing import (
+    AlertMaintenanceWindow,
+    IncidentAlertRoute,
+    IncidentAlertRoutingPolicy,
+)
 from kaval.notifications.telegram_interactive import TelegramTransport
+from kaval.recommendations import (
+    NoisyCheckPattern,
+    RecommendationCandidate,
+    build_proactive_recommendations,
+)
 from kaval.runtime import (
     CapabilityHealthReport,
     CapabilityRuntimeSignalSource,
@@ -222,12 +352,46 @@ from kaval.runtime import (
     build_capability_health_report,
     probe_unix_socket,
 )
+from kaval.settings import (
+    ModelSettingsService,
+    MonitoringSettingsService,
+    NotificationSettingsService,
+    SystemSettingsService,
+    default_settings_path,
+)
+from kaval.settings.model_config import (
+    ManagedCloudEscalationSettings,
+    ManagedCloudModelSettings,
+    ManagedLocalModelSettings,
+    ManagedModelSettings,
+)
+from kaval.settings.monitoring_config import (
+    ManagedMonitoringCheckSettings,
+    ManagedMonitoringSettings,
+)
+from kaval.settings.notification_config import (
+    ManagedNotificationQuietHoursSettings,
+    ManagedNotificationSettings,
+    NotificationChannelWrite,
+)
+from kaval.settings.system_config import ManagedSystemSettings
 
 _ACTIVE_FINDING_STATUSES = {
     FindingStatus.NEW,
     FindingStatus.GROUPED,
     FindingStatus.INVESTIGATING,
 }
+_FINDING_FEEDBACK_SUGGESTION_THRESHOLD = 5
+_RECENT_DISMISSED_FINDINGS_LIMIT = 8
+_RUNTIME_LOG_LEVELS = {
+    "critical": logging.CRITICAL,
+    "error": logging.ERROR,
+    "warning": logging.WARNING,
+    "info": logging.INFO,
+    "debug": logging.DEBUG,
+    "trace": logging.DEBUG,
+}
+_RUNTIME_LOGGER_NAMES = ("kaval", "uvicorn", "uvicorn.error", "uvicorn.access")
 _ACTIVE_INCIDENT_STATUSES = {
     IncidentStatus.OPEN,
     IncidentStatus.INVESTIGATING,
@@ -253,6 +417,7 @@ class ApiSettings:
     """Filesystem-backed configuration for the FastAPI app."""
 
     database_path: Path
+    settings_path: Path
     migrations_dir: Path | None
     services_dir: Path
     web_dist_dir: Path
@@ -281,16 +446,20 @@ class _BoundServiceAdapter:
 def create_app(
     *,
     database_path: Path | str | None = None,
+    settings_path: Path | str | None = None,
     migrations_dir: Path | str | None = None,
     services_dir: Path | str | None = None,
     web_dist_dir: Path | str | None = None,
     websocket_poll_interval: float = 2.0,
     telegram_transport: TelegramTransport | None = None,
     local_model_transport: RequestTransport | None = None,
+    cloud_model_transport: CloudTransport | None = None,
+    notification_bus_adapter_factory: Callable[[], AppriseAdapter] | None = None,
 ) -> FastAPI:
     """Create the Phase 1 FastAPI application."""
     settings = ApiSettings(
         database_path=_resolve_database_path(database_path),
+        settings_path=_resolve_settings_path(settings_path),
         migrations_dir=_resolve_migrations_dir(migrations_dir),
         services_dir=_resolve_services_dir(services_dir),
         web_dist_dir=_resolve_web_dist_dir(web_dist_dir),
@@ -338,11 +507,33 @@ def create_app(
             migrations_dir=settings.migrations_dir,
             auto_lock_minutes=settings.vault_auto_lock_minutes,
         )
+        app.state.model_settings_service = ModelSettingsService(
+            settings_path=settings.settings_path,
+        )
+        app.state.system_settings_service = SystemSettingsService(
+            settings_path=settings.settings_path,
+        )
+        _apply_runtime_log_level(
+            app,
+            app.state.system_settings_service.active_snapshot().log_level,
+        )
+        app.state.monitoring_settings_service = MonitoringSettingsService(
+            settings_path=settings.settings_path,
+        )
+        app.state.notification_settings_service = NotificationSettingsService(
+            settings_path=settings.settings_path,
+        )
         app.state.webhook_rate_limiter = WebhookRateLimiter(
             max_events_per_minute=settings.webhook_rate_limit_per_minute,
         )
+        app.state.notification_sender = _ManagedNotificationSender(
+            settings_service=app.state.notification_settings_service,
+            vault=app.state.credential_vault,
+            adapter_factory=notification_bus_adapter_factory,
+        )
         app.state.incident_alert_router = IncidentAlertRouter(
-            sender=NotificationBus(config=load_notification_bus_config_from_env()),
+            sender=app.state.notification_sender,
+            policy=app.state.notification_settings_service.resolve_routing_policy(),
         )
         database = KavalDatabase(
             path=settings.database_path,
@@ -360,6 +551,8 @@ def create_app(
     )
     app.state.telegram_transport = telegram_transport
     app.state.local_model_transport = local_model_transport
+    app.state.cloud_model_transport = cloud_model_transport
+    app.state.notification_bus_adapter_factory = notification_bus_adapter_factory
     app.include_router(_health_router)
     app.include_router(_api_router)
     web_dist = settings.web_dist_dir
@@ -425,6 +618,56 @@ ApiCredentialMaterialService = Annotated[
 ]
 
 
+def get_model_settings_service(request: Request) -> ModelSettingsService:
+    """Return the app-scoped staged/active model settings service."""
+    return cast(ModelSettingsService, request.app.state.model_settings_service)
+
+
+ApiModelSettingsService = Annotated[
+    ModelSettingsService,
+    Depends(get_model_settings_service),
+]
+
+
+def get_system_settings_service(request: Request) -> SystemSettingsService:
+    """Return the app-scoped staged/active system settings service."""
+    return cast(SystemSettingsService, request.app.state.system_settings_service)
+
+
+ApiSystemSettingsService = Annotated[
+    SystemSettingsService,
+    Depends(get_system_settings_service),
+]
+
+
+def get_monitoring_settings_service(request: Request) -> MonitoringSettingsService:
+    """Return the app-scoped staged/active monitoring settings service."""
+    return cast(
+        MonitoringSettingsService,
+        request.app.state.monitoring_settings_service,
+    )
+
+
+ApiMonitoringSettingsService = Annotated[
+    MonitoringSettingsService,
+    Depends(get_monitoring_settings_service),
+]
+
+
+def get_notification_settings_service(request: Request) -> NotificationSettingsService:
+    """Return the app-scoped staged/active notification settings service."""
+    return cast(
+        NotificationSettingsService,
+        request.app.state.notification_settings_service,
+    )
+
+
+ApiNotificationSettingsService = Annotated[
+    NotificationSettingsService,
+    Depends(get_notification_settings_service),
+]
+
+
 def get_user_note_service(database: ApiDatabase) -> UserNoteService:
     """Build the user-note CRUD service for the current request database handle."""
     return UserNoteService(database=database)
@@ -481,7 +724,10 @@ def metrics(
     settings: ApiSettings = request.app.state.api_settings
     started_at: datetime = request.app.state.started_at
     checked_at = datetime.now(tz=UTC)
-    services = enrich_services_with_current_insight(database.list_services())
+    services = enrich_services_with_current_insight(
+        database.list_services(),
+        local_model_configured=_active_local_model_configured_for_app(request.app),
+    )
     document = render_prometheus_metrics(
         services=services,
         findings=database.list_findings(),
@@ -513,25 +759,141 @@ def metrics(
 
 
 @_api_router.get("/services", response_model=list[Service])
-def list_services(database: ApiDatabase) -> list[Service]:
+def list_services(
+    request: Request,
+    database: ApiDatabase,
+) -> list[Service]:
     """List persisted services for the current monitoring graph."""
-    return enrich_services_with_current_insight(database.list_services())
+    return enrich_services_with_current_insight(
+        database.list_services(),
+        local_model_configured=_active_local_model_configured_for_app(request.app),
+    )
 
 
 @_api_router.get("/services/{service_id}/detail", response_model=ServiceDetailResponse)
 def service_detail(
+    request: Request,
     service_id: str,
     database: ApiDatabase,
     credential_material_service: ApiCredentialMaterialService,
+    monitoring_settings: ApiMonitoringSettingsService,
 ) -> ServiceDetailResponse:
-    """Return the minimum service-detail insight payload for one service."""
+    """Return the detailed service payload for one service."""
     service = database.get_service(service_id)
     if service is None:
         raise HTTPException(status_code=404, detail="service not found")
-    enriched_service = enrich_services_with_current_insight([service])[0]
+    local_model_configured = _active_local_model_configured_for_app(request.app)
+    enriched_service = enrich_services_with_current_insight(
+        [service],
+        local_model_configured=local_model_configured,
+    )[0]
     return build_service_detail_response(
         service=enriched_service,
         credential_material_service=credential_material_service,
+        local_model_configured=local_model_configured,
+        monitoring_settings=monitoring_settings,
+        database=database,
+    )
+
+
+@_api_router.put(
+    "/services/{service_id}/checks/{check_id}/suppression",
+    response_model=ServiceDetailCheckSuppressionMutationResponse,
+)
+def update_service_check_suppression(
+    request: Request,
+    service_id: str,
+    check_id: str,
+    payload: ServiceDetailCheckSuppressionUpdateRequest,
+    database: ApiDatabase,
+    credential_material_service: ApiCredentialMaterialService,
+    monitoring_settings: ApiMonitoringSettingsService,
+) -> ServiceDetailCheckSuppressionMutationResponse:
+    """Update one explicit per-service suppression toggle across active and staged state."""
+    service = database.get_service(service_id)
+    if service is None:
+        raise HTTPException(status_code=404, detail="service not found")
+    try:
+        entry = monitoring_check_entry(check_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not check_applies_to_service(check_id, service):
+        raise HTTPException(
+            status_code=400,
+            detail=f"check {check_id} does not apply to service {service_id}",
+        )
+    previous_active_overrides = database.list_service_check_overrides(
+        scope=ServiceCheckOverrideScope.ACTIVE
+    )
+    previous_staged_overrides = database.list_service_check_overrides(
+        scope=ServiceCheckOverrideScope.STAGED
+    )
+    now = datetime.now(tz=UTC)
+    next_active_overrides = _service_check_suppression_overrides(
+        overrides=previous_active_overrides,
+        scope=ServiceCheckOverrideScope.ACTIVE,
+        service_id=service_id,
+        check_id=check_id,
+        suppressed=payload.suppressed,
+        now=now,
+    )
+    next_staged_overrides = _service_check_suppression_overrides(
+        overrides=previous_staged_overrides,
+        scope=ServiceCheckOverrideScope.STAGED,
+        service_id=service_id,
+        check_id=check_id,
+        suppressed=payload.suppressed,
+        now=now,
+    )
+    database.replace_service_check_overrides(
+        scope=ServiceCheckOverrideScope.ACTIVE,
+        overrides=next_active_overrides,
+    )
+    database.replace_service_check_overrides(
+        scope=ServiceCheckOverrideScope.STAGED,
+        overrides=next_staged_overrides,
+    )
+    local_model_configured = _active_local_model_configured_for_app(request.app)
+    enriched_service = enrich_services_with_current_insight(
+        [service],
+        local_model_configured=local_model_configured,
+    )[0]
+    audit_change = _build_service_check_suppression_change(
+        service=service,
+        check_label=entry.label,
+        check_id=check_id,
+        previous_active_override=_service_check_override_for(
+            overrides=previous_active_overrides,
+            service_id=service_id,
+            check_id=check_id,
+        ),
+        previous_staged_override=_service_check_override_for(
+            overrides=previous_staged_overrides,
+            service_id=service_id,
+            check_id=check_id,
+        ),
+        current_active_override=_service_check_override_for(
+            overrides=next_active_overrides,
+            service_id=service_id,
+            check_id=check_id,
+        ),
+        current_staged_override=_service_check_override_for(
+            overrides=next_staged_overrides,
+            service_id=service_id,
+            check_id=check_id,
+        ),
+        suppressed=payload.suppressed,
+    )
+    database.upsert_change(audit_change)
+    return ServiceDetailCheckSuppressionMutationResponse(
+        detail=build_service_detail_response(
+            service=enriched_service,
+            credential_material_service=credential_material_service,
+            local_model_configured=local_model_configured,
+            monitoring_settings=monitoring_settings,
+            database=database,
+        ),
+        audit_change=audit_change,
     )
 
 
@@ -685,7 +1047,14 @@ def auto_generate_service_descriptor(
         raise HTTPException(status_code=404, detail="service not found")
     _validate_auto_generated_descriptor_target(service)
 
-    local_model_config = load_local_model_config_from_env()
+    model_settings = cast(ModelSettingsService, request.app.state.model_settings_service)
+    try:
+        local_model_config = model_settings.resolve_local_model_config(
+            scope="active",
+            vault=cast(CredentialVault, request.app.state.credential_vault),
+        )
+    except CredentialVaultLockedError:
+        local_model_config = None
     if local_model_config is None:
         raise HTTPException(
             status_code=409,
@@ -1003,6 +1372,7 @@ def service_adapter_facts(
 
 @_api_router.get("/capability-health", response_model=CapabilityHealthReport)
 def capability_health(
+    request: Request,
     database: ApiDatabase,
     credential_material_service: ApiCredentialMaterialService,
 ) -> CapabilityHealthReport:
@@ -1036,8 +1406,11 @@ def capability_health(
         if executor_signal is not None
         else os.environ.get("KAVAL_EXECUTOR_SOCKET", "/run/kaval/executor.sock")
     )
-    notification_bus_config = load_notification_bus_config_from_env()
-    telegram_config = load_telegram_config_from_env()
+    model_settings = cast(ModelSettingsService, request.app.state.model_settings_service)
+    notification_settings = cast(
+        NotificationSettingsService,
+        request.app.state.notification_settings_service,
+    )
 
     return build_capability_health_report(
         checked_at=checked_at,
@@ -1045,18 +1418,1011 @@ def capability_health(
         scheduler_signal=scheduler_signal,
         executor_signal=executor_signal,
         executor_socket_reachable=probe_unix_socket(executor_socket_path),
-        local_model_configured=load_local_model_config_from_env() is not None,
-        cloud_model_configured=load_cloud_model_config_from_env() is not None,
-        notification_channel_count=(
-            len(notification_bus_config.channels)
-            if notification_bus_config is not None
-            else 0
-        )
-        + (1 if telegram_config is not None else 0),
+        local_model_configured=model_settings.active_local_configured(),
+        cloud_model_configured=model_settings.active_cloud_configured(),
+        notification_channel_count=notification_settings.configured_channel_count(
+            scope="active"
+        ),
         vault_status=credential_material_service.vault_status(),
         database_reachable=True,
         migrations_current=database.migrations_current(),
         database_corruption_detected=database_corruption_detected,
+    )
+
+
+@_api_router.get("/settings/models", response_model=ModelSettingsResponse)
+def get_model_settings(
+    model_settings: ApiModelSettingsService,
+) -> ModelSettingsResponse:
+    """Return staged and active model settings with explicit apply state."""
+    return build_model_settings_response(model_settings)
+
+
+@_api_router.put("/settings/models", response_model=ModelSettingsMutationResponse)
+def update_model_settings(
+    payload: ModelSettingsUpdateRequest,
+    request: Request,
+    database: ApiDatabase,
+    model_settings: ApiModelSettingsService,
+) -> ModelSettingsMutationResponse:
+    """Persist one complete staged model-settings update."""
+    previous_staged = model_settings.staged_snapshot()
+    vault = cast(CredentialVault, request.app.state.credential_vault)
+    try:
+        model_settings.update_staged(
+            local=ManagedLocalModelSettings(
+                enabled=payload.local.enabled,
+                model=payload.local.model,
+                base_url=payload.local.base_url,
+                timeout_seconds=payload.local.timeout_seconds,
+            ),
+            local_api_key=payload.local.api_key,
+            clear_local_api_key=payload.local.clear_stored_api_key,
+            cloud=ManagedCloudModelSettings(
+                enabled=payload.cloud.enabled,
+                provider=payload.cloud.provider,
+                model=payload.cloud.model,
+                base_url=payload.cloud.base_url,
+                timeout_seconds=payload.cloud.timeout_seconds,
+                max_output_tokens=payload.cloud.max_output_tokens,
+            ),
+            cloud_api_key=payload.cloud.api_key,
+            clear_cloud_api_key=payload.cloud.clear_stored_api_key,
+            escalation=ManagedCloudEscalationSettings(
+                finding_count_gt=payload.escalation.finding_count_gt,
+                local_confidence_lt=payload.escalation.local_confidence_lt,
+                escalate_on_multiple_domains=payload.escalation.escalate_on_multiple_domains,
+                escalate_on_changelog_research=payload.escalation.escalate_on_changelog_research,
+                escalate_on_user_request=payload.escalation.escalate_on_user_request,
+                max_cloud_calls_per_day=payload.escalation.max_cloud_calls_per_day,
+                max_cloud_calls_per_incident=payload.escalation.max_cloud_calls_per_incident,
+            ),
+            vault=vault,
+        )
+    except CredentialVaultLockedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="vault must be unlocked to store model API keys",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    audit_change = _build_model_settings_change(
+        action="saved",
+        previous=previous_staged,
+        current=model_settings.staged_snapshot(),
+        config_path=Path(model_settings.settings_path),
+        apply_required=model_settings.apply_required(),
+    )
+    database.upsert_change(audit_change)
+    return ModelSettingsMutationResponse(
+        settings=build_model_settings_response(model_settings),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.post("/settings/models/apply", response_model=ModelSettingsMutationResponse)
+def apply_model_settings(
+    database: ApiDatabase,
+    model_settings: ApiModelSettingsService,
+) -> ModelSettingsMutationResponse:
+    """Apply the staged model-settings snapshot into the active runtime."""
+    previous_active = model_settings.active_snapshot()
+    model_settings.apply()
+    audit_change = _build_model_settings_change(
+        action="applied",
+        previous=previous_active,
+        current=model_settings.active_snapshot(),
+        config_path=Path(model_settings.settings_path),
+        apply_required=model_settings.apply_required(),
+    )
+    database.upsert_change(audit_change)
+    return ModelSettingsMutationResponse(
+        settings=build_model_settings_response(model_settings),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.post("/settings/models/test", response_model=ModelSettingsTestResponse)
+def test_model_settings_connection(
+    payload: ModelSettingsTestRequest,
+    request: Request,
+    model_settings: ApiModelSettingsService,
+) -> ModelSettingsTestResponse:
+    """Run one explicit bounded model connectivity test against staged or active settings."""
+    vault = cast(CredentialVault, request.app.state.credential_vault)
+    checked_at = datetime.now(tz=UTC)
+    try:
+        if payload.target is ModelSettingsTestTarget.LOCAL:
+            local_config = model_settings.resolve_local_model_config(
+                scope=_model_settings_scope_value(payload.scope),
+                vault=vault,
+            )
+            if local_config is None:
+                return ModelSettingsTestResponse(
+                    target=payload.target,
+                    scope=payload.scope,
+                    ok=False,
+                    checked_at=checked_at,
+                    message="Selected local model settings are not configured.",
+            )
+            probe_local_model_connection(
+                config=local_config,
+                transport=cast(
+                    RequestTransport | None,
+                    getattr(request.app.state, "local_model_transport", None),
+                ),
+            )
+            return ModelSettingsTestResponse(
+                target=payload.target,
+                scope=payload.scope,
+                ok=True,
+                checked_at=checked_at,
+                message="Local model endpoint accepted the explicit settings test.",
+            )
+
+        cloud_config = model_settings.resolve_cloud_model_config(
+            scope=_model_settings_scope_value(payload.scope),
+            vault=vault,
+        )
+        if cloud_config is None:
+            return ModelSettingsTestResponse(
+                target=payload.target,
+                scope=payload.scope,
+                ok=False,
+                checked_at=checked_at,
+                message="Selected cloud model settings are not configured.",
+            )
+        probe_cloud_model_connection(
+            config=cloud_config,
+            transport=cast(
+                CloudTransport | None,
+                getattr(request.app.state, "cloud_model_transport", None),
+            ),
+        )
+        return ModelSettingsTestResponse(
+            target=payload.target,
+            scope=payload.scope,
+            ok=True,
+            checked_at=checked_at,
+            message="Cloud model endpoint accepted the explicit settings test.",
+        )
+    except CredentialVaultLockedError:
+        return ModelSettingsTestResponse(
+            target=payload.target,
+            scope=payload.scope,
+            ok=False,
+            checked_at=checked_at,
+            message="Vault is locked; unlock it before testing a vault-backed model API key.",
+        )
+    except (ValueError, LocalModelError, CloudModelError) as exc:
+        return ModelSettingsTestResponse(
+            target=payload.target,
+            scope=payload.scope,
+            ok=False,
+            checked_at=checked_at,
+            message=str(exc),
+        )
+
+
+@_api_router.get("/settings/notifications", response_model=NotificationSettingsResponse)
+def get_notification_settings(
+    notification_settings: ApiNotificationSettingsService,
+) -> NotificationSettingsResponse:
+    """Return staged and active notification settings with explicit apply state."""
+    return build_notification_settings_response(notification_settings)
+
+
+@_api_router.put(
+    "/settings/notifications",
+    response_model=NotificationSettingsMutationResponse,
+)
+def update_notification_settings(
+    payload: NotificationSettingsUpdateRequest,
+    request: Request,
+    database: ApiDatabase,
+    notification_settings: ApiNotificationSettingsService,
+) -> NotificationSettingsMutationResponse:
+    """Persist one complete staged notification-settings update."""
+    previous_staged = notification_settings.staged_snapshot()
+    vault = cast(CredentialVault, request.app.state.credential_vault)
+    try:
+        notification_settings.update_staged(
+            channels=[
+                NotificationChannelWrite(
+                    id=channel.id,
+                    name=channel.name,
+                    enabled=channel.enabled,
+                    destination=channel.destination,
+                )
+                for channel in payload.channels
+            ],
+            routing=_build_notification_routing_policy(payload),
+            quiet_hours=ManagedNotificationQuietHoursSettings(
+                enabled=payload.quiet_hours.enabled,
+                start_time_local=payload.quiet_hours.start_time_local,
+                end_time_local=payload.quiet_hours.end_time_local,
+                timezone=payload.quiet_hours.timezone,
+            ),
+            vault=vault,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    audit_change = _build_notification_settings_change(
+        action="saved",
+        previous=previous_staged,
+        current=notification_settings.staged_snapshot(),
+        config_path=notification_settings.settings_path,
+        apply_required=notification_settings.apply_required(),
+    )
+    database.upsert_change(audit_change)
+    return NotificationSettingsMutationResponse(
+        settings=build_notification_settings_response(notification_settings),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.post(
+    "/settings/notifications/apply",
+    response_model=NotificationSettingsMutationResponse,
+)
+def apply_notification_settings(
+    request: Request,
+    database: ApiDatabase,
+    notification_settings: ApiNotificationSettingsService,
+) -> NotificationSettingsMutationResponse:
+    """Apply the current staged notification settings to runtime use."""
+    previous_active = notification_settings.active_snapshot()
+    notification_settings.apply()
+    router = cast(IncidentAlertRouter, request.app.state.incident_alert_router)
+    sender = cast(_ManagedNotificationSender, request.app.state.notification_sender)
+    router.reconfigure(
+        sender=sender,
+        policy=notification_settings.resolve_routing_policy(scope="active"),
+    )
+    audit_change = _build_notification_settings_change(
+        action="applied",
+        previous=previous_active,
+        current=notification_settings.active_snapshot(),
+        config_path=notification_settings.settings_path,
+        apply_required=notification_settings.apply_required(),
+    )
+    database.upsert_change(audit_change)
+    return NotificationSettingsMutationResponse(
+        settings=build_notification_settings_response(notification_settings),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.post(
+    "/settings/notifications/test",
+    response_model=NotificationSettingsTestResponse,
+)
+def test_notification_settings_channel(
+    payload: NotificationSettingsTestRequest,
+    request: Request,
+    notification_settings: ApiNotificationSettingsService,
+) -> NotificationSettingsTestResponse:
+    """Send one explicit bounded notification test through the selected channel."""
+    scope = _notification_settings_scope_value(payload.scope)
+    checked_at = datetime.now(tz=UTC)
+    snapshot = (
+        notification_settings.active_snapshot()
+        if scope == "active"
+        else notification_settings.staged_snapshot()
+    )
+    channel = next(
+        (
+            item
+            for item in snapshot.channels
+            if item.id == payload.channel_id
+        ),
+        None,
+    )
+    if channel is None:
+        return NotificationSettingsTestResponse(
+            channel_id=payload.channel_id,
+            scope=payload.scope,
+            ok=False,
+            checked_at=checked_at,
+            message="Selected notification channel does not exist.",
+        )
+    if not channel.enabled:
+        return NotificationSettingsTestResponse(
+            channel_id=payload.channel_id,
+            scope=payload.scope,
+            ok=False,
+            checked_at=checked_at,
+            message="Selected notification channel is disabled.",
+        )
+
+    vault = cast(CredentialVault, request.app.state.credential_vault)
+    try:
+        config = notification_settings.resolve_bus_config(
+            scope=scope,
+            vault=vault,
+            channel_id=payload.channel_id,
+        )
+    except CredentialVaultLockedError:
+        return NotificationSettingsTestResponse(
+            channel_id=payload.channel_id,
+            scope=payload.scope,
+            ok=False,
+            checked_at=checked_at,
+            message=(
+                "Vault is locked; unlock it before testing a vault-backed "
+                "notification destination."
+            ),
+        )
+
+    if config is None or not config.channels:
+        return NotificationSettingsTestResponse(
+            channel_id=payload.channel_id,
+            scope=payload.scope,
+            ok=False,
+            checked_at=checked_at,
+            message="Selected notification channel is not configured.",
+        )
+
+    bus = NotificationBus(
+        config=config,
+        adapter_factory=cast(
+            Callable[[], AppriseAdapter] | None,
+            getattr(request.app.state, "notification_bus_adapter_factory", None),
+        ),
+    )
+    result = bus.send(
+        _build_notification_settings_test_payload(
+            channel_name=channel.name,
+            checked_at=checked_at,
+        )
+    )
+    return NotificationSettingsTestResponse(
+        channel_id=payload.channel_id,
+        scope=payload.scope,
+        ok=result.status == NotificationDeliveryStatus.SENT,
+        checked_at=checked_at,
+        message=(
+            "Explicit notification channel test delivered successfully."
+            if result.status == NotificationDeliveryStatus.SENT
+            else result.detail
+        ),
+    )
+
+
+@_api_router.get("/settings/monitoring", response_model=MonitoringSettingsResponse)
+def get_monitoring_settings(
+    database: ApiDatabase,
+    monitoring_settings: ApiMonitoringSettingsService,
+) -> MonitoringSettingsResponse:
+    """Return staged and active monitoring settings with explicit apply state."""
+    return build_monitoring_settings_response(
+        monitoring_settings=monitoring_settings,
+        database=database,
+    )
+
+
+@_api_router.put(
+    "/settings/monitoring",
+    response_model=MonitoringSettingsMutationResponse,
+)
+def update_monitoring_settings(
+    payload: MonitoringSettingsUpdateRequest,
+    database: ApiDatabase,
+    monitoring_settings: ApiMonitoringSettingsService,
+) -> MonitoringSettingsMutationResponse:
+    """Persist one complete staged monitoring-settings update."""
+    services = database.list_services()
+    _validate_monitoring_settings_payload(payload=payload, services=services)
+    previous_staged = monitoring_settings.staged_snapshot()
+    previous_staged_overrides = database.list_service_check_overrides(
+        scope=ServiceCheckOverrideScope.STAGED
+    )
+    monitoring_settings.update_staged(
+        checks=[
+            ManagedMonitoringCheckSettings(
+                check_id=check.check_id,
+                enabled=check.enabled,
+                interval_seconds=check.interval_seconds,
+                tls_warning_days=check.tls_warning_days,
+                restart_delta_threshold=check.restart_delta_threshold,
+                probe_timeout_seconds=check.probe_timeout_seconds,
+            )
+            for check in payload.checks
+        ]
+    )
+    database.replace_service_check_overrides(
+        scope=ServiceCheckOverrideScope.STAGED,
+        overrides=_monitoring_service_overrides_from_payload(
+            payload=payload,
+            scope=ServiceCheckOverrideScope.STAGED,
+            now=datetime.now(tz=UTC),
+        ),
+    )
+    audit_change = _build_monitoring_settings_change(
+        action="saved",
+        previous=previous_staged,
+        previous_service_overrides=previous_staged_overrides,
+        current=monitoring_settings.staged_snapshot(),
+        current_service_overrides=database.list_service_check_overrides(
+            scope=ServiceCheckOverrideScope.STAGED
+        ),
+        config_path=monitoring_settings.settings_path,
+        apply_required=_monitoring_apply_required(
+            monitoring_settings=monitoring_settings,
+            database=database,
+        ),
+    )
+    database.upsert_change(audit_change)
+    return MonitoringSettingsMutationResponse(
+        settings=build_monitoring_settings_response(
+            monitoring_settings=monitoring_settings,
+            database=database,
+        ),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.post(
+    "/settings/monitoring/apply",
+    response_model=MonitoringSettingsMutationResponse,
+)
+def apply_monitoring_settings(
+    database: ApiDatabase,
+    monitoring_settings: ApiMonitoringSettingsService,
+) -> MonitoringSettingsMutationResponse:
+    """Apply the staged monitoring settings to runtime use."""
+    previous_active = monitoring_settings.active_snapshot()
+    previous_active_overrides = database.list_service_check_overrides(
+        scope=ServiceCheckOverrideScope.ACTIVE
+    )
+    staged_overrides = database.list_service_check_overrides(
+        scope=ServiceCheckOverrideScope.STAGED
+    )
+    applied_at = datetime.now(tz=UTC)
+    monitoring_settings.apply(now=applied_at)
+    database.replace_service_check_overrides(
+        scope=ServiceCheckOverrideScope.ACTIVE,
+        overrides=[
+            override.model_copy(
+                update={
+                    "scope": ServiceCheckOverrideScope.ACTIVE,
+                    "updated_at": applied_at,
+                }
+            )
+            for override in staged_overrides
+        ],
+    )
+    audit_change = _build_monitoring_settings_change(
+        action="applied",
+        previous=previous_active,
+        previous_service_overrides=previous_active_overrides,
+        current=monitoring_settings.active_snapshot(),
+        current_service_overrides=database.list_service_check_overrides(
+            scope=ServiceCheckOverrideScope.ACTIVE
+        ),
+        config_path=monitoring_settings.settings_path,
+        apply_required=_monitoring_apply_required(
+            monitoring_settings=monitoring_settings,
+            database=database,
+        ),
+    )
+    database.upsert_change(audit_change)
+    return MonitoringSettingsMutationResponse(
+        settings=build_monitoring_settings_response(
+            monitoring_settings=monitoring_settings,
+            database=database,
+        ),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.get("/settings/system", response_model=SystemSettingsResponse)
+def get_system_settings(
+    request: Request,
+    database: ApiDatabase,
+    system_settings: ApiSystemSettingsService,
+    model_settings: ApiModelSettingsService,
+) -> SystemSettingsResponse:
+    """Return staged and active system settings with runtime/about metadata."""
+    return build_system_settings_response(
+        request=request,
+        database=database,
+        system_settings=system_settings,
+        model_settings=model_settings,
+    )
+
+
+@_api_router.put("/settings/system", response_model=SystemSettingsMutationResponse)
+def update_system_settings(
+    payload: SystemSettingsUpdateRequest,
+    request: Request,
+    database: ApiDatabase,
+    system_settings: ApiSystemSettingsService,
+    model_settings: ApiModelSettingsService,
+) -> SystemSettingsMutationResponse:
+    """Persist one complete staged system-settings update."""
+    previous_staged = system_settings.staged_snapshot()
+    system_settings.update_staged(
+        log_level=cast(
+            Literal["critical", "error", "warning", "info", "debug", "trace"],
+            str(payload.log_level),
+        ),
+        audit_detail_retention_days=payload.audit_detail_retention_days,
+        audit_summary_retention_days=payload.audit_summary_retention_days,
+    )
+    audit_change = _build_system_settings_change(
+        action="saved",
+        previous=previous_staged,
+        current=system_settings.staged_snapshot(),
+        config_path=system_settings.settings_path,
+        apply_required=system_settings.apply_required(),
+    )
+    database.upsert_change(audit_change)
+    return SystemSettingsMutationResponse(
+        settings=build_system_settings_response(
+            request=request,
+            database=database,
+            system_settings=system_settings,
+            model_settings=model_settings,
+        ),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.post(
+    "/settings/system/apply",
+    response_model=SystemSettingsMutationResponse,
+)
+def apply_system_settings(
+    request: Request,
+    database: ApiDatabase,
+    system_settings: ApiSystemSettingsService,
+    model_settings: ApiModelSettingsService,
+) -> SystemSettingsMutationResponse:
+    """Apply the staged system settings to runtime use."""
+    previous_active = system_settings.active_snapshot()
+    current_active = system_settings.apply()
+    _apply_runtime_log_level(request.app, current_active.log_level)
+    audit_change = _build_system_settings_change(
+        action="applied",
+        previous=previous_active,
+        current=current_active,
+        config_path=system_settings.settings_path,
+        apply_required=system_settings.apply_required(),
+    )
+    database.upsert_change(audit_change)
+    return SystemSettingsMutationResponse(
+        settings=build_system_settings_response(
+            request=request,
+            database=database,
+            system_settings=system_settings,
+            model_settings=model_settings,
+        ),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.get("/settings/vault", response_model=CredentialVaultResponse)
+def get_credential_vault(
+    request: Request,
+    credential_material_service: ApiCredentialMaterialService,
+    model_settings: ApiModelSettingsService,
+    notification_settings: ApiNotificationSettingsService,
+) -> CredentialVaultResponse:
+    """Return operator-facing vault status and stored-credential metadata."""
+    return build_credential_vault_response(
+        request=request,
+        credential_material_service=credential_material_service,
+        model_settings=model_settings,
+        notification_settings=notification_settings,
+    )
+
+
+@_api_router.post(
+    "/settings/vault/unlock",
+    response_model=CredentialVaultMutationResponse,
+)
+def unlock_credential_vault(
+    payload: VaultUnlockRequest,
+    request: Request,
+    database: ApiDatabase,
+    credential_material_service: ApiCredentialMaterialService,
+    model_settings: ApiModelSettingsService,
+    notification_settings: ApiNotificationSettingsService,
+) -> CredentialVaultMutationResponse:
+    """Initialize or unlock the credential vault through the admin settings flow."""
+    previous_status = credential_material_service.vault_status()
+    try:
+        credential_material_service.unlock_vault(payload.master_passphrase)
+    except CredentialVaultPassphraseError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    audit_change = _build_credential_vault_change(
+        action="unlocked",
+        previous_status=previous_status,
+        current_status=credential_material_service.vault_status(),
+    )
+    database.upsert_change(audit_change)
+    return CredentialVaultMutationResponse(
+        vault=build_credential_vault_response(
+            request=request,
+            credential_material_service=credential_material_service,
+            model_settings=model_settings,
+            notification_settings=notification_settings,
+        ),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.post(
+    "/settings/vault/lock",
+    response_model=CredentialVaultMutationResponse,
+)
+def lock_credential_vault(
+    request: Request,
+    database: ApiDatabase,
+    credential_material_service: ApiCredentialMaterialService,
+    model_settings: ApiModelSettingsService,
+    notification_settings: ApiNotificationSettingsService,
+) -> CredentialVaultMutationResponse:
+    """Explicitly lock the credential vault through the admin settings flow."""
+    previous_status = credential_material_service.vault_status()
+    credential_material_service.lock_vault()
+    audit_change = _build_credential_vault_change(
+        action="locked",
+        previous_status=previous_status,
+        current_status=credential_material_service.vault_status(),
+    )
+    database.upsert_change(audit_change)
+    return CredentialVaultMutationResponse(
+        vault=build_credential_vault_response(
+            request=request,
+            credential_material_service=credential_material_service,
+            model_settings=model_settings,
+            notification_settings=notification_settings,
+        ),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.post(
+    "/settings/vault/change-password",
+    response_model=CredentialVaultMutationResponse,
+)
+def change_credential_vault_password(
+    payload: CredentialVaultChangePasswordRequest,
+    request: Request,
+    database: ApiDatabase,
+    credential_material_service: ApiCredentialMaterialService,
+    model_settings: ApiModelSettingsService,
+    notification_settings: ApiNotificationSettingsService,
+) -> CredentialVaultMutationResponse:
+    """Rotate the vault master passphrase and keep the vault unlocked afterward."""
+    previous_status = credential_material_service.vault_status()
+    try:
+        credential_material_service.change_vault_master_passphrase(
+            current_master_passphrase=payload.current_master_passphrase,
+            new_master_passphrase=payload.new_master_passphrase,
+        )
+    except CredentialVaultPassphraseError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except CredentialVaultNotInitializedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except CredentialVaultError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    audit_change = _build_credential_vault_change(
+        action="changed_password",
+        previous_status=previous_status,
+        current_status=credential_material_service.vault_status(),
+    )
+    database.upsert_change(audit_change)
+    return CredentialVaultMutationResponse(
+        vault=build_credential_vault_response(
+            request=request,
+            credential_material_service=credential_material_service,
+            model_settings=model_settings,
+            notification_settings=notification_settings,
+        ),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.post(
+    "/settings/vault/test",
+    response_model=CredentialVaultTestResponse,
+)
+def test_credential_vault(
+    request: Request,
+    database: ApiDatabase,
+    credential_material_service: ApiCredentialMaterialService,
+    model_settings: ApiModelSettingsService,
+    notification_settings: ApiNotificationSettingsService,
+) -> CredentialVaultTestResponse:
+    """Explicitly test whether stored vault credentials remain readable."""
+    checked_at = datetime.now(tz=UTC)
+    try:
+        results = credential_material_service.test_vault_credentials(now=checked_at)
+    except CredentialVaultLockedError:
+        return CredentialVaultTestResponse(
+            vault=build_credential_vault_response(
+                request=request,
+                credential_material_service=credential_material_service,
+                model_settings=model_settings,
+                notification_settings=notification_settings,
+            ),
+            ok=False,
+            checked_at=checked_at,
+            tested_credentials=0,
+            readable_credentials=0,
+            results=[],
+            message="Vault is locked; unlock it before testing stored credentials.",
+            audit_change=None,
+        )
+    except CredentialVaultError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    response = build_credential_vault_response(
+        request=request,
+        credential_material_service=credential_material_service,
+        model_settings=model_settings,
+        notification_settings=notification_settings,
+    )
+    if not results:
+        return CredentialVaultTestResponse(
+            vault=response,
+            ok=True,
+            checked_at=checked_at,
+            tested_credentials=0,
+            readable_credentials=0,
+            results=[],
+            message="No stored credentials are currently in the vault.",
+            audit_change=None,
+        )
+
+    readable_credentials = sum(1 for item in results if item.ok)
+    credential_map = {item.reference_id: item for item in response.credentials}
+    audit_change = _build_credential_vault_test_change(
+        tested_credentials=len(results),
+        readable_credentials=readable_credentials,
+    )
+    database.upsert_change(audit_change)
+    return CredentialVaultTestResponse(
+        vault=response,
+        ok=readable_credentials == len(results),
+        checked_at=checked_at,
+        tested_credentials=len(results),
+        readable_credentials=readable_credentials,
+        results=[
+            _build_credential_vault_test_item_response(
+                item,
+                checked_at=checked_at,
+                credential_map=credential_map,
+            )
+            for item in results
+        ],
+        message=(
+            "Explicit vault readability test passed for all stored credentials."
+            if readable_credentials == len(results)
+            else "Vault readability test found unreadable stored credentials."
+        ),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.get("/findings/review", response_model=FindingReviewResponse)
+def review_findings(
+    database: ApiDatabase,
+) -> FindingReviewResponse:
+    """Return active findings, recent dismissals, and advisory noise-control suggestions."""
+    return build_finding_review_response(database=database)
+
+
+@_api_router.get("/maintenance", response_model=MaintenanceModeResponse)
+def get_maintenance_mode(
+    database: ApiDatabase,
+) -> MaintenanceModeResponse:
+    """Return the current active global and per-service maintenance windows."""
+    return build_maintenance_mode_response(database=database)
+
+
+@_api_router.put(
+    "/maintenance/global",
+    response_model=MaintenanceModeMutationResponse,
+)
+def enable_global_maintenance(
+    payload: MaintenanceWindowUpdateRequest,
+    database: ApiDatabase,
+) -> MaintenanceModeMutationResponse:
+    """Enable or refresh the global maintenance window."""
+    now = datetime.now(tz=UTC)
+    maintenance_window = MaintenanceWindowRecord(
+        scope=MaintenanceScope.GLOBAL,
+        started_at=now,
+        expires_at=now + timedelta(minutes=payload.duration_minutes),
+    )
+    database.upsert_maintenance_window(maintenance_window)
+    audit_change = _build_maintenance_change(
+        scope=MaintenanceScope.GLOBAL,
+        service=None,
+        duration_minutes=payload.duration_minutes,
+        enabled=True,
+        now=now,
+    )
+    database.upsert_change(audit_change)
+    return MaintenanceModeMutationResponse(
+        maintenance=build_maintenance_mode_response(database=database, now=now),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.delete(
+    "/maintenance/global",
+    response_model=MaintenanceModeMutationResponse,
+)
+def clear_global_maintenance(
+    database: ApiDatabase,
+) -> MaintenanceModeMutationResponse:
+    """Clear the active global maintenance window."""
+    active_global = _active_global_maintenance_window(database=database)
+    if active_global is None:
+        raise HTTPException(status_code=404, detail="global maintenance is not active")
+    now = datetime.now(tz=UTC)
+    database.delete_maintenance_window(scope=MaintenanceScope.GLOBAL)
+    audit_change = _build_maintenance_change(
+        scope=MaintenanceScope.GLOBAL,
+        service=None,
+        duration_minutes=None,
+        enabled=False,
+        now=now,
+    )
+    database.upsert_change(audit_change)
+    return MaintenanceModeMutationResponse(
+        maintenance=build_maintenance_mode_response(database=database, now=now),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.put(
+    "/services/{service_id}/maintenance",
+    response_model=MaintenanceModeMutationResponse,
+)
+def enable_service_maintenance(
+    service_id: str,
+    payload: MaintenanceWindowUpdateRequest,
+    database: ApiDatabase,
+) -> MaintenanceModeMutationResponse:
+    """Enable or refresh the maintenance window for one service."""
+    service = database.get_service(service_id)
+    if service is None:
+        raise HTTPException(status_code=404, detail="service not found")
+    now = datetime.now(tz=UTC)
+    database.upsert_maintenance_window(
+        MaintenanceWindowRecord(
+            scope=MaintenanceScope.SERVICE,
+            service_id=service_id,
+            started_at=now,
+            expires_at=now + timedelta(minutes=payload.duration_minutes),
+        )
+    )
+    audit_change = _build_maintenance_change(
+        scope=MaintenanceScope.SERVICE,
+        service=service,
+        duration_minutes=payload.duration_minutes,
+        enabled=True,
+        now=now,
+    )
+    database.upsert_change(audit_change)
+    return MaintenanceModeMutationResponse(
+        maintenance=build_maintenance_mode_response(database=database, now=now),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.delete(
+    "/services/{service_id}/maintenance",
+    response_model=MaintenanceModeMutationResponse,
+)
+def clear_service_maintenance(
+    service_id: str,
+    database: ApiDatabase,
+) -> MaintenanceModeMutationResponse:
+    """Clear the active maintenance window for one service."""
+    service = database.get_service(service_id)
+    if service is None:
+        raise HTTPException(status_code=404, detail="service not found")
+    active_window = _active_service_maintenance_window(
+        database=database,
+        service_id=service_id,
+    )
+    if active_window is None:
+        raise HTTPException(status_code=404, detail="service maintenance is not active")
+    now = datetime.now(tz=UTC)
+    database.delete_maintenance_window(
+        scope=MaintenanceScope.SERVICE,
+        service_id=service_id,
+    )
+    audit_change = _build_maintenance_change(
+        scope=MaintenanceScope.SERVICE,
+        service=service,
+        duration_minutes=None,
+        enabled=False,
+        now=now,
+    )
+    database.upsert_change(audit_change)
+    return MaintenanceModeMutationResponse(
+        maintenance=build_maintenance_mode_response(database=database, now=now),
+        audit_change=audit_change,
+    )
+
+
+@_api_router.post(
+    "/findings/{finding_id}/dismiss",
+    response_model=FindingDismissResponse,
+)
+def dismiss_finding(
+    finding_id: str,
+    payload: FindingDismissRequest,
+    database: ApiDatabase,
+) -> FindingDismissResponse:
+    """Dismiss one finding with an explicit operator-provided noise reason."""
+    finding = database.get_finding(finding_id)
+    if finding is None:
+        raise HTTPException(status_code=404, detail="finding not found")
+    if finding.status in {FindingStatus.RESOLVED, FindingStatus.DISMISSED}:
+        raise HTTPException(
+            status_code=409,
+            detail="only active findings can be dismissed as noise",
+        )
+    now = datetime.now(tz=UTC)
+    dismissed_finding = finding.model_copy(
+        update={
+            "status": FindingStatus.DISMISSED,
+            "resolved_at": now,
+        }
+    )
+    database.upsert_finding(dismissed_finding)
+    database.upsert_finding_feedback_record(
+        FindingFeedbackRecord(
+            id=f"ffb-{uuid4()}",
+            finding_id=finding.id,
+            service_id=finding.service_id,
+            finding_domain=finding.domain,
+            reason=payload.reason,
+            recorded_at=now,
+        )
+    )
+    if finding.incident_id is not None:
+        incident = database.get_incident(finding.incident_id)
+        if incident is not None and incident.status not in {
+            IncidentStatus.RESOLVED,
+            IncidentStatus.DISMISSED,
+        } and not _incident_has_active_findings(
+            database=database,
+            incident_id=finding.incident_id,
+        ):
+            database.upsert_incident(
+                transition_incident(
+                    incident,
+                    IncidentStatus.DISMISSED,
+                    changed_at=now,
+                )
+            )
+    audit_change = _build_finding_dismiss_change(
+        finding=dismissed_finding,
+        previous_status=finding.status,
+        reason=payload.reason,
+        database=database,
+    )
+    database.upsert_change(audit_change)
+    return FindingDismissResponse(
+        finding=dismissed_finding,
+        review=build_finding_review_response(database=database),
+        audit_change=audit_change,
     )
 
 
@@ -1079,9 +2445,16 @@ def list_investigations(database: ApiDatabase) -> list[Investigation]:
 
 
 @_api_router.get("/changes", response_model=list[Change])
-def list_changes(database: ApiDatabase) -> list[Change]:
-    """List persisted change events."""
-    return database.list_changes()
+def list_changes(
+    database: ApiDatabase,
+    system_settings: ApiSystemSettingsService,
+) -> list[Change]:
+    """List persisted change events within the active audit summary window."""
+    active_settings = system_settings.active_snapshot()
+    cutoff = datetime.now(tz=UTC) - timedelta(
+        days=active_settings.audit_summary_retention_days
+    )
+    return [change for change in database.list_changes() if change.timestamp >= cutoff]
 
 
 @_api_router.get("/journal-entries", response_model=list[JournalEntry])
@@ -1429,12 +2802,16 @@ def lock_vault(service: ApiCredentialMaterialService) -> VaultStatus:
 
 @_api_router.get("/graph", response_model=ServiceGraphResponse)
 def graph(
+    request: Request,
     database: ApiDatabase,
     manager: ApiCredentialRequestManager,
 ) -> ServiceGraphResponse:
     """Return the Phase 1 service map with explicit dependency edges."""
     return build_service_graph(
-        enrich_services_with_current_insight(database.list_services()),
+        enrich_services_with_current_insight(
+            database.list_services(),
+            local_model_configured=_active_local_model_configured_for_app(request.app),
+        ),
         descriptors=manager.descriptors,
     )
 
@@ -1572,7 +2949,10 @@ def widget(
         if settings.widget_api_key is not None
         else f"public, max-age={settings.widget_refresh_interval_seconds}"
     )
-    services = enrich_services_with_current_insight(database.list_services())
+    services = enrich_services_with_current_insight(
+        database.list_services(),
+        local_model_configured=_active_local_model_configured_for_app(request.app),
+    )
     return build_widget_summary(
         services=services,
         findings=database.list_findings(),
@@ -1591,14 +2971,30 @@ def widget(
 
 @_api_router.get("/effectiveness", response_model=EffectivenessReport)
 def effectiveness(
+    request: Request,
     database: ApiDatabase,
     manager: ApiCredentialRequestManager,
 ) -> EffectivenessReport:
     """Return the equal-weighted v1 effectiveness score and minimal breakdown."""
     return build_effectiveness_report(
-        services=enrich_services_with_current_insight(database.list_services()),
+        services=enrich_services_with_current_insight(
+            database.list_services(),
+            local_model_configured=_active_local_model_configured_for_app(request.app),
+        ),
         descriptors=manager.descriptors,
         adapter_registry=_DEFAULT_ADAPTER_REGISTRY,
+    )
+
+
+@_api_router.get("/recommendations", response_model=RecommendationsResponse)
+def recommendations(
+    database: ApiDatabase,
+    model_settings: ApiModelSettingsService,
+) -> RecommendationsResponse:
+    """Return ranked proactive admin recommendations derived from current state."""
+    return build_proactive_recommendations_response(
+        database=database,
+        model_settings=model_settings,
     )
 
 
@@ -1610,7 +3006,7 @@ async def websocket_updates(websocket: WebSocket) -> None:
     last_snapshot_json: str | None = None
     try:
         while True:
-            snapshot = _load_realtime_snapshot(settings)
+            snapshot = _load_realtime_snapshot(websocket.app)
             snapshot_json = snapshot.model_dump_json()
             if snapshot_json != last_snapshot_json:
                 await websocket.send_json(snapshot.model_dump(mode="json"))
@@ -1830,9 +3226,1433 @@ def _build_graph_edge_change(
     )
 
 
-def enrich_services_with_current_insight(services: Sequence[Service]) -> list[Service]:
+def build_model_settings_response(
+    model_settings: ModelSettingsService,
+) -> ModelSettingsResponse:
+    """Build the typed staged/active model-settings response payload."""
+    return ModelSettingsResponse(
+        config_path=str(model_settings.settings_path),
+        load_error=model_settings.load_error,
+        apply_required=model_settings.apply_required(),
+        last_applied_at=model_settings.last_applied_at,
+        active=_model_settings_scope_payload(model_settings, scope="active"),
+        staged=_model_settings_scope_payload(model_settings, scope="staged"),
+    )
+
+
+def _model_settings_scope_payload(
+    model_settings: ModelSettingsService,
+    *,
+    scope: Literal["active", "staged"],
+) -> ModelSettingsScopeResponse:
+    """Build one staged or active model-settings scope payload."""
+    snapshot = (
+        model_settings.active_snapshot()
+        if scope == "active"
+        else model_settings.staged_snapshot()
+    )
+    local_source = _model_settings_secret_source(
+        model_settings.local_api_key_source(scope=scope)
+    )
+    cloud_source = _model_settings_secret_source(
+        model_settings.cloud_api_key_source(scope=scope)
+    )
+    return ModelSettingsScopeResponse(
+        local=ModelSettingsLocalScopeResponse(
+            enabled=snapshot.local.enabled,
+            provider=snapshot.local.provider,
+            model=snapshot.local.model,
+            base_url=snapshot.local.base_url,
+            timeout_seconds=snapshot.local.timeout_seconds,
+            api_key_ref=snapshot.local.api_key_ref,
+            api_key_source=local_source,
+            api_key_configured=local_source is not ModelSettingsSecretSource.UNSET,
+            configured=bool(snapshot.local.enabled and snapshot.local.model),
+        ),
+        cloud=ModelSettingsCloudScopeResponse(
+            enabled=snapshot.cloud.enabled,
+            provider=snapshot.cloud.provider,
+            model=snapshot.cloud.model,
+            base_url=snapshot.cloud.base_url,
+            timeout_seconds=snapshot.cloud.timeout_seconds,
+            max_output_tokens=snapshot.cloud.max_output_tokens,
+            api_key_ref=snapshot.cloud.api_key_ref,
+            api_key_source=cloud_source,
+            api_key_configured=cloud_source is not ModelSettingsSecretSource.UNSET,
+            configured=bool(
+                snapshot.cloud.enabled
+                and snapshot.cloud.model
+                and cloud_source is not ModelSettingsSecretSource.UNSET
+            ),
+        ),
+        escalation=ModelSettingsEscalationResponse(
+            **snapshot.escalation.model_dump(mode="json")
+        ),
+    )
+
+
+def _model_settings_secret_source(source: str) -> ModelSettingsSecretSource:
+    """Convert one internal secret-source value into the API enum."""
+    if source == "vault":
+        return ModelSettingsSecretSource.VAULT
+    if source == "env":
+        return ModelSettingsSecretSource.ENV
+    return ModelSettingsSecretSource.UNSET
+
+
+def _model_settings_scope_value(
+    scope: ModelSettingsTestScope,
+) -> Literal["active", "staged"]:
+    """Convert the API scope enum into the internal staged/active selector."""
+    return "active" if scope is ModelSettingsTestScope.ACTIVE else "staged"
+
+
+def build_system_settings_response(
+    *,
+    request: Request,
+    database: KavalDatabase,
+    system_settings: SystemSettingsService,
+    model_settings: ModelSettingsService,
+) -> SystemSettingsResponse:
+    """Build the typed staged/active system-settings response payload."""
+    checked_at = datetime.now(tz=UTC)
+    return SystemSettingsResponse(
+        config_path=str(system_settings.settings_path),
+        load_error=system_settings.load_error,
+        apply_required=system_settings.apply_required(),
+        last_applied_at=system_settings.last_applied_at,
+        active=_system_settings_scope_payload(
+            system_settings,
+            scope="active",
+        ),
+        staged=_system_settings_scope_payload(
+            system_settings,
+            scope="staged",
+        ),
+        database=_system_settings_database_status(
+            request=request,
+            database=database,
+        ),
+        transfer_guidance=_system_settings_transfer_guidance(),
+        about=_system_settings_about_payload(
+            request=request,
+            checked_at=checked_at,
+            system_settings=system_settings,
+            model_settings=model_settings,
+        ),
+    )
+
+
+def _system_settings_scope_payload(
+    system_settings: SystemSettingsService,
+    *,
+    scope: Literal["active", "staged"],
+) -> SystemSettingsScopeResponse:
+    """Build one staged or active system-settings scope payload."""
+    snapshot = (
+        system_settings.active_snapshot()
+        if scope == "active"
+        else system_settings.staged_snapshot()
+    )
+    return SystemSettingsScopeResponse(
+        log_level=SystemSettingsLogLevel(snapshot.log_level),
+        audit_detail_retention_days=snapshot.audit_detail_retention_days,
+        audit_summary_retention_days=snapshot.audit_summary_retention_days,
+    )
+
+
+def _system_settings_database_status(
+    *,
+    request: Request,
+    database: KavalDatabase,
+) -> SystemSettingsDatabaseStatusResponse:
+    """Build the read-only database maintenance payload for system settings."""
+    settings = cast(ApiSettings, request.app.state.api_settings)
+    database_path = settings.database_path
+    quick_check_result = database.connection().execute("PRAGMA quick_check").fetchone()
+    quick_check_message = (
+        str(quick_check_result[0]) if quick_check_result is not None else "no result"
+    )
+    journal_mode_result = database.connection().execute("PRAGMA journal_mode").fetchone()
+    journal_mode = (
+        str(journal_mode_result[0]) if journal_mode_result is not None else "unknown"
+    )
+    return SystemSettingsDatabaseStatusResponse(
+        path=str(database_path),
+        exists=database_path.exists(),
+        size_bytes=database_path.stat().st_size if database_path.exists() else 0,
+        migrations_current=database.migrations_current(),
+        quick_check_ok=quick_check_message.casefold() == "ok",
+        quick_check_result=quick_check_message,
+        journal_mode=journal_mode,
+    )
+
+
+def _system_settings_transfer_guidance() -> SystemSettingsTransferGuidanceResponse:
+    """Build Phase 3C import/export warnings without enabling transfer flows."""
+    return SystemSettingsTransferGuidanceResponse(
+        phase_guardrail=(
+            "Phase 3C exposes warnings and scope only. Automated backup, export, "
+            "and import execution stays out of scope until Phase 4."
+        ),
+        exports=[
+            SystemSettingsExportGuidanceResponse(
+                target=SystemSettingsExportTarget.OPERATIONAL_MEMORY,
+                label="Operational memory",
+                available=False,
+                sensitivity=SystemSettingsSensitivity.HIGH,
+                warning=(
+                    "Operational-memory exports can contain sensitive incident context, "
+                    "user notes, system topology, and credential references."
+                ),
+            ),
+            SystemSettingsExportGuidanceResponse(
+                target=SystemSettingsExportTarget.SETTINGS,
+                label="Settings",
+                available=False,
+                sensitivity=SystemSettingsSensitivity.HIGH,
+                warning=(
+                    "Settings exports exclude raw vault secrets, but still include "
+                    "sensitive endpoints, routing policy, and secret reference identifiers."
+                ),
+            ),
+            SystemSettingsExportGuidanceResponse(
+                target=SystemSettingsExportTarget.DESCRIPTORS,
+                label="Descriptors",
+                available=False,
+                sensitivity=SystemSettingsSensitivity.MEDIUM,
+                warning=(
+                    "Descriptor exports can reveal sensitive hostnames, shares, ports, "
+                    "dependency topology, and reviewed service assumptions."
+                ),
+            ),
+        ],
+        imports=[
+            SystemSettingsImportGuidanceResponse(
+                target=SystemSettingsImportTarget.DESCRIPTORS,
+                label="Descriptor import",
+                available=False,
+                warning=(
+                    "Descriptor imports can activate sensitive topology assumptions. "
+                    "Review and promote descriptors explicitly before runtime use."
+                ),
+            ),
+            SystemSettingsImportGuidanceResponse(
+                target=SystemSettingsImportTarget.NOTES,
+                label="Notes import",
+                available=False,
+                warning=(
+                    "Imported notes may contain sensitive operator context and must be "
+                    "reviewed before they become trusted operational memory."
+                ),
+            ),
+            SystemSettingsImportGuidanceResponse(
+                target=SystemSettingsImportTarget.CONFIGURATION_BACKUP,
+                label="Configuration backup import",
+                available=False,
+                warning=(
+                    "Configuration backup import can overwrite sensitive routing and "
+                    "endpoint settings. Phase 3C surfaces the warning only, not the action."
+                ),
+            ),
+        ],
+    )
+
+
+def _system_settings_about_payload(
+    *,
+    request: Request,
+    checked_at: datetime,
+    system_settings: SystemSettingsService,
+    model_settings: ModelSettingsService,
+) -> SystemSettingsAboutResponse:
+    """Build the current runtime/build/about payload for system settings."""
+    settings = cast(ApiSettings, request.app.state.api_settings)
+    started_at = cast(datetime, request.app.state.started_at)
+    runtime_log_level = cast(
+        str,
+        getattr(
+            request.app.state,
+            "runtime_log_level",
+            system_settings.active_snapshot().log_level,
+        ),
+    )
+    model_snapshot = model_settings.active_snapshot()
+    local_summary = (
+        f"Enabled · {model_snapshot.local.model} · {model_snapshot.local.base_url}"
+        if model_snapshot.local.enabled and model_snapshot.local.model
+        else "Disabled"
+    )
+    cloud_summary = (
+        f"Enabled · {model_snapshot.cloud.provider} · {model_snapshot.cloud.model}"
+        if model_snapshot.cloud.enabled and model_snapshot.cloud.model
+        else "Disabled"
+    )
+    escalation_summary = (
+        f"Finding>{model_snapshot.escalation.finding_count_gt}, "
+        f"confidence<{model_snapshot.escalation.local_confidence_lt:.2f}, "
+        f"caps {model_snapshot.escalation.max_cloud_calls_per_day}/day and "
+        f"{model_snapshot.escalation.max_cloud_calls_per_incident}/incident"
+    )
+    return SystemSettingsAboutResponse(
+        api_title=request.app.title,
+        api_version=request.app.version,
+        api_summary=request.app.summary,
+        checked_at=checked_at,
+        started_at=started_at,
+        uptime_seconds=max((checked_at - started_at).total_seconds(), 0.0),
+        runtime_log_level=SystemSettingsLogLevel(runtime_log_level),
+        settings_path=str(settings.settings_path),
+        database_path=str(settings.database_path),
+        services_dir=str(settings.services_dir),
+        web_dist_dir=str(settings.web_dist_dir),
+        web_bundle_present=settings.web_dist_dir.exists(),
+        model_status=SystemSettingsAboutModelStatusResponse(
+            local_model_enabled=model_snapshot.local.enabled,
+            local_model_configured=model_settings.active_local_configured(),
+            local_model_summary=local_summary,
+            cloud_model_enabled=model_snapshot.cloud.enabled,
+            cloud_model_configured=model_settings.active_cloud_configured(),
+            cloud_model_summary=cloud_summary,
+            escalation_summary=escalation_summary,
+        ),
+    )
+
+
+def build_notification_settings_response(
+    notification_settings: NotificationSettingsService,
+) -> NotificationSettingsResponse:
+    """Build the typed staged/active notification-settings response payload."""
+    effective_now = datetime.now(tz=UTC)
+    return NotificationSettingsResponse(
+        config_path=str(notification_settings.settings_path),
+        load_error=notification_settings.load_error,
+        apply_required=notification_settings.apply_required(),
+        last_applied_at=notification_settings.last_applied_at,
+        active=_notification_settings_scope_payload(
+            notification_settings,
+            scope="active",
+            now=effective_now,
+        ),
+        staged=_notification_settings_scope_payload(
+            notification_settings,
+            scope="staged",
+            now=effective_now,
+        ),
+    )
+
+
+def _notification_settings_scope_payload(
+    notification_settings: NotificationSettingsService,
+    *,
+    scope: Literal["active", "staged"],
+    now: datetime,
+) -> NotificationSettingsScopeResponse:
+    """Build one staged or active notification-settings scope payload."""
+    snapshot = (
+        notification_settings.active_snapshot()
+        if scope == "active"
+        else notification_settings.staged_snapshot()
+    )
+    quiet_until = snapshot.quiet_hours.quiet_until(now=now)
+    return NotificationSettingsScopeResponse(
+        channels=[
+            NotificationSettingsChannelScopeResponse(
+                id=channel.id,
+                name=channel.name,
+                kind=channel.kind,
+                enabled=channel.enabled,
+                destination_ref=channel.destination_ref,
+                destination_source=_notification_settings_secret_source(
+                    notification_settings.channel_destination_source(
+                        channel_id=channel.id,
+                        scope=scope,
+                    )
+                ),
+                destination_configured=(
+                    notification_settings.channel_destination_source(
+                        channel_id=channel.id,
+                        scope=scope,
+                    )
+                    != "unset"
+                ),
+            )
+            for channel in snapshot.channels
+        ],
+        routing=NotificationSettingsRoutingResponse(
+            **snapshot.routing.model_dump(mode="json")
+        ),
+        quiet_hours=NotificationSettingsQuietHoursResponse(
+            enabled=snapshot.quiet_hours.enabled,
+            start_time_local=snapshot.quiet_hours.start_time_local,
+            end_time_local=snapshot.quiet_hours.end_time_local,
+            timezone=snapshot.quiet_hours.timezone,
+            active_now=quiet_until is not None,
+            quiet_until=quiet_until,
+        ),
+        configured_channel_count=notification_settings.configured_channel_count(
+            scope=scope
+        ),
+    )
+
+
+def _notification_settings_secret_source(
+    source: str,
+) -> NotificationSettingsSecretSource:
+    """Convert one internal destination-source value into the API enum."""
+    if source == "vault":
+        return NotificationSettingsSecretSource.VAULT
+    if source == "env":
+        return NotificationSettingsSecretSource.ENV
+    return NotificationSettingsSecretSource.UNSET
+
+
+def _notification_settings_scope_value(
+    scope: NotificationSettingsTestScope,
+) -> Literal["active", "staged"]:
+    """Convert the API scope enum into the internal staged/active selector."""
+    return "active" if scope is NotificationSettingsTestScope.ACTIVE else "staged"
+
+
+def build_monitoring_settings_response(
+    *,
+    monitoring_settings: MonitoringSettingsService,
+    database: KavalDatabase,
+) -> MonitoringSettingsResponse:
+    """Build the typed staged/active monitoring-settings response payload."""
+    effective_now = datetime.now(tz=UTC)
+    return MonitoringSettingsResponse(
+        config_path=str(monitoring_settings.settings_path),
+        load_error=monitoring_settings.load_error,
+        apply_required=_monitoring_apply_required(
+            monitoring_settings=monitoring_settings,
+            database=database,
+        ),
+        last_applied_at=monitoring_settings.last_applied_at,
+        active=_monitoring_settings_scope_payload(
+            monitoring_settings=monitoring_settings,
+            database=database,
+            scope="active",
+            now=effective_now,
+        ),
+        staged=_monitoring_settings_scope_payload(
+            monitoring_settings=monitoring_settings,
+            database=database,
+            scope="staged",
+            now=effective_now,
+        ),
+    )
+
+
+def _monitoring_settings_scope_payload(
+    *,
+    monitoring_settings: MonitoringSettingsService,
+    database: KavalDatabase,
+    scope: Literal["active", "staged"],
+    now: datetime,
+) -> MonitoringSettingsScopeResponse:
+    """Build one staged or active monitoring-settings scope payload."""
+    services = database.list_services()
+    incidents = [
+        incident
+        for incident in database.list_incidents()
+        if incident.status in _ACTIVE_INCIDENT_STATUSES
+    ]
+    overrides = database.list_service_check_overrides(
+        scope=(
+            ServiceCheckOverrideScope.ACTIVE
+            if scope == "active"
+            else ServiceCheckOverrideScope.STAGED
+        )
+    )
+    cadence = monitoring_settings.resolve_cadence_config(
+        scope=scope,
+        service_overrides=overrides,
+    )
+    return MonitoringSettingsScopeResponse(
+        checks=_monitoring_check_response_payloads(
+            monitoring_settings=monitoring_settings,
+            scope=scope,
+        ),
+        service_overrides=_monitoring_service_override_payloads(
+            services=services,
+            overrides=overrides,
+        ),
+        effective_services=_monitoring_effective_service_payloads(
+            monitoring_settings=monitoring_settings,
+            scope=scope,
+            services=services,
+            service_overrides=overrides,
+            incidents=incidents,
+            cadence=cadence,
+            now=now,
+        ),
+    )
+
+
+def _monitoring_check_response_payloads(
+    *,
+    monitoring_settings: MonitoringSettingsService,
+    scope: Literal["active", "staged"],
+) -> list[MonitoringSettingsCheckResponse]:
+    """Build the operator-facing global monitoring settings rows."""
+    snapshot = (
+        monitoring_settings.active_snapshot()
+        if scope == "active"
+        else monitoring_settings.staged_snapshot()
+    )
+    snapshot_by_id = {check.check_id: check for check in snapshot.checks}
+    defaults_by_id = {
+        rule.check_id: rule for rule in default_monitoring_check_cadences()
+    }
+    return [
+        MonitoringSettingsCheckResponse(
+            check_id=entry.check_id,
+            label=entry.label,
+            description=entry.description,
+            enabled=snapshot_by_id[entry.check_id].enabled,
+            interval_seconds=snapshot_by_id[entry.check_id].interval_seconds,
+            tls_warning_days=snapshot_by_id[entry.check_id].tls_warning_days,
+            restart_delta_threshold=(
+                snapshot_by_id[entry.check_id].restart_delta_threshold
+            ),
+            probe_timeout_seconds=snapshot_by_id[entry.check_id].probe_timeout_seconds,
+            default_enabled=defaults_by_id[entry.check_id].enabled,
+            default_interval_seconds=defaults_by_id[entry.check_id].interval_seconds,
+            default_tls_warning_days=monitoring_threshold_defaults(entry.check_id)[0],
+            default_restart_delta_threshold=monitoring_threshold_defaults(entry.check_id)[1],
+            default_probe_timeout_seconds=monitoring_threshold_defaults(entry.check_id)[2],
+        )
+        for entry in monitoring_check_catalog()
+    ]
+
+
+def _monitoring_service_override_payloads(
+    *,
+    services: Sequence[Service],
+    overrides: Sequence[ServiceCheckOverride],
+) -> list[MonitoringSettingsServiceOverrideResponse]:
+    """Build the operator-facing service override rows."""
+    services_by_id = {service.id: service for service in services}
+    payloads: list[MonitoringSettingsServiceOverrideResponse] = []
+    for override in overrides:
+        service = services_by_id.get(override.service_id)
+        if service is None:
+            continue
+        entry = monitoring_check_entry(override.check_id)
+        payloads.append(
+            MonitoringSettingsServiceOverrideResponse(
+                service_id=service.id,
+                service_name=service.name,
+                service_status=service.status,
+                check_id=override.check_id,
+                check_label=entry.label,
+                enabled=override.enabled,
+                interval_seconds=override.interval_seconds,
+                tls_warning_days=override.tls_warning_days,
+                restart_delta_threshold=override.restart_delta_threshold,
+                probe_timeout_seconds=override.probe_timeout_seconds,
+                updated_at=override.updated_at,
+            )
+        )
+    return payloads
+
+
+def _monitoring_effective_service_payloads(
+    *,
+    monitoring_settings: MonitoringSettingsService,
+    scope: Literal["active", "staged"],
+    services: Sequence[Service],
+    service_overrides: Sequence[ServiceCheckOverride],
+    incidents: Sequence[Incident],
+    cadence: MonitoringCadenceConfig,
+    now: datetime,
+) -> list[MonitoringSettingsEffectiveServiceResponse]:
+    """Build the effective cadence rows for each service."""
+    default_rules_by_id = {
+        rule.check_id: rule for rule in default_monitoring_check_cadences()
+    }
+    payloads: list[MonitoringSettingsEffectiveServiceResponse] = []
+    for service in services:
+        check_rows: list[MonitoringSettingsEffectiveCheckResponse] = []
+        for entry in monitoring_check_catalog():
+            if not check_applies_to_service(entry.check_id, service):
+                continue
+            execution = resolve_service_check_execution(
+                config=cadence,
+                service_id=service.id,
+                check_id=entry.check_id,
+                base_interval_seconds=default_rules_by_id[entry.check_id].interval_seconds,
+            )
+            decision = resolve_monitoring_cadence_decision(
+                config=cadence,
+                check_id=entry.check_id,
+                services=list(services),
+                now=now,
+                incidents=list(incidents),
+                base_interval_seconds=default_rules_by_id[entry.check_id].interval_seconds,
+            )
+            accelerated_now = decision.accelerated and service.id in decision.scoped_service_ids
+            effective_interval_seconds = execution.interval_seconds
+            if accelerated_now:
+                effective_interval_seconds = min(
+                    effective_interval_seconds,
+                    decision.effective_interval_seconds,
+                )
+            thresholds = monitoring_settings.resolve_threshold_settings(
+                scope=scope,
+                service_overrides=service_overrides,
+                service_id=service.id,
+                check_id=entry.check_id,
+            )
+            check_rows.append(
+                MonitoringSettingsEffectiveCheckResponse(
+                    check_id=entry.check_id,
+                    label=entry.label,
+                    enabled=execution.enabled,
+                    base_interval_seconds=execution.interval_seconds,
+                    effective_interval_seconds=effective_interval_seconds,
+                    source=_monitoring_resolution_source(execution.source),
+                    tls_warning_days=thresholds.tls_warning_days,
+                    restart_delta_threshold=thresholds.restart_delta_threshold,
+                    probe_timeout_seconds=thresholds.probe_timeout_seconds,
+                    threshold_source=(
+                        None
+                        if (
+                            thresholds.tls_warning_days is None
+                            and thresholds.restart_delta_threshold is None
+                            and thresholds.probe_timeout_seconds is None
+                        )
+                        else _monitoring_resolution_source(thresholds.source)
+                    ),
+                    accelerated_now=accelerated_now,
+                    incident_ids=decision.incident_ids if accelerated_now else [],
+                )
+            )
+        if check_rows:
+            payloads.append(
+                MonitoringSettingsEffectiveServiceResponse(
+                    service_id=service.id,
+                    service_name=service.name,
+                    service_status=service.status,
+                    checks=check_rows,
+                )
+            )
+    return payloads
+
+
+def _monitoring_resolution_source(
+    source: str,
+) -> MonitoringSettingsResolutionSource:
+    """Convert one internal monitoring-resolution source into the API enum."""
+    if source == "service_override":
+        return MonitoringSettingsResolutionSource.SERVICE_OVERRIDE
+    return MonitoringSettingsResolutionSource.GLOBAL_DEFAULT
+
+
+def _monitoring_apply_required(
+    *,
+    monitoring_settings: MonitoringSettingsService,
+    database: KavalDatabase,
+) -> bool:
+    """Return whether the staged monitoring settings still need apply."""
+    if monitoring_settings.apply_required():
+        return True
+    return not _service_check_override_sets_equal(
+        database.list_service_check_overrides(scope=ServiceCheckOverrideScope.ACTIVE),
+        database.list_service_check_overrides(scope=ServiceCheckOverrideScope.STAGED),
+    )
+
+
+def _service_check_override_sets_equal(
+    left: Sequence[ServiceCheckOverride],
+    right: Sequence[ServiceCheckOverride],
+) -> bool:
+    """Compare two service override snapshots while ignoring update timestamps."""
+    def normalize(
+        overrides: Sequence[ServiceCheckOverride],
+    ) -> list[
+        tuple[
+            str,
+            str,
+            bool | None,
+            int | None,
+            int | None,
+            int | None,
+            float | None,
+        ]
+    ]:
+        return sorted(
+            (
+                override.service_id,
+                override.check_id,
+                override.enabled,
+                override.interval_seconds,
+                override.tls_warning_days,
+                override.restart_delta_threshold,
+                override.probe_timeout_seconds,
+            )
+            for override in overrides
+        )
+
+    return normalize(left) == normalize(right)
+
+
+def _validate_monitoring_settings_payload(
+    *,
+    payload: MonitoringSettingsUpdateRequest,
+    services: Sequence[Service],
+) -> None:
+    """Reject unsupported check ids and meaningless service override targets."""
+    supported_check_ids = {entry.check_id for entry in monitoring_check_catalog()}
+    services_by_id = {service.id: service for service in services}
+    seen_check_ids: set[str] = set()
+    for check in payload.checks:
+        if check.check_id in seen_check_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"duplicate monitoring check id: {check.check_id}",
+            )
+        seen_check_ids.add(check.check_id)
+    provided_check_ids = seen_check_ids
+    if provided_check_ids != supported_check_ids:
+        missing = sorted(supported_check_ids - provided_check_ids)
+        extra = sorted(provided_check_ids - supported_check_ids)
+        detail_parts: list[str] = []
+        if missing:
+            detail_parts.append(f"missing checks: {', '.join(missing)}")
+        if extra:
+            detail_parts.append(f"unsupported checks: {', '.join(extra)}")
+        raise HTTPException(status_code=400, detail="; ".join(detail_parts))
+    seen_override_keys: set[tuple[str, str]] = set()
+    for override in payload.service_overrides:
+        key = (override.service_id, override.check_id)
+        if key in seen_override_keys:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "duplicate service override key: "
+                    f"{override.service_id}/{override.check_id}"
+                ),
+            )
+        seen_override_keys.add(key)
+        service = services_by_id.get(override.service_id)
+        if service is None:
+            raise HTTPException(status_code=404, detail="service not found")
+        if override.check_id not in supported_check_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unsupported monitoring check id: {override.check_id}",
+            )
+        if not check_applies_to_service(override.check_id, service):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"check {override.check_id} does not apply to service "
+                    f"{override.service_id}"
+                ),
+            )
+
+
+def _monitoring_service_overrides_from_payload(
+    *,
+    payload: MonitoringSettingsUpdateRequest,
+    scope: ServiceCheckOverrideScope,
+    now: datetime,
+) -> list[ServiceCheckOverride]:
+    """Convert the writable monitoring payload into persisted override records."""
+    return [
+        ServiceCheckOverride(
+            scope=scope,
+            service_id=override.service_id,
+            check_id=override.check_id,
+            enabled=override.enabled,
+            interval_seconds=override.interval_seconds,
+            tls_warning_days=override.tls_warning_days,
+            restart_delta_threshold=override.restart_delta_threshold,
+            probe_timeout_seconds=override.probe_timeout_seconds,
+            updated_at=now,
+        )
+        for override in payload.service_overrides
+    ]
+
+
+def _service_check_override_for(
+    *,
+    overrides: Sequence[ServiceCheckOverride],
+    service_id: str,
+    check_id: str,
+) -> ServiceCheckOverride | None:
+    """Return the persisted override for one service/check pair if present."""
+    for override in overrides:
+        if override.service_id == service_id and override.check_id == check_id:
+            return override
+    return None
+
+
+def _service_check_suppression_overrides(
+    *,
+    overrides: Sequence[ServiceCheckOverride],
+    scope: ServiceCheckOverrideScope,
+    service_id: str,
+    check_id: str,
+    suppressed: bool,
+    now: datetime,
+) -> list[ServiceCheckOverride]:
+    """Apply one suppression toggle while preserving unrelated service overrides."""
+    updated: list[ServiceCheckOverride] = []
+    matched = False
+    for override in overrides:
+        if override.service_id != service_id or override.check_id != check_id:
+            updated.append(override)
+            continue
+        matched = True
+        if override.enabled is True:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "service check has an explicit enabled override; "
+                    "edit monitoring settings instead"
+                ),
+            )
+        if suppressed:
+            updated.append(
+                override.model_copy(
+                    update={
+                        "scope": scope,
+                        "enabled": False,
+                        "updated_at": now,
+                    }
+                )
+            )
+            continue
+        if override.interval_seconds is None:
+            continue
+        updated.append(
+            override.model_copy(
+                update={
+                    "scope": scope,
+                    "enabled": None,
+                    "updated_at": now,
+                }
+            )
+        )
+    if not matched and suppressed:
+        updated.append(
+            ServiceCheckOverride(
+                scope=scope,
+                service_id=service_id,
+                check_id=check_id,
+                enabled=False,
+                interval_seconds=None,
+                updated_at=now,
+            )
+        )
+    return sorted(updated, key=lambda item: (item.service_id, item.check_id))
+
+
+def _build_notification_routing_policy(
+    payload: NotificationSettingsUpdateRequest,
+) -> IncidentAlertRoutingPolicy:
+    """Build a typed routing policy from the writable notification payload."""
+    return IncidentAlertRoutingPolicy(
+        critical=IncidentAlertRoute(payload.routing.critical),
+        high=IncidentAlertRoute(payload.routing.high),
+        medium=IncidentAlertRoute(payload.routing.medium),
+        low=IncidentAlertRoute(payload.routing.low),
+        dedup_window_minutes=payload.routing.dedup_window_minutes,
+        digest_window_minutes=payload.routing.digest_window_minutes,
+    )
+
+
+def _build_notification_settings_test_payload(
+    *,
+    channel_name: str,
+    checked_at: datetime,
+) -> NotificationPayload:
+    """Build one explicit operator-triggered notification test payload."""
+    return NotificationPayload(
+        source_type=NotificationSourceType.INCIDENT,
+        source_id=f"notification-test:{channel_name}",
+        incident_id=None,
+        severity=Severity.LOW,
+        title="Kaval notification settings test",
+        summary=f"Explicit test for {channel_name}",
+        body=(
+            f"Explicit admin test for notification channel '{channel_name}' at "
+            f"{checked_at.isoformat()}."
+        ),
+        evidence_lines=[],
+        recommended_action=None,
+        action_buttons=[],
+        dedup_key=f"notification-test:{channel_name}",
+        created_at=checked_at,
+    )
+
+
+def _apply_runtime_log_level(app: FastAPI, log_level: str) -> None:
+    """Apply one explicit runtime log level to the process loggers."""
+    level = _RUNTIME_LOG_LEVELS.get(log_level, logging.INFO)
+    for logger_name in _RUNTIME_LOGGER_NAMES:
+        logging.getLogger(logger_name).setLevel(level)
+    app.state.runtime_log_level = log_level
+
+
+def _active_local_model_configured_for_app(app: FastAPI) -> bool:
+    """Return whether the app-scoped active local model path is configured."""
+    model_settings = cast(ModelSettingsService, app.state.model_settings_service)
+    return model_settings.active_local_configured()
+
+
+def _runtime_local_model_config(
+    *,
+    model_settings: ModelSettingsService,
+    vault: CredentialVault,
+) -> LocalModelConfig | None:
+    """Resolve the active local runtime config or suppress unusable states."""
+    try:
+        return model_settings.resolve_local_model_config(scope="active", vault=vault)
+    except (CredentialVaultLockedError, ValueError):
+        return None
+
+
+def _runtime_cloud_model_config(
+    *,
+    model_settings: ModelSettingsService,
+    vault: CredentialVault,
+) -> CloudModelConfig | None:
+    """Resolve the active cloud runtime config or suppress unusable states."""
+    try:
+        return model_settings.resolve_cloud_model_config(scope="active", vault=vault)
+    except (CredentialVaultLockedError, ValueError):
+        return None
+
+
+def _build_model_settings_change(
+    *,
+    action: Literal["saved", "applied"],
+    previous: ManagedModelSettings,
+    current: ManagedModelSettings,
+    config_path: Path,
+    apply_required: bool,
+) -> Change:
+    """Build one auditable config-change entry for model-settings mutations."""
+    action_prefix = "Saved staged" if action == "saved" else "Applied staged"
+    apply_note = (
+        " Apply is still required before runtime use."
+        if action == "saved" and apply_required
+        else ""
+    )
+    return Change(
+        id=f"chg-model-settings-{uuid4()}",
+        type=ChangeType.CONFIG_CHANGE,
+        service_id=None,
+        description=f"{action_prefix} model settings via {config_path}.{apply_note}",
+        old_value=_model_settings_change_summary(previous),
+        new_value=_model_settings_change_summary(current),
+        timestamp=datetime.now(tz=UTC),
+        correlated_incidents=[],
+    )
+
+
+def _model_settings_change_summary(snapshot: ManagedModelSettings) -> str:
+    """Build a compact audit summary for one model-settings snapshot."""
+    local_summary = (
+        f"local=enabled:{snapshot.local.model}"
+        if snapshot.local.enabled and snapshot.local.model
+        else "local=disabled"
+    )
+    cloud_summary = (
+        f"cloud=enabled:{snapshot.cloud.provider}:{snapshot.cloud.model}"
+        if snapshot.cloud.enabled and snapshot.cloud.model
+        else "cloud=disabled"
+    )
+    escalation_summary = (
+        "escalation="
+        f"finding>{snapshot.escalation.finding_count_gt},"
+        f"confidence<{snapshot.escalation.local_confidence_lt:.2f},"
+        f"daycap={snapshot.escalation.max_cloud_calls_per_day},"
+        f"incidentcap={snapshot.escalation.max_cloud_calls_per_incident}"
+    )
+    return f"{local_summary}; {cloud_summary}; {escalation_summary}"
+
+
+def _build_system_settings_change(
+    *,
+    action: Literal["saved", "applied"],
+    previous: ManagedSystemSettings,
+    current: ManagedSystemSettings,
+    config_path: Path,
+    apply_required: bool,
+) -> Change:
+    """Build one auditable config-change entry for system-settings mutations."""
+    action_prefix = "Saved staged" if action == "saved" else "Applied staged"
+    apply_note = (
+        " Apply is still required before runtime use."
+        if action == "saved" and apply_required
+        else ""
+    )
+    return Change(
+        id=f"chg-system-settings-{uuid4()}",
+        type=ChangeType.CONFIG_CHANGE,
+        service_id=None,
+        description=f"{action_prefix} system settings via {config_path}.{apply_note}",
+        old_value=_system_settings_change_summary(previous),
+        new_value=_system_settings_change_summary(current),
+        timestamp=datetime.now(tz=UTC),
+        correlated_incidents=[],
+    )
+
+
+def _system_settings_change_summary(snapshot: ManagedSystemSettings) -> str:
+    """Build a compact audit summary for one system-settings snapshot."""
+    return (
+        f"log_level={snapshot.log_level}; "
+        f"audit_detail_retention_days={snapshot.audit_detail_retention_days}; "
+        f"audit_summary_retention_days={snapshot.audit_summary_retention_days}"
+    )
+
+
+def _build_notification_settings_change(
+    *,
+    action: Literal["saved", "applied"],
+    previous: ManagedNotificationSettings,
+    current: ManagedNotificationSettings,
+    config_path: Path,
+    apply_required: bool,
+) -> Change:
+    """Build one auditable config-change entry for notification-settings mutations."""
+    action_prefix = "Saved staged" if action == "saved" else "Applied staged"
+    apply_note = (
+        " Apply is still required before runtime use."
+        if action == "saved" and apply_required
+        else ""
+    )
+    return Change(
+        id=f"chg-notification-settings-{uuid4()}",
+        type=ChangeType.CONFIG_CHANGE,
+        service_id=None,
+        description=f"{action_prefix} notification settings via {config_path}.{apply_note}",
+        old_value=_notification_settings_change_summary(previous),
+        new_value=_notification_settings_change_summary(current),
+        timestamp=datetime.now(tz=UTC),
+        correlated_incidents=[],
+    )
+
+
+def _build_monitoring_settings_change(
+    *,
+    action: Literal["saved", "applied"],
+    previous: ManagedMonitoringSettings,
+    previous_service_overrides: Sequence[ServiceCheckOverride],
+    current: ManagedMonitoringSettings,
+    current_service_overrides: Sequence[ServiceCheckOverride],
+    config_path: Path,
+    apply_required: bool,
+) -> Change:
+    """Build one auditable config-change entry for monitoring-settings mutations."""
+    action_prefix = "Saved staged" if action == "saved" else "Applied staged"
+    apply_note = (
+        " Apply is still required before runtime use."
+        if action == "saved" and apply_required
+        else ""
+    )
+    return Change(
+        id=f"chg-monitoring-settings-{uuid4()}",
+        type=ChangeType.CONFIG_CHANGE,
+        service_id=None,
+        description=f"{action_prefix} monitoring settings via {config_path}.{apply_note}",
+        old_value=_monitoring_settings_change_summary(
+            snapshot=previous,
+            service_overrides=previous_service_overrides,
+        ),
+        new_value=_monitoring_settings_change_summary(
+            snapshot=current,
+            service_overrides=current_service_overrides,
+        ),
+        timestamp=datetime.now(tz=UTC),
+        correlated_incidents=[],
+    )
+
+
+def _build_service_check_suppression_change(
+    *,
+    service: Service,
+    check_label: str,
+    check_id: str,
+    previous_active_override: ServiceCheckOverride | None,
+    previous_staged_override: ServiceCheckOverride | None,
+    current_active_override: ServiceCheckOverride | None,
+    current_staged_override: ServiceCheckOverride | None,
+    suppressed: bool,
+) -> Change:
+    """Build one auditable config-change entry for a service suppression toggle."""
+    action = "Suppressed" if suppressed else "Restored inherited monitoring for"
+    return Change(
+        id=f"chg-service-check-suppression-{uuid4()}",
+        type=ChangeType.CONFIG_CHANGE,
+        service_id=service.id,
+        description=(
+            f"{action} {check_label} ({check_id}) on {service.name} "
+            "across active and staged monitoring overrides."
+        ),
+        old_value=(
+            "active="
+            f"{_service_check_override_change_summary(previous_active_override)}; "
+            "staged="
+            f"{_service_check_override_change_summary(previous_staged_override)}"
+        ),
+        new_value=(
+            "active="
+            f"{_service_check_override_change_summary(current_active_override)}; "
+            "staged="
+            f"{_service_check_override_change_summary(current_staged_override)}"
+        ),
+        timestamp=datetime.now(tz=UTC),
+        correlated_incidents=[],
+    )
+
+
+def _service_check_override_change_summary(
+    override: ServiceCheckOverride | None,
+) -> str:
+    """Build a compact audit summary for one service/check override state."""
+    if override is None:
+        return "inherit"
+    enabled = "inherit" if override.enabled is None else str(override.enabled).lower()
+    interval = (
+        "inherit"
+        if override.interval_seconds is None
+        else str(override.interval_seconds)
+    )
+    threshold_summary = monitoring_threshold_summary(
+        override.check_id,
+        tls_warning_days=override.tls_warning_days,
+        restart_delta_threshold=override.restart_delta_threshold,
+        probe_timeout_seconds=override.probe_timeout_seconds,
+    )
+    if threshold_summary is None:
+        return f"enabled={enabled},interval={interval}"
+    return f"enabled={enabled},interval={interval},{threshold_summary}"
+
+
+def _notification_settings_change_summary(
+    snapshot: ManagedNotificationSettings,
+) -> str:
+    """Build a compact audit summary for one notification-settings snapshot."""
+    enabled_channels = [
+        f"{channel.name}:{channel.kind}"
+        for channel in snapshot.channels
+        if channel.enabled
+    ]
+    channels_summary = (
+        f"channels={','.join(enabled_channels)}"
+        if enabled_channels
+        else "channels=none"
+    )
+    routing_summary = (
+        "routing="
+        f"critical:{snapshot.routing.critical},"
+        f"high:{snapshot.routing.high},"
+        f"medium:{snapshot.routing.medium},"
+        f"low:{snapshot.routing.low},"
+        f"dedup:{snapshot.routing.dedup_window_minutes},"
+        f"digest:{snapshot.routing.digest_window_minutes}"
+    )
+    quiet_hours_summary = (
+        "quiet_hours="
+        f"{snapshot.quiet_hours.enabled}:"
+        f"{snapshot.quiet_hours.start_time_local}-"
+        f"{snapshot.quiet_hours.end_time_local}@"
+        f"{snapshot.quiet_hours.timezone}"
+    )
+    return f"{channels_summary}; {routing_summary}; {quiet_hours_summary}"
+
+
+def _monitoring_settings_change_summary(
+    *,
+    snapshot: ManagedMonitoringSettings,
+    service_overrides: Sequence[ServiceCheckOverride],
+) -> str:
+    """Build a compact audit summary for one monitoring-settings snapshot."""
+    checks_summary = ",".join(
+        (
+            f"{check.check_id}:{check.enabled}:{check.interval_seconds}"
+            if monitoring_threshold_summary(
+                check.check_id,
+                tls_warning_days=check.tls_warning_days,
+                restart_delta_threshold=check.restart_delta_threshold,
+                probe_timeout_seconds=check.probe_timeout_seconds,
+            )
+            is None
+            else (
+                f"{check.check_id}:{check.enabled}:{check.interval_seconds}:"
+                f"{monitoring_threshold_summary(
+                    check.check_id,
+                    tls_warning_days=check.tls_warning_days,
+                    restart_delta_threshold=check.restart_delta_threshold,
+                    probe_timeout_seconds=check.probe_timeout_seconds,
+                )}"
+            )
+        )
+        for check in snapshot.checks
+    )
+    overrides_summary = (
+        ",".join(
+            (
+                f"{override.service_id}:{override.check_id}:"
+                f"{_service_check_override_change_summary(override)}"
+            )
+            for override in sorted(
+                service_overrides,
+                key=lambda item: (item.service_id, item.check_id),
+            )
+        )
+        if service_overrides
+        else "none"
+    )
+    return f"checks={checks_summary}; service_overrides={overrides_summary}"
+
+
+def build_credential_vault_response(
+    *,
+    request: Request,
+    credential_material_service: CredentialMaterialService,
+    model_settings: ModelSettingsService,
+    notification_settings: NotificationSettingsService,
+) -> CredentialVaultResponse:
+    """Build the operator-facing vault-management payload."""
+    request_map = {
+        item.id: item for item in credential_material_service.request_manager.list_requests()
+    }
+    model_reference_map = _credential_vault_model_reference_map(model_settings)
+    notification_channel_names = _credential_vault_notification_channel_names(
+        notification_settings
+    )
+    credentials = [
+        _build_credential_vault_credential_response(
+            record=record,
+            request_map=request_map,
+            model_reference_map=model_reference_map,
+            notification_channel_names=notification_channel_names,
+        )
+        for record in credential_material_service.list_vault_credentials()
+    ]
+    return CredentialVaultResponse(
+        status=credential_material_service.vault_status(),
+        auto_lock_minutes=cast(ApiSettings, request.app.state.api_settings).vault_auto_lock_minutes,
+        credentials=credentials,
+    )
+
+
+def _build_credential_vault_credential_response(
+    *,
+    record: VaultCredentialRecord,
+    request_map: dict[str, CredentialRequest],
+    model_reference_map: dict[str, tuple[str, str]],
+    notification_channel_names: dict[str, str],
+) -> CredentialVaultCredentialResponse:
+    """Build one secret-free stored-credential summary row."""
+    request_record = request_map.get(record.request_id)
+    if request_record is not None:
+        service_name = request_record.service_name
+        credential_description = request_record.credential_description
+        source = CredentialVaultEntrySource.CREDENTIAL_REQUEST
+    else:
+        service_name, credential_description = _credential_vault_managed_labels(
+            record=record,
+            model_reference_map=model_reference_map,
+            notification_channel_names=notification_channel_names,
+        )
+        source = CredentialVaultEntrySource.MANAGED_SETTING
+    return CredentialVaultCredentialResponse(
+        reference_id=record.reference_id,
+        source=source,
+        service_id=record.service_id,
+        service_name=service_name,
+        credential_key=record.credential_key,
+        credential_description=credential_description,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+        last_used_at=record.last_used_at,
+        last_tested_at=record.last_tested_at,
+        expires_at=record.expires_at,
+    )
+
+
+def _credential_vault_managed_labels(
+    *,
+    record: VaultCredentialRecord,
+    model_reference_map: dict[str, tuple[str, str]],
+    notification_channel_names: dict[str, str],
+) -> tuple[str, str]:
+    """Resolve display labels for managed settings secrets stored in the vault."""
+    mapped_model_label = model_reference_map.get(record.reference_id)
+    if mapped_model_label is not None:
+        return mapped_model_label
+    if record.service_id.startswith("settings.notifications."):
+        channel_id = record.service_id.removeprefix("settings.notifications.")
+        channel_name = notification_channel_names.get(channel_id)
+        if channel_name:
+            return (f"Notification channel: {channel_name}", "Destination URL")
+        return ("Notification channel settings", "Destination URL")
+    return (
+        record.service_id.replace(".", " "),
+        record.credential_key.replace("_", " "),
+    )
+
+
+def _credential_vault_model_reference_map(
+    model_settings: ModelSettingsService,
+) -> dict[str, tuple[str, str]]:
+    """Resolve known model-secret references into stable display labels."""
+    reference_map: dict[str, tuple[str, str]] = {}
+    for snapshot in (
+        model_settings.active_snapshot(),
+        model_settings.staged_snapshot(),
+    ):
+        if snapshot.local.api_key_ref is not None:
+            reference_map[snapshot.local.api_key_ref] = ("Local model settings", "API key")
+        if snapshot.cloud.api_key_ref is not None:
+            reference_map[snapshot.cloud.api_key_ref] = ("Cloud model settings", "API key")
+    return reference_map
+
+
+def _credential_vault_notification_channel_names(
+    notification_settings: NotificationSettingsService,
+) -> dict[str, str]:
+    """Resolve notification channel ids into the most recent configured names."""
+    names: dict[str, str] = {}
+    for snapshot in (
+        notification_settings.active_snapshot(),
+        notification_settings.staged_snapshot(),
+    ):
+        for channel in snapshot.channels:
+            names[channel.id] = channel.name
+    return names
+
+
+def _build_credential_vault_change(
+    *,
+    action: Literal["unlocked", "locked", "changed_password"],
+    previous_status: VaultStatus,
+    current_status: VaultStatus,
+) -> Change:
+    """Build one auditable change entry for an explicit vault mutation."""
+    descriptions = {
+        "unlocked": "Unlocked the credential vault via the admin settings panel.",
+        "locked": "Locked the credential vault via the admin settings panel.",
+        "changed_password": (
+            "Changed the credential vault master passphrase via the admin settings panel."
+        ),
+    }
+    return Change(
+        id=f"chg-credential-vault-{uuid4()}",
+        type=ChangeType.CONFIG_CHANGE,
+        service_id=None,
+        description=descriptions[action],
+        old_value=_credential_vault_status_summary(previous_status),
+        new_value=_credential_vault_status_summary(current_status),
+        timestamp=datetime.now(tz=UTC),
+        correlated_incidents=[],
+    )
+
+
+def _build_credential_vault_test_change(
+    *,
+    tested_credentials: int,
+    readable_credentials: int,
+) -> Change:
+    """Build one auditable change entry for an explicit vault readability test."""
+    return Change(
+        id=f"chg-credential-vault-test-{uuid4()}",
+        type=ChangeType.CONFIG_CHANGE,
+        service_id=None,
+        description=(
+            "Ran an explicit credential vault readability test via the admin settings panel."
+        ),
+        old_value=None,
+        new_value=(
+            f"tested={tested_credentials}; readable={readable_credentials}; "
+            f"unreadable={tested_credentials - readable_credentials}"
+        ),
+        timestamp=datetime.now(tz=UTC),
+        correlated_incidents=[],
+    )
+
+
+def _credential_vault_status_summary(status: VaultStatus) -> str:
+    """Build a compact audit summary for the current vault runtime state."""
+    return (
+        f"initialized={status.initialized}; "
+        f"unlocked={status.unlocked}; "
+        f"stored={status.stored_credentials}"
+    )
+
+
+def _build_credential_vault_test_item_response(
+    result: VaultCredentialTestResult,
+    *,
+    checked_at: datetime,
+    credential_map: dict[str, CredentialVaultCredentialResponse],
+) -> CredentialVaultTestItemResponse:
+    """Build one credential-vault test-result row from stored metadata."""
+    credential = credential_map.get(result.record.reference_id)
+    return CredentialVaultTestItemResponse(
+        reference_id=result.record.reference_id,
+        service_name=(
+            credential.service_name
+            if credential is not None
+            else result.record.service_id.replace(".", " ")
+        ),
+        credential_description=(
+            credential.credential_description
+            if credential is not None
+            else result.record.credential_key.replace("_", " ")
+        ),
+        ok=result.ok,
+        message=result.message,
+        checked_at=checked_at,
+    )
+
+
+@dataclass(slots=True)
+class _ManagedNotificationSender:
+    """Resolve active notification settings at send time without caching secrets."""
+
+    settings_service: NotificationSettingsService
+    vault: CredentialVault
+    adapter_factory: Callable[[], AppriseAdapter] | None = None
+
+    def send(self, payload: NotificationPayload) -> NotificationDeliveryResult:
+        """Send one notification payload using the active notification settings."""
+        try:
+            config = self.settings_service.resolve_bus_config(
+                scope="active",
+                vault=self.vault,
+            )
+        except CredentialVaultLockedError:
+            return NotificationDeliveryResult(
+                status=NotificationDeliveryStatus.FAILED,
+                attempted_channels=self.settings_service.configured_channel_count(
+                    scope="active"
+                ),
+                delivered_channels=0,
+                failed_channels=[],
+                detail="Notification destinations are locked in the vault.",
+            )
+        return NotificationBus(
+            config=config,
+            adapter_factory=self.adapter_factory,
+        ).send(payload)
+
+
+def enrich_services_with_current_insight(
+    services: Sequence[Service],
+    *,
+    local_model_configured: bool,
+) -> list[Service]:
     """Attach current insight levels using the active runtime investigation capability."""
-    local_model_configured = load_local_model_config_from_env() is not None
     return [
         service.model_copy(
             update={
@@ -1846,12 +4666,72 @@ def enrich_services_with_current_insight(services: Sequence[Service]) -> list[Se
     ]
 
 
+def _build_service_detail_monitoring_section(
+    *,
+    service: Service,
+    monitoring_settings: MonitoringSettingsService,
+    database: KavalDatabase,
+) -> ServiceDetailMonitoringSectionResponse:
+    """Build the service-detail monitoring rows using the active runtime state."""
+    active_snapshot = monitoring_settings.active_snapshot()
+    active_overrides = database.list_service_check_overrides(
+        scope=ServiceCheckOverrideScope.ACTIVE
+    )
+    snapshot_by_id = {check.check_id: check for check in active_snapshot.checks}
+    defaults_by_id = {
+        rule.check_id: rule for rule in default_monitoring_check_cadences()
+    }
+    cadence = monitoring_settings.resolve_cadence_config(
+        scope="active",
+        service_overrides=active_overrides,
+    )
+    checks: list[ServiceDetailMonitoringCheckResponse] = []
+    for entry in monitoring_check_catalog():
+        if not check_applies_to_service(entry.check_id, service):
+            continue
+        override = _service_check_override_for(
+            overrides=active_overrides,
+            service_id=service.id,
+            check_id=entry.check_id,
+        )
+        inherited = snapshot_by_id[entry.check_id]
+        execution = resolve_service_check_execution(
+            config=cadence,
+            service_id=service.id,
+            check_id=entry.check_id,
+            base_interval_seconds=defaults_by_id[entry.check_id].interval_seconds,
+            base_enabled=defaults_by_id[entry.check_id].enabled,
+        )
+        checks.append(
+            ServiceDetailMonitoringCheckResponse(
+                check_id=entry.check_id,
+                label=entry.label,
+                description=entry.description,
+                inherited_enabled=inherited.enabled,
+                inherited_interval_seconds=inherited.interval_seconds,
+                effective_enabled=execution.enabled,
+                effective_interval_seconds=execution.interval_seconds,
+                source=_monitoring_resolution_source(execution.source),
+                suppressed=override is not None and override.enabled is False,
+                override_enabled=None if override is None else override.enabled,
+                override_interval_seconds=(
+                    None if override is None else override.interval_seconds
+                ),
+                override_updated_at=None if override is None else override.updated_at,
+            )
+        )
+    return ServiceDetailMonitoringSectionResponse(checks=checks)
+
+
 def build_service_detail_response(
     *,
     service: Service,
     credential_material_service: CredentialMaterialService,
+    local_model_configured: bool,
+    monitoring_settings: MonitoringSettingsService,
+    database: KavalDatabase,
 ) -> ServiceDetailResponse:
-    """Build the minimum later-enrichable service-detail response for one service."""
+    """Build the current service-detail response for one service."""
     current_level = 0 if service.insight is None else int(service.insight.level)
     loaded_descriptor = _loaded_descriptor_for_service(
         service=service,
@@ -1872,8 +4752,14 @@ def build_service_detail_response(
                 service=service,
                 loaded_descriptor=loaded_descriptor,
                 adapter_statuses=adapter_statuses,
+                local_model_configured=local_model_configured,
             ),
             fact_summary_available=False,
+        ),
+        monitoring_section=_build_service_detail_monitoring_section(
+            service=service,
+            monitoring_settings=monitoring_settings,
+            database=database,
         ),
     )
 
@@ -2914,10 +5800,10 @@ def _build_service_detail_improve_actions(
     service: Service,
     loaded_descriptor: LoadedServiceDescriptor | None,
     adapter_statuses: Sequence[ServiceDetailAdapterResponse],
+    local_model_configured: bool,
 ) -> list[ServiceDetailImproveActionResponse]:
     """Build explicit improvement affordances for the minimum service detail view."""
     improve_actions: list[ServiceDetailImproveActionResponse] = []
-    local_model_configured = load_local_model_config_from_env() is not None
     if (
         service.descriptor_id is not None
         and service.last_check is not None
@@ -3153,6 +6039,462 @@ def build_widget_summary(
     )
 
 
+def build_maintenance_mode_response(
+    *,
+    database: KavalDatabase,
+    now: datetime | None = None,
+) -> MaintenanceModeResponse:
+    """Build the operator-facing maintenance state from active DB-backed windows."""
+    effective_now = now or datetime.now(tz=UTC)
+    services_by_id = {service.id: service for service in database.list_services()}
+
+    def service_window_sort_key(window: MaintenanceWindowRecord) -> str:
+        """Return a stable display-oriented sort key for one service window."""
+        service = services_by_id.get(window.service_id or "")
+        if service is not None:
+            return service.name
+        return window.service_id or ""
+
+    active_windows = active_maintenance_windows(
+        database.list_maintenance_windows(),
+        now=effective_now,
+    )
+    global_window = next(
+        (window for window in active_windows if window.scope is MaintenanceScope.GLOBAL),
+        None,
+    )
+    service_windows = sorted(
+        (
+            window
+            for window in active_windows
+            if window.scope is MaintenanceScope.SERVICE
+        ),
+        key=service_window_sort_key,
+    )
+    return MaintenanceModeResponse(
+        global_window=(
+            None
+            if global_window is None
+            else _build_maintenance_window_response(
+                window=global_window,
+                service=None,
+                now=effective_now,
+            )
+        ),
+        service_windows=[
+            _build_maintenance_window_response(
+                window=window,
+                service=services_by_id.get(window.service_id or ""),
+                now=effective_now,
+            )
+            for window in service_windows
+        ],
+        self_health_guardrail=(
+            "Global maintenance suppresses normal findings and incident notifications, "
+            "but critical Kaval self-health remains unsuppressed."
+        ),
+    )
+
+
+def _build_maintenance_window_response(
+    *,
+    window: MaintenanceWindowRecord,
+    service: Service | None,
+    now: datetime,
+) -> MaintenanceWindowResponse:
+    """Build one active maintenance window response row."""
+    return MaintenanceWindowResponse(
+        scope=window.scope,
+        service_id=window.service_id,
+        service_name=None if service is None else service.name,
+        started_at=window.started_at,
+        expires_at=window.expires_at,
+        minutes_remaining=_minutes_remaining(
+            expires_at=window.expires_at,
+            now=now,
+        ),
+    )
+
+
+def _minutes_remaining(
+    *,
+    expires_at: datetime,
+    now: datetime,
+) -> int:
+    """Return the rounded-up remaining window duration in minutes."""
+    seconds_remaining = max(0.0, (expires_at - now).total_seconds())
+    return int((seconds_remaining + 59) // 60)
+
+
+def _active_global_maintenance_window(
+    *,
+    database: KavalDatabase,
+    now: datetime | None = None,
+) -> MaintenanceWindowRecord | None:
+    """Return the active global maintenance window, if present."""
+    effective_now = now or datetime.now(tz=UTC)
+    return next(
+        (
+            window
+            for window in active_maintenance_windows(
+                database.list_maintenance_windows(),
+                now=effective_now,
+            )
+            if window.scope is MaintenanceScope.GLOBAL
+        ),
+        None,
+    )
+
+
+def _active_service_maintenance_window(
+    *,
+    database: KavalDatabase,
+    service_id: str,
+    now: datetime | None = None,
+) -> MaintenanceWindowRecord | None:
+    """Return the active maintenance window for one service, if present."""
+    effective_now = now or datetime.now(tz=UTC)
+    return next(
+        (
+            window
+            for window in active_maintenance_windows(
+                database.list_maintenance_windows(),
+                now=effective_now,
+            )
+            if window.scope is MaintenanceScope.SERVICE and window.service_id == service_id
+        ),
+        None,
+    )
+
+
+def _active_alert_maintenance_windows(
+    *,
+    database: KavalDatabase,
+    now: datetime,
+) -> list[AlertMaintenanceWindow]:
+    """Return active maintenance windows converted for incident notification routing."""
+    return [
+        AlertMaintenanceWindow(
+            service_id=window.service_id,
+            expires_at=window.expires_at,
+        )
+        for window in active_maintenance_windows(
+            database.list_maintenance_windows(),
+            now=now,
+        )
+    ]
+
+
+def _build_maintenance_change(
+    *,
+    scope: MaintenanceScope,
+    service: Service | None,
+    duration_minutes: int | None,
+    enabled: bool,
+    now: datetime,
+) -> Change:
+    """Build one auditable change record for maintenance mode actions."""
+    target_label = "global maintenance" if service is None else f"{service.name} maintenance"
+    if enabled:
+        description = (
+            f"Enabled {target_label} for {duration_minutes} minutes."
+        )
+        new_value = (
+            f"scope={scope.value};duration_minutes={duration_minutes};"
+            f"expires_at={(now + timedelta(minutes=duration_minutes or 0)).isoformat()}"
+        )
+        old_value = None
+    else:
+        description = f"Cleared {target_label}."
+        old_value = f"scope={scope.value};active=true"
+        new_value = f"scope={scope.value};active=false"
+    return Change(
+        id=f"chg-maintenance-{uuid4()}",
+        type=ChangeType.CONFIG_CHANGE,
+        service_id=None if service is None else service.id,
+        description=description,
+        old_value=old_value,
+        new_value=new_value,
+        timestamp=now,
+        correlated_incidents=[],
+    )
+
+
+def build_proactive_recommendations_response(
+    *,
+    database: KavalDatabase,
+    model_settings: ModelSettingsService,
+    now: datetime | None = None,
+) -> RecommendationsResponse:
+    """Build ranked proactive admin recommendations from current persisted state."""
+    effective_now = now or datetime.now(tz=UTC)
+    services = database.list_services()
+    services_by_id = {service.id: service for service in services}
+    pattern_counts = Counter(
+        (record.service_id, record.finding_domain)
+        for record in database.list_finding_feedback_records()
+    )
+    noisy_patterns = [
+        NoisyCheckPattern(
+            service_id=suggestion.service_id,
+            service_name=suggestion.service_name,
+            check_id=suggestion.check_id,
+            check_label=suggestion.check_label,
+            dismissal_count=suggestion.dismissal_count,
+            message=suggestion.message,
+        )
+        for suggestion in _build_finding_feedback_suggestions(
+            services_by_id=services_by_id,
+            pattern_counts=pattern_counts,
+            database=database,
+        )
+    ]
+    candidates = build_proactive_recommendations(
+        services=services,
+        vault_credentials=database.list_vault_credentials(),
+        noisy_check_patterns=noisy_patterns,
+        local_model_configured=model_settings.active_local_configured(),
+        cloud_model_configured=model_settings.active_cloud_configured(),
+        now=effective_now,
+    )
+    return RecommendationsResponse(
+        items=[
+            _build_recommendation_item_response(candidate)
+            for candidate in candidates
+        ]
+    )
+
+
+def _build_recommendation_item_response(
+    candidate: RecommendationCandidate,
+) -> RecommendationItemResponse:
+    """Convert one internal recommendation candidate into the API contract."""
+    return RecommendationItemResponse(
+        id=candidate.id,
+        kind=candidate.kind,
+        title=candidate.title,
+        detail=candidate.detail,
+        action=RecommendationActionResponse(
+            label=candidate.action.label,
+            target=candidate.action.target,
+            service_id=candidate.action.service_id,
+        ),
+    )
+
+
+def build_finding_review_response(
+    *,
+    database: KavalDatabase,
+) -> FindingReviewResponse:
+    """Build the operator-facing finding review payload for noise control."""
+    services = database.list_services()
+    services_by_id = {service.id: service for service in services}
+    feedback_records = database.list_finding_feedback_records()
+    pattern_counts = Counter(
+        (record.service_id, record.finding_domain) for record in feedback_records
+    )
+    latest_feedback_by_finding_id: dict[str, FindingFeedbackRecord] = {}
+    for record in feedback_records:
+        latest_feedback_by_finding_id[record.finding_id] = record
+    suggestions = _build_finding_feedback_suggestions(
+        services_by_id=services_by_id,
+        pattern_counts=pattern_counts,
+        database=database,
+    )
+    suggestion_by_pattern = {
+        (suggestion.service_id, suggestion.check_id): suggestion for suggestion in suggestions
+    }
+    active_findings = [
+        _build_finding_review_item(
+            finding=finding,
+            services_by_id=services_by_id,
+            latest_feedback_by_finding_id=latest_feedback_by_finding_id,
+            pattern_counts=pattern_counts,
+            suggestion_by_pattern=suggestion_by_pattern,
+        )
+        for finding in sorted(
+            database.list_findings(),
+            key=lambda item: (item.created_at, item.id),
+            reverse=True,
+        )
+        if finding.status in _ACTIVE_FINDING_STATUSES
+    ]
+    recently_dismissed = [
+        _build_finding_review_item(
+            finding=finding,
+            services_by_id=services_by_id,
+            latest_feedback_by_finding_id=latest_feedback_by_finding_id,
+            pattern_counts=pattern_counts,
+            suggestion_by_pattern=suggestion_by_pattern,
+        )
+        for finding in sorted(
+            database.list_findings(),
+            key=lambda item: (
+                item.resolved_at if item.resolved_at is not None else item.created_at,
+                item.id,
+            ),
+            reverse=True,
+        )
+        if finding.status == FindingStatus.DISMISSED
+    ][:_RECENT_DISMISSED_FINDINGS_LIMIT]
+    return FindingReviewResponse(
+        active_findings=active_findings,
+        recently_dismissed=recently_dismissed,
+        suggestions=suggestions,
+    )
+
+
+def _build_finding_review_item(
+    *,
+    finding: Finding,
+    services_by_id: dict[str, Service],
+    latest_feedback_by_finding_id: dict[str, FindingFeedbackRecord],
+    pattern_counts: Counter[tuple[str, str]],
+    suggestion_by_pattern: dict[tuple[str, str], FindingFeedbackSuggestionResponse],
+) -> FindingReviewItemResponse:
+    """Build one finding review row with optional historical feedback context."""
+    service = services_by_id.get(finding.service_id)
+    feedback = latest_feedback_by_finding_id.get(finding.id)
+    return FindingReviewItemResponse(
+        finding=finding,
+        service_name=finding.service_id if service is None else service.name,
+        domain_label=_finding_domain_label(finding.domain),
+        dismissal_reason=None if feedback is None else feedback.reason,
+        dismissal_count_for_pattern=pattern_counts[(finding.service_id, finding.domain)],
+        suggestion=suggestion_by_pattern.get((finding.service_id, finding.domain)),
+    )
+
+
+def _build_finding_feedback_suggestions(
+    *,
+    services_by_id: dict[str, Service],
+    pattern_counts: Counter[tuple[str, str]],
+    database: KavalDatabase,
+) -> list[FindingFeedbackSuggestionResponse]:
+    """Return advisory noise-control suggestions from repeated dismissal patterns."""
+    active_overrides = {
+        (override.service_id, override.check_id): override
+        for override in database.list_service_check_overrides(
+            scope=ServiceCheckOverrideScope.ACTIVE
+        )
+    }
+    suggestions: list[FindingFeedbackSuggestionResponse] = []
+    for service_id, check_id in sorted(pattern_counts):
+        dismissal_count = pattern_counts[(service_id, check_id)]
+        if dismissal_count < _FINDING_FEEDBACK_SUGGESTION_THRESHOLD:
+            continue
+        service = services_by_id.get(service_id)
+        if service is None:
+            continue
+        try:
+            entry = monitoring_check_entry(check_id)
+        except ValueError:
+            continue
+        if not check_applies_to_service(check_id, service):
+            continue
+        override = active_overrides.get((service_id, check_id))
+        if override is not None and override.enabled is False:
+            continue
+        action = _finding_feedback_action(check_id)
+        suggestions.append(
+            FindingFeedbackSuggestionResponse(
+                service_id=service.id,
+                service_name=service.name,
+                check_id=check_id,
+                check_label=entry.label,
+                dismissal_count=dismissal_count,
+                action=action,
+                message=_finding_feedback_message(
+                    service_name=service.name,
+                    check_label=entry.label,
+                    dismissal_count=dismissal_count,
+                    action=action,
+                ),
+            )
+        )
+    return suggestions
+
+
+def _finding_feedback_action(
+    check_id: str,
+) -> FindingFeedbackSuggestionAction:
+    """Return the bounded advisory action for one repeatedly dismissed check."""
+    if any(
+        value is not None for value in monitoring_threshold_defaults(check_id)
+    ):
+        return FindingFeedbackSuggestionAction.ADJUST_THRESHOLD_OR_SUPPRESS
+    return FindingFeedbackSuggestionAction.SUPPRESS_CHECK
+
+
+def _finding_feedback_message(
+    *,
+    service_name: str,
+    check_label: str,
+    dismissal_count: int,
+    action: FindingFeedbackSuggestionAction,
+) -> str:
+    """Build one deterministic operator-facing feedback suggestion message."""
+    if action == FindingFeedbackSuggestionAction.ADJUST_THRESHOLD_OR_SUPPRESS:
+        return (
+            f"You've dismissed {dismissal_count} {check_label.casefold()} findings for "
+            f"{service_name}. Consider adjusting the threshold or suppressing this check."
+        )
+    return (
+        f"You've dismissed {dismissal_count} {check_label.casefold()} findings for "
+        f"{service_name}. Consider suppressing this check."
+    )
+
+
+def _finding_domain_label(domain: str) -> str:
+    """Return a compact human-readable label for one finding domain."""
+    try:
+        return monitoring_check_entry(domain).label
+    except ValueError:
+        return domain.replace(":", " / ").replace("_", " ").title()
+
+
+def _incident_has_active_findings(
+    *,
+    database: KavalDatabase,
+    incident_id: str,
+) -> bool:
+    """Return whether the incident still has any non-terminal findings."""
+    return any(
+        finding.incident_id == incident_id and finding.status in _ACTIVE_FINDING_STATUSES
+        for finding in database.list_findings()
+    )
+
+
+def _build_finding_dismiss_change(
+    *,
+    finding: Finding,
+    previous_status: FindingStatus,
+    reason: FindingFeedbackReason,
+    database: KavalDatabase,
+) -> Change:
+    """Build one auditable change record for explicit finding-noise dismissal."""
+    dismissal_count = sum(
+        1
+        for record in database.list_finding_feedback_records()
+        if record.service_id == finding.service_id and record.finding_domain == finding.domain
+    )
+    return Change(
+        id=f"chg-finding-dismiss-{uuid4()}",
+        type=ChangeType.CONFIG_CHANGE,
+        service_id=finding.service_id,
+        description=(
+            f"Dismissed finding {finding.title!r} as {reason.value.replace('_', ' ')}."
+        ),
+        old_value=f"status={previous_status.value}",
+        new_value=(
+            f"status={FindingStatus.DISMISSED.value};"
+            f"reason={reason.value};dismissals_for_pattern={dismissal_count}"
+        ),
+        timestamp=finding.resolved_at or datetime.now(tz=UTC),
+        correlated_incidents=[] if finding.incident_id is None else [finding.incident_id],
+    )
+
+
 def _active_incident_ids(database: KavalDatabase) -> set[str]:
     """Return active incident identifiers for retention-aware webhook purging."""
     return {
@@ -3174,8 +6516,33 @@ def _run_webhook_follow_up(
         return
 
     router = cast(IncidentAlertRouter, request.app.state.incident_alert_router)
+    model_settings = cast(ModelSettingsService, request.app.state.model_settings_service)
+    notification_settings = cast(
+        NotificationSettingsService,
+        request.app.state.notification_settings_service,
+    )
+    vault = cast(CredentialVault, request.app.state.credential_vault)
     for incident in _webhook_follow_up_incidents(pipeline_result):
-        workflow_result = InvestigationWorkflow(database=database).run(
+        workflow_result = InvestigationWorkflow(
+            database=database,
+            local_model_transport=cast(
+                RequestTransport | None,
+                getattr(request.app.state, "local_model_transport", None),
+            ),
+            cloud_model_transport=cast(
+                CloudTransport | None,
+                getattr(request.app.state, "cloud_model_transport", None),
+            ),
+            local_model_config_loader=lambda: _runtime_local_model_config(
+                model_settings=model_settings,
+                vault=vault,
+            ),
+            cloud_model_config_loader=lambda: _runtime_cloud_model_config(
+                model_settings=model_settings,
+                vault=vault,
+            ),
+            cloud_escalation_policy_loader=model_settings.resolve_cloud_escalation_policy,
+        ).run(
             incident_id=incident.id,
             trigger=InvestigationTrigger.AUTO,
             now=now,
@@ -3184,6 +6551,17 @@ def _run_webhook_follow_up(
             incident=workflow_result.incident,
             investigation=workflow_result.investigation,
             now=now,
+            context=notification_settings.build_routing_context(
+                scope="active",
+                now=now,
+            ).model_copy(
+                update={
+                    "maintenance_windows": _active_alert_maintenance_windows(
+                        database=database,
+                        now=now,
+                    )
+                }
+            ),
         )
     router.flush_due_notifications(now=now)
 
@@ -3300,14 +6678,18 @@ def _widget_overall_status(
     return WidgetOverallStatus.HEALTHY
 
 
-def _load_realtime_snapshot(settings: ApiSettings) -> RealtimeSnapshotResponse:
+def _load_realtime_snapshot(app: FastAPI) -> RealtimeSnapshotResponse:
     """Load one complete Phase 1 UI snapshot from SQLite."""
+    settings: ApiSettings = app.state.api_settings
     database = KavalDatabase(
         path=settings.database_path,
         migrations_dir=settings.migrations_dir,
     )
     try:
-        services = enrich_services_with_current_insight(database.list_services())
+        services = enrich_services_with_current_insight(
+            database.list_services(),
+            local_model_configured=_active_local_model_configured_for_app(app),
+        )
         incidents = database.list_incidents()
         investigations = database.list_investigations()
         manager = CredentialRequestManager(
@@ -3345,6 +6727,16 @@ def _resolve_database_path(database_path: Path | str | None) -> Path:
     if database_path is not None:
         return Path(database_path)
     return Path(os.environ.get("KAVAL_DATABASE_PATH", "/data/kaval.db"))
+
+
+def _resolve_settings_path(settings_path: Path | str | None) -> Path:
+    """Resolve the persisted settings path from an explicit argument or environment."""
+    if settings_path is not None:
+        return Path(settings_path)
+    environment_value = os.environ.get("KAVAL_SETTINGS_PATH")
+    if environment_value:
+        return Path(environment_value)
+    return default_settings_path()
 
 
 def _resolve_migrations_dir(migrations_dir: Path | str | None) -> Path | None:

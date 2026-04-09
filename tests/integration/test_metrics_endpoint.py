@@ -74,6 +74,7 @@ def test_metrics_endpoint_exposes_prometheus_text_for_phase3b_signals(
     assert "# TYPE kaval_investigation_duration_seconds histogram" in body
     assert 'kaval_investigation_duration_seconds_count{model="cloud"} 1' in body
     assert "kaval_investigation_cloud_calls_total 3" in body
+    assert "kaval_investigation_cloud_cost_estimate 0.0185" in body
     assert 'kaval_adapters_total{status="unconfigured"} 1' in body
     assert (
         'kaval_adapter_inspections_total{adapter="radarr_api",status="unconfigured"} 1'
@@ -299,6 +300,11 @@ def build_cloud_investigation() -> Investigation:
         confidence=0.84,
         model_used=ModelUsed.CLOUD,
         cloud_model_calls=3,
+        cloud_input_tokens=2500,
+        cloud_output_tokens=733,
+        estimated_cloud_cost_usd=0.0185,
+        estimated_total_cost_usd=0.0185,
+        cloud_escalation_reason="multiple_domains_affected",
         journal_entries_referenced=[],
         user_notes_referenced=[],
         recurrence_count=0,

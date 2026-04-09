@@ -14,7 +14,12 @@ from kaval.models import (
     ServiceStatus,
     Severity,
 )
-from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
+from kaval.monitoring.checks.base import (
+    CheckContext,
+    MonitoringCheck,
+    build_finding,
+    iter_target_services,
+)
 
 
 class DependencyChainCheck(MonitoringCheck):
@@ -29,7 +34,7 @@ class DependencyChainCheck(MonitoringCheck):
         """Evaluate the current service graph for unhealthy upstream dependencies."""
         services_by_id = {service.id: service for service in context.services}
         findings: list[Finding] = []
-        for service in sorted(context.services, key=lambda service: service.id):
+        for service in sorted(iter_target_services(context), key=lambda service: service.id):
             for edge in sorted(service.dependencies, key=lambda edge: edge.target_service_id):
                 dependency = services_by_id.get(edge.target_service_id)
                 if dependency is None or dependency.status not in _UNHEALTHY_STATUSES:

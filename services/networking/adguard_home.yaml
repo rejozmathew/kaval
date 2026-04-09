@@ -1,0 +1,36 @@
+id: adguard_home
+name: AdGuard Home
+category: networking
+project_url: https://adguard.com/adguard-home/overview.html
+icon: adguard_home.svg
+match:
+  image_patterns:
+    - "adguard/adguardhome*"
+    - "*adguardhome*"
+  container_name_patterns:
+    - "adguard-home*"
+    - "adguardhome*"
+endpoints:
+  web_ui:
+    port: 3000
+    path: /
+log_signals:
+  errors:
+    - "listen tcp"
+    - "cannot bind to port"
+    - "upstream timed out"
+  warnings:
+    - "updating filter"
+    - "dnsproxy: response cache disabled"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "cannot bind to port"
+    likely_cause: "DNS or admin ports are already in use or incorrectly mapped"
+    check_first:
+      - port mappings
+      - competing DNS services
+investigation_context: |
+  AdGuard Home depends on stable port bindings and upstream DNS reachability.
+  Startup failures often trace back to conflicts on DNS or admin ports.

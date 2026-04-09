@@ -1,0 +1,40 @@
+id: minio
+name: MinIO
+category: cloud
+project_url: https://min.io/
+icon: minio.svg
+match:
+  image_patterns:
+    - "minio/minio*"
+    - "*minio*"
+  container_name_patterns:
+    - "minio*"
+endpoints:
+  web_ui:
+    port: 9001
+    path: /
+  health_api:
+    port: 9000
+    path: /minio/health/live
+    healthy_when: status_ok
+log_signals:
+  errors:
+    - "Unable to write to the backend"
+    - "disk not found"
+    - "Authentication failed"
+  warnings:
+    - "Drive is faulty"
+    - "Waiting for a minimum of"
+typical_dependencies:
+  shares:
+    - appdata
+    - data
+common_failure_modes:
+  - trigger: "Unable to write to the backend"
+    likely_cause: "The object storage target is unavailable or the backing disk is degraded"
+    check_first:
+      - data share mount
+      - storage health
+investigation_context: |
+  MinIO provides S3-compatible storage and typically fails because its backing
+  storage path, credentials, or cluster quorum is unavailable.

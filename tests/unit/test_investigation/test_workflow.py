@@ -981,6 +981,16 @@ def test_workflow_escalates_to_cloud_with_cloud_safe_prompt_redaction(
 
         assert result.investigation.model_used == ModelUsed.BOTH
         assert result.investigation.cloud_model_calls == 1
+        assert result.investigation.local_input_tokens == 240
+        assert result.investigation.local_output_tokens == 72
+        assert result.investigation.cloud_input_tokens == 180
+        assert result.investigation.cloud_output_tokens == 54
+        assert result.investigation.estimated_cloud_cost_usd == 0.000059
+        assert result.investigation.estimated_total_cost_usd == 0.000059
+        assert (
+            result.investigation.cloud_escalation_reason
+            == "local_confidence_threshold|multiple_domains_affected"
+        )
         assert result.synthesis.inference.confidence == 0.93
         body = captured_cloud_payload["body"]
         assert isinstance(body, dict)
@@ -1040,6 +1050,12 @@ def test_workflow_keeps_local_result_when_cloud_redaction_fails(
 
         assert result.investigation.model_used == ModelUsed.LOCAL
         assert result.investigation.cloud_model_calls == 0
+        assert result.investigation.local_input_tokens == 240
+        assert result.investigation.local_output_tokens == 72
+        assert (
+            result.investigation.cloud_escalation_reason
+            == "local_confidence_threshold|multiple_domains_affected"
+        )
         assert cloud_called["value"] is False
         assert result.synthesis.degraded_mode_note is not None
         assert "Cloud escalation criteria matched" in result.synthesis.degraded_mode_note
@@ -1102,6 +1118,12 @@ def test_workflow_keeps_local_result_when_incident_cloud_cap_is_reached(
 
         assert result.investigation.model_used == ModelUsed.LOCAL
         assert result.investigation.cloud_model_calls == 0
+        assert result.investigation.local_input_tokens == 240
+        assert result.investigation.local_output_tokens == 72
+        assert (
+            result.investigation.cloud_escalation_reason
+            == "local_confidence_threshold|multiple_domains_affected"
+        )
         assert cloud_called["value"] is False
         assert result.synthesis.degraded_mode_note is not None
         assert "per-incident cloud call cap" in result.synthesis.degraded_mode_note
@@ -1130,7 +1152,11 @@ def build_local_transport(*, confidence: float):
                             )
                         }
                     }
-                ]
+                ],
+                "usage": {
+                    "prompt_tokens": 240,
+                    "completion_tokens": 72,
+                },
             }
         ).encode("utf-8")
 
@@ -1160,7 +1186,11 @@ def build_cloud_transport(captured_payload: dict[str, object]):
                             )
                         }
                     }
-                ]
+                ],
+                "usage": {
+                    "prompt_tokens": 180,
+                    "completion_tokens": 54,
+                },
             }
         ).encode("utf-8")
 

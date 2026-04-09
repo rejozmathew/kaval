@@ -1,0 +1,200 @@
+{
+  "$defs": {
+    "ModelSettingsCloudUpdateRequest": {
+      "additionalProperties": false,
+      "description": "Writable cloud-model settings payload.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "title": "Base Url",
+          "type": "string"
+        },
+        "clear_stored_api_key": {
+          "default": false,
+          "title": "Clear Stored Api Key",
+          "type": "boolean"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_output_tokens": {
+          "minimum": 1,
+          "title": "Max Output Tokens",
+          "type": "integer"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "provider": {
+          "default": "anthropic",
+          "enum": [
+            "anthropic",
+            "openai",
+            "openai_compatible"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "enabled",
+        "base_url",
+        "timeout_seconds",
+        "max_output_tokens"
+      ],
+      "title": "ModelSettingsCloudUpdateRequest",
+      "type": "object"
+    },
+    "ModelSettingsEscalationUpdateRequest": {
+      "additionalProperties": false,
+      "description": "Writable escalation thresholds and bounded cost controls.",
+      "properties": {
+        "escalate_on_changelog_research": {
+          "title": "Escalate On Changelog Research",
+          "type": "boolean"
+        },
+        "escalate_on_multiple_domains": {
+          "title": "Escalate On Multiple Domains",
+          "type": "boolean"
+        },
+        "escalate_on_user_request": {
+          "title": "Escalate On User Request",
+          "type": "boolean"
+        },
+        "finding_count_gt": {
+          "minimum": 0,
+          "title": "Finding Count Gt",
+          "type": "integer"
+        },
+        "local_confidence_lt": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Local Confidence Lt",
+          "type": "number"
+        },
+        "max_cloud_calls_per_day": {
+          "minimum": 1,
+          "title": "Max Cloud Calls Per Day",
+          "type": "integer"
+        },
+        "max_cloud_calls_per_incident": {
+          "minimum": 1,
+          "title": "Max Cloud Calls Per Incident",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "finding_count_gt",
+        "local_confidence_lt",
+        "escalate_on_multiple_domains",
+        "escalate_on_changelog_research",
+        "escalate_on_user_request",
+        "max_cloud_calls_per_day",
+        "max_cloud_calls_per_incident"
+      ],
+      "title": "ModelSettingsEscalationUpdateRequest",
+      "type": "object"
+    },
+    "ModelSettingsLocalUpdateRequest": {
+      "additionalProperties": false,
+      "description": "Writable local-model settings payload.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "title": "Base Url",
+          "type": "string"
+        },
+        "clear_stored_api_key": {
+          "default": false,
+          "title": "Clear Stored Api Key",
+          "type": "boolean"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "timeout_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "enabled",
+        "base_url",
+        "timeout_seconds"
+      ],
+      "title": "ModelSettingsLocalUpdateRequest",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Full staged model-settings update payload.",
+  "properties": {
+    "cloud": {
+      "$ref": "#/$defs/ModelSettingsCloudUpdateRequest"
+    },
+    "escalation": {
+      "$ref": "#/$defs/ModelSettingsEscalationUpdateRequest"
+    },
+    "local": {
+      "$ref": "#/$defs/ModelSettingsLocalUpdateRequest"
+    }
+  },
+  "required": [
+    "local",
+    "cloud",
+    "escalation"
+  ],
+  "title": "ModelSettingsUpdateRequest",
+  "type": "object"
+}

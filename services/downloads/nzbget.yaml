@@ -1,0 +1,37 @@
+id: nzbget
+name: NZBGet
+category: downloads
+project_url: https://nzbget.net/
+icon: nzbget.svg
+match:
+  image_patterns:
+    - "lscr.io/linuxserver/nzbget*"
+    - "linuxserver/nzbget*"
+    - "*nzbget*"
+  container_name_patterns:
+    - "nzbget*"
+endpoints:
+  web_ui:
+    port: 6789
+    path: /
+log_signals:
+  errors:
+    - "Could not create directory"
+    - "Binding socket failed"
+    - "Unpack for .* failed"
+  warnings:
+    - "Could not resolve hostname"
+    - "Par-check is waiting"
+typical_dependencies:
+  shares:
+    - downloads
+    - appdata
+common_failure_modes:
+  - trigger: "Could not create directory"
+    likely_cause: "The downloads destination is unavailable or permissions are wrong"
+    check_first:
+      - downloads share mount
+      - share permissions
+investigation_context: |
+  NZBGet depends on stable downloads storage and network access to upstream
+  servers. Queue processing failures are often storage or unpack related.

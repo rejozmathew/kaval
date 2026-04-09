@@ -1,0 +1,36 @@
+id: postgres
+name: PostgreSQL
+category: databases
+project_url: https://www.postgresql.org/
+icon: postgres.svg
+match:
+  image_patterns:
+    - "postgres*"
+    - "*postgres*"
+  container_name_patterns:
+    - "postgres*"
+    - "postgresql*"
+endpoints:
+  tcp:
+    port: 5432
+    healthy_when: tcp_open
+log_signals:
+  errors:
+    - "database system is shutting down"
+    - "could not write to file"
+    - "FATAL:"
+  warnings:
+    - "checkpoint request failed"
+    - "remaining connection slots are reserved"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "could not write to file"
+    likely_cause: "The PostgreSQL data directory is full, unavailable, or has bad permissions"
+    check_first:
+      - appdata volume
+      - filesystem capacity
+investigation_context: |
+  PostgreSQL is a common dependency for identity, cloud, and app services.
+  Container health problems usually reflect storage pressure or fatal startup errors.

@@ -7,12 +7,16 @@ from datetime import datetime, timedelta
 from typing import Sequence
 
 from kaval.database import KavalDatabase
+from kaval.maintenance import filter_findings_for_maintenance
 from kaval.models import Finding, Incident
 from kaval.monitoring.cadence import (
     MonitoringCadenceConfig,
+    MonitoringCadenceDecision,
     default_monitoring_cadence_config,
     resolve_monitoring_cadence_decision,
+    resolve_service_check_execution,
 )
+from kaval.monitoring.catalog import check_applies_to_service
 from kaval.monitoring.checks.base import CheckContext, MonitoringCheck
 from kaval.runtime.capability_runtime import build_scheduler_runtime_signal
 
@@ -37,6 +41,7 @@ class CheckScheduler:
         """Initialize the scheduler with an optional initial check set."""
         self._checks: dict[str, MonitoringCheck] = {}
         self._last_run_at: dict[str, datetime] = {}
+        self._last_service_run_at: dict[tuple[str, str], datetime] = {}
         self._cadence = cadence or default_monitoring_cadence_config()
         for check in checks or []:
             self.register_check(check)
@@ -69,7 +74,6 @@ class CheckScheduler:
         executed_checks: list[str] = []
         for check_id in sorted(self._checks):
             check = self._checks[check_id]
-            last_run_at = self._last_run_at.get(check_id)
             cadence = resolve_monitoring_cadence_decision(
                 config=self._cadence,
                 check_id=check.check_id,
@@ -78,13 +82,30 @@ class CheckScheduler:
                 incidents=list(incidents),
                 base_interval_seconds=check.interval_seconds,
             )
-            if not _is_due(
-                now=context.now,
-                last_run_at=last_run_at,
-                interval_seconds=cadence.effective_interval_seconds,
-            ):
+            if not cadence.enabled:
                 continue
-            findings.extend(check.run(context))
+            due_service_ids = _due_service_ids(
+                context=context,
+                check=check,
+                cadence=self._cadence,
+                decision=cadence,
+                last_service_run_at=self._last_service_run_at,
+            )
+            if not due_service_ids:
+                continue
+            findings.extend(
+                check.run(
+                    CheckContext(
+                        services=context.services,
+                        docker_snapshot=context.docker_snapshot,
+                        unraid_snapshot=context.unraid_snapshot,
+                        target_service_ids=frozenset(due_service_ids),
+                        now=context.now,
+                    )
+                )
+            )
+            for service_id in due_service_ids:
+                self._last_service_run_at[(check_id, service_id)] = context.now
             self._last_run_at[check_id] = context.now
             executed_checks.append(check_id)
         return SchedulerRunResult(
@@ -95,7 +116,11 @@ class CheckScheduler:
 
 def persist_findings(database: KavalDatabase, findings: Sequence[Finding]) -> None:
     """Persist scheduler findings into the existing SQLite store."""
-    for finding in findings:
+    filtered_findings = filter_findings_for_maintenance(
+        findings,
+        windows=database.list_maintenance_windows(),
+    )
+    for finding in filtered_findings:
         database.upsert_finding(finding)
 
 
@@ -125,3 +150,40 @@ def _is_due(
     if last_run_at is None:
         return True
     return now - last_run_at >= timedelta(seconds=interval_seconds)
+
+
+def _due_service_ids(
+    *,
+    context: CheckContext,
+    check: MonitoringCheck,
+    cadence: MonitoringCadenceConfig,
+    decision: MonitoringCadenceDecision,
+    last_service_run_at: dict[tuple[str, str], datetime],
+) -> list[str]:
+    """Return the service ids that are due for one check execution."""
+    due_service_ids: list[str] = []
+    accelerated_scope = set(decision.scoped_service_ids)
+    for service in context.services:
+        try:
+            if not check_applies_to_service(check.check_id, service):
+                continue
+        except ValueError:
+            pass
+        execution = resolve_service_check_execution(
+            config=cadence,
+            service_id=service.id,
+            check_id=check.check_id,
+            base_interval_seconds=check.interval_seconds,
+        )
+        if not execution.enabled:
+            continue
+        interval_seconds = execution.interval_seconds
+        if decision.accelerated and service.id in accelerated_scope:
+            interval_seconds = min(interval_seconds, decision.effective_interval_seconds)
+        if _is_due(
+            now=context.now,
+            last_run_at=last_service_run_at.get((check.check_id, service.id)),
+            interval_seconds=interval_seconds,
+        ):
+            due_service_ids.append(service.id)
+    return due_service_ids

@@ -14,7 +14,12 @@ from kaval.discovery.descriptors import (
 )
 from kaval.discovery.docker import DockerTransportError
 from kaval.models import Evidence, EvidenceKind, Finding, Service, ServiceType, Severity
-from kaval.monitoring.checks.base import CheckContext, MonitoringCheck, build_finding
+from kaval.monitoring.checks.base import (
+    CheckContext,
+    MonitoringCheck,
+    build_finding,
+    iter_target_services,
+)
 
 type LogReader = Callable[[str, int], str]
 
@@ -62,7 +67,7 @@ class LogPatternCheck(MonitoringCheck):
             container.id for container in context.docker_snapshot.containers
         }
         findings: list[Finding] = []
-        for service in sorted(context.services, key=lambda service: service.id):
+        for service in sorted(iter_target_services(context), key=lambda service: service.id):
             if (
                 service.type != ServiceType.CONTAINER
                 or service.container_id is None

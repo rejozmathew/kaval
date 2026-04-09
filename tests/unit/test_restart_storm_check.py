@@ -108,6 +108,37 @@ def test_restart_storm_check_ignores_small_restart_delta() -> None:
     assert findings == []
 
 
+def test_restart_storm_check_uses_configured_restart_delta_threshold() -> None:
+    """A higher configured restart threshold should suppress smaller spikes."""
+    descriptors = load_service_descriptors([SERVICES_DIR])
+    check = RestartStormCheck(restart_delta_threshold=5, window_seconds=300)
+
+    baseline_snapshot = _build_snapshot(deluge_restart_count=4)
+    baseline_graph = build_dependency_graph(baseline_snapshot, descriptors)
+    assert (
+        check.run(
+            CheckContext(
+                services=baseline_graph.services,
+                docker_snapshot=baseline_snapshot,
+                now=ts(14, 0),
+            )
+        )
+        == []
+    )
+
+    followup_snapshot = _build_snapshot(deluge_restart_count=8)
+    followup_graph = build_dependency_graph(followup_snapshot, descriptors)
+    findings = check.run(
+        CheckContext(
+            services=followup_graph.services,
+            docker_snapshot=followup_snapshot,
+            now=ts(14, 1),
+        )
+    )
+
+    assert findings == []
+
+
 def _build_snapshot(*, deluge_restart_count: int) -> object:
     """Build a discovery snapshot with a configurable DelugeVPN restart count."""
     return build_discovery_snapshot(

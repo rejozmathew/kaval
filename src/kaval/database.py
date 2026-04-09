@@ -26,11 +26,16 @@ from kaval.models import (
     DependencySource,
     DescriptorSource,
     Finding,
+    FindingFeedbackRecord,
     Incident,
     Investigation,
     JournalEntry,
     KavalModel,
+    MaintenanceScope,
+    MaintenanceWindowRecord,
     Service,
+    ServiceCheckOverride,
+    ServiceCheckOverrideScope,
     SystemProfile,
     UserNote,
 )
@@ -46,6 +51,20 @@ ModelT = TypeVar("ModelT", bound=KavalModel)
 def default_migrations_dir() -> Path:
     """Return the default migrations directory for the repository."""
     return Path(__file__).resolve().parents[2] / "migrations"
+
+
+def _maintenance_scope_key(
+    *,
+    scope: MaintenanceScope,
+    service_id: str | None,
+) -> str:
+    """Return the stable database key for one maintenance window scope."""
+    if scope is MaintenanceScope.GLOBAL:
+        return "global"
+    if service_id is None:
+        msg = "service maintenance windows require service_id"
+        raise ValueError(msg)
+    return service_id
 
 
 @dataclass(slots=True)
@@ -144,6 +163,74 @@ class KavalDatabase:
     def delete_finding(self, finding_id: str) -> None:
         """Delete a finding by identifier."""
         self._delete_record("findings", "id", finding_id)
+
+    def upsert_finding_feedback_record(
+        self,
+        finding_feedback_record: FindingFeedbackRecord,
+    ) -> None:
+        """Insert or update one persisted finding-feedback record."""
+        self._upsert_record(
+            table="finding_feedback_records",
+            key_column="id",
+            key_value=finding_feedback_record.id,
+            payload=finding_feedback_record,
+            columns={
+                "finding_id": finding_feedback_record.finding_id,
+                "service_id": finding_feedback_record.service_id,
+                "finding_domain": finding_feedback_record.finding_domain,
+                "reason": finding_feedback_record.reason.value,
+                "recorded_at": finding_feedback_record.recorded_at.isoformat(),
+            },
+        )
+
+    def list_finding_feedback_records(self) -> list[FindingFeedbackRecord]:
+        """List finding-feedback records ordered by time and identifier."""
+        return self._list_records(
+            "finding_feedback_records",
+            "recorded_at, id",
+            FindingFeedbackRecord,
+        )
+
+    def upsert_maintenance_window(
+        self,
+        maintenance_window: MaintenanceWindowRecord,
+    ) -> None:
+        """Insert or update one persisted maintenance window."""
+        self._upsert_record(
+            table="maintenance_windows",
+            key_column="scope_key",
+            key_value=_maintenance_scope_key(
+                scope=maintenance_window.scope,
+                service_id=maintenance_window.service_id,
+            ),
+            payload=maintenance_window,
+            columns={
+                "scope": maintenance_window.scope.value,
+                "service_id": maintenance_window.service_id,
+                "expires_at": maintenance_window.expires_at.isoformat(),
+            },
+        )
+
+    def list_maintenance_windows(self) -> list[MaintenanceWindowRecord]:
+        """List persisted maintenance windows ordered by scope and expiry."""
+        return self._list_records(
+            "maintenance_windows",
+            "scope, service_id, expires_at, scope_key",
+            MaintenanceWindowRecord,
+        )
+
+    def delete_maintenance_window(
+        self,
+        *,
+        scope: MaintenanceScope,
+        service_id: str | None = None,
+    ) -> None:
+        """Delete one persisted maintenance window by scope identity."""
+        self._delete_record(
+            "maintenance_windows",
+            "scope_key",
+            _maintenance_scope_key(scope=scope, service_id=service_id),
+        )
 
     def upsert_incident(self, incident: Incident) -> None:
         """Insert or update an incident record."""
@@ -323,6 +410,62 @@ class KavalDatabase:
                 """,
                 (source_service_id, target_service_id),
             )
+
+    def replace_service_check_overrides(
+        self,
+        *,
+        scope: ServiceCheckOverrideScope,
+        overrides: list[ServiceCheckOverride],
+    ) -> None:
+        """Replace the full override set for one monitoring-settings scope."""
+        if any(item.scope is not scope for item in overrides):
+            msg = f"all service check overrides must use scope={scope.value}"
+            raise ValueError(msg)
+        with self.connection():
+            self.connection().execute(
+                "DELETE FROM service_check_overrides WHERE scope = ?",
+                (scope.value,),
+            )
+            for override in overrides:
+                self.connection().execute(
+                    """
+                    INSERT INTO service_check_overrides (
+                        scope,
+                        service_id,
+                        check_id,
+                        updated_at,
+                        payload
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        override.scope.value,
+                        override.service_id,
+                        override.check_id,
+                        override.updated_at.isoformat(),
+                        override.model_dump_json(),
+                    ),
+                )
+
+    def list_service_check_overrides(
+        self,
+        *,
+        scope: ServiceCheckOverrideScope,
+    ) -> list[ServiceCheckOverride]:
+        """List service-scoped monitoring overrides for one apply scope."""
+        rows = self.connection().execute(
+            """
+            SELECT payload
+            FROM service_check_overrides
+            WHERE scope = ?
+            ORDER BY service_id, check_id
+            """,
+            (scope.value,),
+        ).fetchall()
+        return [
+            ServiceCheckOverride.model_validate_json(str(row["payload"]))
+            for row in rows
+        ]
 
     def upsert_change(self, change: Change) -> None:
         """Insert or update a change record."""

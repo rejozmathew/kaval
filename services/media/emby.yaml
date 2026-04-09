@@ -1,0 +1,37 @@
+id: emby
+name: Emby
+category: media
+project_url: https://emby.media/
+icon: emby.svg
+match:
+  image_patterns:
+    - "lscr.io/linuxserver/emby*"
+    - "emby/embyserver*"
+    - "*emby*"
+  container_name_patterns:
+    - "emby*"
+endpoints:
+  web_ui:
+    port: 8096
+    path: /
+log_signals:
+  errors:
+    - "Playback error"
+    - "FFmpeg exited with code"
+    - "SQLitePCL.raw"
+  warnings:
+    - "Library scan failed"
+    - "Authentication request for .* denied"
+typical_dependencies:
+  shares:
+    - media
+    - appdata
+common_failure_modes:
+  - trigger: "FFmpeg exited with code"
+    likely_cause: "Transcoding failed because media paths, permissions, or hardware acceleration are unavailable"
+    check_first:
+      - media share mount
+      - transcoding hardware
+investigation_context: |
+  Emby serves media libraries and commonly fails because transcoding,
+  persistent metadata storage, or mapped media paths are unavailable.

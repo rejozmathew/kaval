@@ -1,0 +1,35 @@
+id: traefik
+name: Traefik
+category: networking
+project_url: https://traefik.io/traefik/
+icon: traefik.svg
+match:
+  image_patterns:
+    - "traefik*"
+    - "*traefik*"
+  container_name_patterns:
+    - "traefik*"
+endpoints:
+  web_ui:
+    port: 8080
+    path: /
+log_signals:
+  errors:
+    - "Unable to obtain ACME certificate"
+    - "Error while dialing backend"
+    - "middleware .* does not exist"
+  warnings:
+    - "Skipping same configuration"
+    - "Router uses a nonexistent certificate resolver"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "Error while dialing backend"
+    likely_cause: "An upstream service is unavailable or routed to the wrong target"
+    check_first:
+      - upstream service health
+      - route labels
+investigation_context: |
+  Traefik fronts other services and usually fails because upstream targets,
+  ACME certificate issuance, or route label configuration is broken.

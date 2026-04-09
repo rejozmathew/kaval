@@ -1,0 +1,103 @@
+{
+  "$defs": {
+    "RecommendationActionResponse": {
+      "additionalProperties": false,
+      "description": "One deterministic follow-up path for a proactive recommendation.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "service_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Service Id"
+        },
+        "target": {
+          "$ref": "#/$defs/RecommendationActionTarget"
+        }
+      },
+      "required": [
+        "label",
+        "target"
+      ],
+      "title": "RecommendationActionResponse",
+      "type": "object"
+    },
+    "RecommendationActionTarget": {
+      "description": "Existing admin surfaces a recommendation can point at.",
+      "enum": [
+        "service_detail",
+        "finding_review",
+        "credential_vault",
+        "model_settings"
+      ],
+      "title": "RecommendationActionTarget",
+      "type": "string"
+    },
+    "RecommendationItemResponse": {
+      "additionalProperties": false,
+      "description": "One ranked proactive recommendation shown in the admin UI.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/RecommendationActionResponse"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/RecommendationKind"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "detail",
+        "action"
+      ],
+      "title": "RecommendationItemResponse",
+      "type": "object"
+    },
+    "RecommendationKind": {
+      "description": "Supported proactive recommendation categories.",
+      "enum": [
+        "missing_descriptor",
+        "stale_credential",
+        "noisy_check",
+        "cloud_model"
+      ],
+      "title": "RecommendationKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Ordered proactive recommendations derived from current repo state.",
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/RecommendationItemResponse"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "title": "RecommendationsResponse",
+  "type": "object"
+}

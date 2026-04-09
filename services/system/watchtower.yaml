@@ -1,0 +1,31 @@
+id: watchtower
+name: Watchtower
+category: system
+project_url: https://containrrr.dev/watchtower/
+icon: watchtower.svg
+match:
+  image_patterns:
+    - "containrrr/watchtower*"
+    - "*watchtower*"
+  container_name_patterns:
+    - "watchtower*"
+log_signals:
+  errors:
+    - "Could not do a head request"
+    - "Failed to update container"
+    - "Error response from daemon"
+  warnings:
+    - "Skipping linked container"
+    - "Unable to update container"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "Failed to update container"
+    likely_cause: "The target image cannot be pulled or the Docker endpoint returned an error"
+    check_first:
+      - network access to registries
+      - Docker daemon health
+investigation_context: |
+  Watchtower updates containers automatically. Most failures are registry
+  reachability, image pull, or Docker daemon interaction problems.

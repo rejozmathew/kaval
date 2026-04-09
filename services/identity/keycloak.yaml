@@ -1,0 +1,37 @@
+id: keycloak
+name: Keycloak
+category: identity
+project_url: https://www.keycloak.org/
+icon: keycloak.svg
+match:
+  image_patterns:
+    - "quay.io/keycloak/keycloak*"
+    - "*keycloak*"
+  container_name_patterns:
+    - "keycloak*"
+endpoints:
+  web_ui:
+    port: 8080
+    path: /
+log_signals:
+  errors:
+    - "Failed to obtain JDBC connection"
+    - "Datasource .* is not healthy"
+    - "HTTPS required"
+  warnings:
+    - "KC-SERVICES"
+    - "Failed authentication"
+typical_dependencies:
+  containers:
+    - postgres
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "Failed to obtain JDBC connection"
+    likely_cause: "The configured database backend is unavailable or credentials are wrong"
+    check_first:
+      - postgres
+      - database credentials
+investigation_context: |
+  Keycloak depends heavily on its database backend. Startup and login failures
+  often come from JDBC connectivity, realm configuration, or proxy settings.

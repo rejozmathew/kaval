@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from kaval.discovery.dependency_mapper import build_dependency_graph
-from kaval.discovery.descriptors import load_service_descriptors
+from kaval.discovery.descriptors import LoadedServiceDescriptor, load_service_descriptors
 from kaval.discovery.docker import build_discovery_snapshot
 from kaval.discovery.unraid import build_discovery_snapshot as build_unraid_discovery_snapshot
 from kaval.discovery.unraid import decode_graphql_data
@@ -35,7 +35,21 @@ def ts(hour: int, minute: int = 0) -> datetime:
 
 def test_build_system_profile_from_phase1_discovery_surfaces() -> None:
     """The system profile should materialize from the existing discovery data."""
-    descriptors = load_service_descriptors([SERVICES_DIR])
+    descriptors = [
+        LoadedServiceDescriptor(
+            path=descriptor.path,
+            descriptor=descriptor.descriptor.model_copy(
+                update={
+                    "plugin_dependencies": (
+                        ["community.applications"]
+                        if descriptor.descriptor.id == "radarr"
+                        else []
+                    )
+                }
+            ),
+        )
+        for descriptor in load_service_descriptors([SERVICES_DIR])
+    ]
     docker_snapshot = build_discovery_snapshot(
         [
             load_docker_fixture("container_inspect_abc123.json"),
@@ -59,6 +73,7 @@ def test_build_system_profile_from_phase1_discovery_surfaces() -> None:
         unraid_snapshot,
         docker_snapshot,
         services=services,
+        descriptors=descriptors,
         now=ts(23, 0),
     )
 
@@ -75,4 +90,10 @@ def test_build_system_profile_from_phase1_discovery_surfaces() -> None:
     assert profile.services_summary.matched_descriptors == 2
     assert profile.vms[0].name == "Ubuntu Server"
     assert profile.vms[0].purpose == "unknown"
+    assert profile.plugins[0].name == "community.applications"
+    assert profile.plugins[0].version == "2026.03.30"
+    assert len(profile.plugins[0].impacted_services) == 1
+    assert profile.plugins[0].impacted_services[0].service_id == "svc-radarr"
+    assert profile.plugins[0].impacted_services[0].service_name == "Radarr"
+    assert profile.plugins[0].impacted_services[0].descriptor_id == "arr/radarr"
     assert profile.last_updated == ts(23, 0)

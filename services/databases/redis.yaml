@@ -1,0 +1,35 @@
+id: redis
+name: Redis
+category: databases
+project_url: https://redis.io/
+icon: redis.svg
+match:
+  image_patterns:
+    - "redis*"
+    - "*redis*"
+  container_name_patterns:
+    - "redis*"
+endpoints:
+  tcp:
+    port: 6379
+    healthy_when: tcp_open
+log_signals:
+  errors:
+    - "Can't open the append-only file"
+    - "MISCONF Redis is configured to save RDB snapshots"
+    - "Fatal error loading the DB"
+  warnings:
+    - "Background saving terminated"
+    - "Client closed connection"
+typical_dependencies:
+  shares:
+    - appdata
+common_failure_modes:
+  - trigger: "Fatal error loading the DB"
+    likely_cause: "Redis persistence files are corrupted or unavailable"
+    check_first:
+      - appdata volume
+      - persistence configuration
+investigation_context: |
+  Redis commonly acts as a session or cache backend. Startup failures usually
+  point to persistence-file corruption, disk issues, or memory pressure.

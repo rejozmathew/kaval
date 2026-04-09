@@ -147,6 +147,9 @@ class VaultCredentialRecord(KavalModel):
     submitted_by: str
     created_at: datetime
     updated_at: datetime
+    last_used_at: datetime | None = None
+    last_tested_at: datetime | None = None
+    expires_at: datetime | None = None
 
 
 class VaultStatus(KavalModel):

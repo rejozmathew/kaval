@@ -107,6 +107,7 @@ def render_prometheus_metrics(
         _investigations_total_family(investigations),
         _investigation_duration_family(investigations),
         _investigation_cloud_calls_family(investigations),
+        _investigation_cloud_cost_estimate_family(investigations),
         _adapters_total_family(adapter_statuses),
         _adapter_inspections_family(
             adapter_statuses=adapter_statuses,
@@ -299,6 +300,22 @@ def _investigation_cloud_calls_family(
         help_text="Total persisted cloud model calls across investigations.",
         metric_type="counter",
         value=float(cloud_calls),
+    )
+
+
+def _investigation_cloud_cost_estimate_family(
+    investigations: Sequence[Investigation],
+) -> MetricFamily:
+    """Build the aggregate persisted cloud-cost estimate metric."""
+    estimated_cost = sum(
+        investigation.estimated_cloud_cost_usd
+        for investigation in investigations
+    )
+    return _single_value_family(
+        name="kaval_investigation_cloud_cost_estimate",
+        help_text="Total persisted estimated cloud-model cost across investigations.",
+        metric_type="gauge",
+        value=float(estimated_cost),
     )
 
 
@@ -688,6 +705,7 @@ def _build_metric_label_policies(
             histogram=True,
         ),
         "kaval_investigation_cloud_calls_total": MetricLabelPolicy(),
+        "kaval_investigation_cloud_cost_estimate": MetricLabelPolicy(),
         "kaval_adapters_total": MetricLabelPolicy(
             base_label_names=("status",),
             allowed_label_values={

@@ -1,0 +1,173 @@
+{
+  "$defs": {
+    "MonitoringSettingsCheckUpdateRequest": {
+      "additionalProperties": false,
+      "description": "Writable global monitoring-check settings payload.",
+      "properties": {
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "enabled": {
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "interval_seconds": {
+          "minimum": 1,
+          "title": "Interval Seconds",
+          "type": "integer"
+        },
+        "probe_timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Probe Timeout Seconds"
+        },
+        "restart_delta_threshold": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Restart Delta Threshold"
+        },
+        "tls_warning_days": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tls Warning Days"
+        }
+      },
+      "required": [
+        "check_id",
+        "enabled",
+        "interval_seconds"
+      ],
+      "title": "MonitoringSettingsCheckUpdateRequest",
+      "type": "object"
+    },
+    "MonitoringSettingsServiceOverrideUpdateRequest": {
+      "additionalProperties": false,
+      "description": "Writable staged service-scoped monitoring override payload.",
+      "properties": {
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enabled"
+        },
+        "interval_seconds": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interval Seconds"
+        },
+        "probe_timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Probe Timeout Seconds"
+        },
+        "restart_delta_threshold": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Restart Delta Threshold"
+        },
+        "service_id": {
+          "title": "Service Id",
+          "type": "string"
+        },
+        "tls_warning_days": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tls Warning Days"
+        }
+      },
+      "required": [
+        "service_id",
+        "check_id"
+      ],
+      "title": "MonitoringSettingsServiceOverrideUpdateRequest",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Full staged monitoring-settings update payload.",
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/MonitoringSettingsCheckUpdateRequest"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "service_overrides": {
+      "items": {
+        "$ref": "#/$defs/MonitoringSettingsServiceOverrideUpdateRequest"
+      },
+      "title": "Service Overrides",
+      "type": "array"
+    }
+  },
+  "title": "MonitoringSettingsUpdateRequest",
+  "type": "object"
+}
