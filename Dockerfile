@@ -5,10 +5,12 @@ ENV PYTHONUNBUFFERED=1
 ENV KAVAL_CORE_HOST=0.0.0.0
 ENV KAVAL_CORE_PORT=9800
 ENV KAVAL_DATABASE_PATH=/data/kaval.db
+ENV KAVAL_SETTINGS_PATH=/data/kaval.yaml
 ENV KAVAL_DOCKER_SOCKET=/var/run/docker.sock
 ENV KAVAL_EXECUTOR_SOCKET=/run/kaval/executor.sock
 ENV KAVAL_MIGRATIONS_DIR=/app/migrations
 ENV KAVAL_RUNTIME_DIR=/run/kaval
+ENV KAVAL_SERVICES_DIR=/app/services
 ENV KAVAL_WEB_DIST=/app/src/web/dist
 
 WORKDIR /app
@@ -16,6 +18,7 @@ WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY src /app/src
 COPY migrations /app/migrations
+COPY services /app/services
 
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir .

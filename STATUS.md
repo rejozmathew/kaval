@@ -3,9 +3,9 @@
 ## Project
 - Name: Kaval
 - PRD version: 4.1
-- Current phase: Phase 3 complete
-- Current task: Phase 3 complete; post-phase maintenance fix for the Unraid scheduler regression is complete; awaiting a separately authorized Phase 4 run
-- Overall status: Phase 3B execution is complete from the current repo state, Phase 3C execution is complete from the current repo state, P3B-01 through P3B-30 remain complete and validated, P3C-01 through P3C-36 are complete and validated, ADR-018 remains the accepted settings persistence contract, the Phase 3 exit criteria are satisfied, and the post-phase scheduler regression that skipped service-less Unraid system runs is fixed and revalidated
+- Current phase: Phase 4 private-packaging tranche in progress
+- Current task: Phase 4 private-packaging tranche blocked on the combined `tests/unit tests/integration` validation command; P4-01 is complete and the P4-06/private-image-workflow implementation is staged but not yet fully validated
+- Overall status: Phase 3B execution is complete from the current repo state, Phase 3C execution is complete from the current repo state, P3B-01 through P3B-30 remain complete and validated, P3C-01 through P3C-36 are complete and validated, ADR-018 remains the accepted settings persistence contract, the Phase 3 exit criteria are satisfied, the post-phase scheduler regression that skipped service-less Unraid system runs is fixed and revalidated, P4-01 is complete for the approved private-packaging tranche, and the remaining P4-06/private-workflow tranche is blocked on a repo-level pytest collection conflict in the Phase 4 validation command
 
 ## Phase gates
 - [x] Phase 0 complete
@@ -24,6 +24,21 @@
 - [x] Operational Memory query/result schema
 
 ## Completed work
+- 2026-04-09: Blocked on completing the P4-06 private-packaging tranche validation.
+- Goal: validate the private Unraid packaging updates against the Phase 4 command set without widening scope into unrelated feature or infrastructure work.
+- Attempted: ran `git diff --check`; XML/YAML parse checks for `deployment/unraid/kaval.xml`, `docker-compose.yml`, `.github/workflows/private-image.yml`, and `deployment/unraid/kaval.yaml.example`; `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`; `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`; `cd src/web && npm run build`; `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/contract`; `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/scenario`; `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/security`; and `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit tests/integration`.
+- Findings: the combined `tests/unit tests/integration` command fails during pytest collection before the packaging changes are exercised because duplicate module basenames collide across the two trees. The specific conflicts are `tests/unit/test_notifications/test_telegram_memory.py` vs `tests/integration/test_telegram_memory.py`, and `tests/unit/test_webhook_dedup.py` vs `tests/integration/test_webhook_dedup.py`.
+- Files changed: `STATUS.md`.
+- Smallest unblocking decision needed: either authorize a narrow test-infrastructure fix for the duplicate pytest module basenames/import mode conflict, or explicitly allow Phase 4 validation to treat unit and integration as separate commands matching the current CI workflow.
+- Stop reason: per AGENTS.md, validation failed, so the tranche should stop here rather than claim full completion.
+- 2026-04-09: Completed P4-01 Unraid CA template for the approved private-packaging tranche.
+- Goal: define the canonical Unraid installation artifact for the current one-container, two-internal-process runtime without implying public Community Apps readiness.
+- Goal: keep the packaging surface narrow and private-use oriented so self-hosted Unraid testing is practical before any public submission work begins.
+- Added `deployment/unraid/kaval.xml` as the canonical private-use template, targeting the current `ghcr.io/rejozmathew/kaval:private-testing` image tag, port `9800`, persistent `/data`, and the required `/var/run/docker.sock` mount for the internal executor process; also added `deployment/unraid/README.md` to document the scope and intentional private-testing posture of the artifact.
+- Files changed: `deployment/unraid/kaval.xml`, `deployment/unraid/README.md`, and `STATUS.md`.
+- Validations run: `git diff --check` and `python3 - <<'PY' ... ElementTree.parse(Path('deployment/unraid/kaval.xml')) ... PY`.
+- Failures/blockers: none for the artifact itself. Docker CLI validation remains unavailable in this environment because the WSL distro does not have Docker integration enabled, so runtime-shape verification for this task relied on the checked-in Docker/runtime contracts plus the pre-edit supervisor/executor baseline tests already run for this tranche.
+- Next task: P4-06 release-ready environment/config examples plus the minimal private image build/push workflow and bounded private-testing docs.
 - 2026-04-09: Completed maintenance fix for the Unraid system scheduler regression.
 - Goal: restore the accepted Unraid monitoring behavior where the scheduler can execute the Unraid system check directly from the discovery snapshot even before system/share service nodes are registered.
 - Goal: preserve the existing per-service cadence behavior for normal checks by only enabling check-level execution when a check explicitly opts in and there are no applicable registered services to schedule.

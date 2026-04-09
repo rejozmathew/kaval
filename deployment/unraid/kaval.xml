@@ -1,0 +1,129 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Kaval</Name>
+  <Repository>ghcr.io/rejozmathew/kaval:private-testing</Repository>
+  <Registry>https://ghcr.io</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/rejozmathew/kaval/blob/main/deployment/unraid/README.md</Support>
+  <Project>https://github.com/rejozmathew/kaval</Project>
+  <Overview>
+    Kaval is a self-hosted observability and investigation platform for Unraid homelabs.
+    This template is intentionally scoped for private and self-hosted testing before any
+    public Community Apps submission.
+
+    It installs one Docker container with two internal processes. kaval-core serves the
+    UI and API on port 9800. kaval-executor handles approval-gated restart actions over
+    an internal Unix socket while remaining inside the same container runtime approved by
+    CR-0002 and ADR-014.
+
+    Build or publish the private-testing image tag from this repository first, then use
+    this template to deploy on Unraid and complete guided setup in the web UI.
+  </Overview>
+  <Category>Tools:Monitoring:</Category>
+  <WebUI>http://[IP]:[PORT:9800]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/rejozmathew/kaval/main/deployment/unraid/kaval.xml</TemplateURL>
+  <Icon/>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>Unraid 7.2+, Docker 24+</Requires>
+  <Config
+    Name="Web UI Port"
+    Target="9800"
+    Default="9800"
+    Mode="tcp"
+    Description="HTTP port for the Kaval UI and API."
+    Type="Port"
+    Display="always"
+    Required="true"
+    Mask="false"
+  >9800</Config>
+  <Config
+    Name="AppData"
+    Target="/data"
+    Default="/mnt/user/appdata/kaval"
+    Mode="rw"
+    Description="Persistent Kaval state, including kaval.db and kaval.yaml."
+    Type="Path"
+    Display="always"
+    Required="true"
+    Mask="false"
+  >/mnt/user/appdata/kaval</Config>
+  <Config
+    Name="Docker Socket"
+    Target="/var/run/docker.sock"
+    Default="/var/run/docker.sock"
+    Mode="rw"
+    Description="Required so the internal executor process can perform approval-gated container restart actions."
+    Type="Path"
+    Display="advanced"
+    Required="true"
+    Mask="false"
+  >/var/run/docker.sock</Config>
+  <Config
+    Name="Timezone"
+    Target="TZ"
+    Default="UTC"
+    Description="Optional container timezone for logs and scheduled quiet-hours defaults."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"
+  >UTC</Config>
+  <Config
+    Name="Approval HMAC Secret"
+    Target="KAVAL_APPROVAL_HMAC_SECRET"
+    Default=""
+    Description="Required. Long random secret used to sign and verify approval tokens between the core and executor processes."
+    Type="Variable"
+    Display="always"
+    Required="true"
+    Mask="true"
+  ></Config>
+  <Config
+    Name="Widget Public URL"
+    Target="KAVAL_WIDGET_PUBLIC_URL"
+    Default=""
+    Description="Optional externally reachable base URL used when Kaval generates widget links."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"
+  ></Config>
+  <Config
+    Name="Local Model Name"
+    Target="KAVAL_LOCAL_MODEL_NAME"
+    Default=""
+    Description="Optional bootstrap model name for an OpenAI-compatible local model endpoint."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"
+  ></Config>
+  <Config
+    Name="Local Model Base URL"
+    Target="KAVAL_LOCAL_MODEL_BASE_URL"
+    Default="http://localhost:11434"
+    Description="Optional bootstrap base URL for the local model endpoint."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"
+  >http://localhost:11434</Config>
+  <Config
+    Name="Notification URLs"
+    Target="KAVAL_NOTIFICATION_URLS"
+    Default=""
+    Description="Optional comma-separated Apprise destinations for bootstrap notification routing."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="true"
+  ></Config>
+</Container>

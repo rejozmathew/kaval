@@ -1,0 +1,82 @@
+name: Private Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      stable_tag:
+        description: Stable tag to update for private Unraid testing
+        required: true
+        default: private-testing
+        type: string
+      push_image:
+        description: Push the image to GHCR after building it
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-private-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: ${{ inputs.push_image }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/kaval
+          tags: |
+            type=raw,value=${{ inputs.stable_tag }}
+            type=sha,format=short,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=Kaval
+            org.opencontainers.image.description=Private Unraid self-test image for Kaval
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build and optionally push image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: ${{ inputs.push_image }}
+          provenance: false
+          labels: ${{ steps.metadata.outputs.labels }}
+          tags: ${{ steps.metadata.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summarize published tags
+        run: |
+          {
+            echo "## Private image result"
+            echo
+            echo "Image: ghcr.io/${{ github.repository_owner }}/kaval"
+            echo "Tags:"
+            echo "${{ steps.metadata.outputs.tags }}"
+            echo
+            if [ "${{ inputs.push_image }}" = "true" ]; then
+              echo "Pushed to GHCR."
+            else
+              echo "Build completed without pushing."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -64,6 +64,7 @@ mypy src
 Start the current local stack:
 
 ```bash
+# start from .env.example if you want to override the defaults
 docker compose up --build
 ```
 
@@ -72,6 +73,15 @@ Expected behavior:
 - `kaval` starts one container with two internal processes: `kaval-core` serves the FastAPI/API + UI on port `9800`, and `kaval-executor` listens on `/run/kaval/executor.sock`.
 - `/var/run/docker.sock` is mounted once and is intended for the executor process only; Core still communicates over the internal Unix socket.
 - The repository includes the completed Phase 1 and Phase 2 foundations plus the completed Phase 3A insight/adapter/runtime surfaces, the completed Phase 3B webhook/memory/metrics/alerting/widget surfaces, and the completed Phase 3C admin/configuration/guided-setup surfaces.
+
+## Private Unraid Testing
+
+The current Phase 4 work is intentionally limited to private packaging for self-testing on Unraid. It is not a public Community Apps release.
+
+- Use `.github/workflows/private-image.yml` to build and push `ghcr.io/rejozmathew/kaval:private-testing` (plus a SHA tag) to GHCR.
+- Use [`deployment/unraid/kaval.xml`](deployment/unraid/kaval.xml) as the canonical Unraid template for the current runtime.
+- Use [`deployment/unraid/kaval.yaml.example`](deployment/unraid/kaval.yaml.example) as the reference shape for `/data/kaval.yaml`.
+- Use [`deployment/unraid/README.md`](deployment/unraid/README.md) for the private Unraid deployment steps and GHCR notes.
 
 ## Documentation
 
