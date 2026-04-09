@@ -21,7 +21,7 @@ The security boundary is foundational:
 
 ## Current Status
 
-The repository is at a Phase 3B-complete checkpoint. Phase 3 overall is not complete yet, and later Phase 3 work has not started from the current repo state.
+The repository is at a Phase 3-complete checkpoint. Phase 3B and Phase 3C are complete and validated from the current repo state, and Phase 4 has not started.
 
 The current local checkpoint includes:
 
@@ -32,8 +32,9 @@ The current local checkpoint includes:
 - completed Phase 3A runtime and UI visibility: capability-health reporting and dashboard visibility, lifecycle-aware service handling, topology refresh/cadence foundations, service-detail insight status, and the equal-weighted effectiveness score stub
 - completed Phase 3A evidence and trust-path work: adapter fact redaction, investigation evidence integration, dependency-confidence upgrades from adapter confirmation, and contract/scenario coverage for the new capability surfaces
 - completed Phase 3B integration and user-facing capability surfaces: authenticated webhook ingestion with source normalizers, service matching, finding/incident pipeline wiring, Prometheus metrics with cardinality controls, user-note CRUD plus Telegram memory commands, the full memory browser experience with provenance/trust indicators and adapter facts, alert routing with quiet hours, maintenance interaction, multi-issue summaries, self-health notifications, Cloudflare and Authentik evidence-path integration, Homepage/Homarr widget support, and end-to-end webhook scenario coverage
+- completed Phase 3C admin and configuration surfaces: ADR-018-backed staged/apply settings management for models, notifications, monitoring, system settings, and vault operations; interactive dependency graph review/editing; descriptor view/edit/override flows; quarantined auto-generated descriptor review, promotion, and community export; descriptor catalog expansion and contract coverage; suppression and maintenance noise controls; audit-trail, model-usage, VM, and plugin system-facet UI; and the five-step guided first-run setup flow with end-to-end scenario coverage
 
-The current checkpoint still runs under the approved CR-0002 / ADR-014 runtime: one Docker container with two internal processes, where `kaval-core` serves the API/UI on port `9800` and `kaval-executor` listens on `/run/kaval/executor.sock`. Treat [`STATUS.md`](STATUS.md) as the authoritative running state and detailed execution history; it currently records Phase 3B as complete while Phase 3 overall remains incomplete.
+The current checkpoint still runs under the approved CR-0002 / ADR-014 runtime: one Docker container with two internal processes, where `kaval-core` serves the API/UI on port `9800` and `kaval-executor` listens on `/run/kaval/executor.sock`. Treat [`STATUS.md`](STATUS.md) as the authoritative running state and detailed execution history; it records Phase 3 as complete from the current repo state and Phase 4 as not started.
 
 ## Quick Start
 
@@ -70,15 +71,16 @@ Expected behavior:
 
 - `kaval` starts one container with two internal processes: `kaval-core` serves the FastAPI/API + UI on port `9800`, and `kaval-executor` listens on `/run/kaval/executor.sock`.
 - `/var/run/docker.sock` is mounted once and is intended for the executor process only; Core still communicates over the internal Unix socket.
-- The repository includes the completed Phase 1 and Phase 2B foundations plus the completed Phase 3A insight/adapter/runtime surfaces and the completed Phase 3B webhook, memory, metrics, alerting, and widget surfaces.
+- The repository includes the completed Phase 1 and Phase 2 foundations plus the completed Phase 3A insight/adapter/runtime surfaces, the completed Phase 3B webhook/memory/metrics/alerting/widget surfaces, and the completed Phase 3C admin/configuration/guided-setup surfaces.
 
 ## Documentation
 
 - Product and architecture contract: [`docs/prd.md`](docs/prd.md)
 - Phase 3/4 requirements source: [`docs/phase3_4_requirements_expansion.md`](docs/phase3_4_requirements_expansion.md)
+- Completed Phase 3C execution contract: [`plans/phase-3c.md`](plans/phase-3c.md)
 - Completed Phase 3B execution contract: [`plans/phase-3b.md`](plans/phase-3b.md)
 - Completed Phase 3A execution contract: [`plans/phase-3a.md`](plans/phase-3a.md)
-- Next planned execution contract: [`plans/phase-3c.md`](plans/phase-3c.md)
+- Phase 4 execution contract, not yet started: [`plans/phase-4.md`](plans/phase-4.md)
 - Completed Phase 2B execution contract: [`plans/phase-2b.md`](plans/phase-2b.md)
 - Completed monitoring phase plan: [`plans/phase-1.md`](plans/phase-1.md)
 - Running project state: [`STATUS.md`](STATUS.md)

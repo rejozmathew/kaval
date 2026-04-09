@@ -26,6 +26,7 @@ The format follows Keep a Changelog, and this file is append-only.
 
 ### Added
 
+- Completed the Phase 3C checkpoint: ADR-018-backed staged/apply admin settings for models, notifications, monitoring, system settings, and vault operations; interactive dependency-graph review/editing; descriptor view/edit/override flows; quarantined auto-generated descriptor review, promotion, and community export; descriptor catalog expansion and contract coverage; suppression and maintenance noise controls; audit-trail and model-usage visibility; VM and plugin system-facet UI; and the guided first-run setup flow with end-to-end scenario coverage.
 - Completed the Phase 3B checkpoint: authenticated webhook ingestion with source-specific auth, redaction/rate-limit/dedup handling, shipped source normalizers, deterministic service matching, webhook-to-finding-to-incident wiring, Prometheus metrics with cardinality controls, full user-note CRUD, Telegram memory commands, the complete memory browser tabs with provenance/trust indicators and adapter facts, alert routing with quiet hours/maintenance interaction/multi-issue summaries/self-health notifications, Cloudflare and Authentik evidence-path integration, Homepage/Homarr widget support, and end-to-end webhook scenario coverage.
 - Completed the Phase 3A checkpoint: service insight levels, the deep-inspection adapter foundation, shipped read-only priority adapters for Nginx Proxy Manager, Radarr, Authentik, Cloudflare, and Pi-hole, capability-health visibility, lifecycle handling, the effectiveness score stub, adapter-fact redaction and evidence integration, confidence upgrades, and Phase 3A contract/scenario coverage.
 - Completed the Phase 1 checkpoint: Unraid and Docker discovery, shipped service descriptors, dependency graph confidence, deterministic monitoring checks, change tracking, incident management, Operational Memory system profile, FastAPI read APIs, CLI commands, and the React/WebSocket service map UI.
@@ -49,6 +50,8 @@ The format follows Keep a Changelog, and this file is append-only.
 
 ### Changed
 
+- Top-level docs now reflect the Phase 3-complete checkpoint, the completed Phase 3C admin/configuration/guided-setup surfaces, the approved one-container/two-process runtime, and that Phase 4 has not started.
+- The earlier changelog notes about docs reflecting the Phase 3A-complete and Phase 3B-complete checkpoints referred to those earlier sync points only and are now superseded by the Phase 3-complete doc sync above.
 - Top-level docs now reflect the Phase 3B-complete checkpoint, the approved one-container/two-process runtime, the current implemented webhook/memory/metrics/alerting/widget surfaces, and that Phase 3 overall is still not complete.
 - The earlier changelog note about docs reflecting the Phase 3A-complete checkpoint referred to that earlier sync point only and is now superseded by the current Phase 3B doc sync above.
 - Top-level project docs and package metadata now describe the current Phase 1 + Phase 2A-through-`P2A-08` checkpoint instead of only the original Phase 0 scaffold.
