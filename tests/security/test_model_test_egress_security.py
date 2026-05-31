@@ -291,3 +291,53 @@ def test_stored_vault_secret_is_not_replayed_to_changed_base_url(
     assert "currently-active base_url" in test_response.json()["message"]
     assert "cloud-secret-value" not in json.dumps(test_response.json())
     assert cloud_called is False
+
+
+def test_local_model_test_blocks_cloud_metadata_even_without_opt_in(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Local-model tests preserve the loopback workflow but never reach cloud metadata."""
+    monkeypatch.delenv("KAVAL_ALLOW_PRIVATE_MODEL_EGRESS", raising=False)
+    monkeypatch.setattr(
+        "kaval.api.egress.socket.getaddrinfo", _fake_getaddrinfo("169.254.169.254")
+    )
+    database_path = tmp_path / "kaval.db"
+    settings_path = tmp_path / "kaval.yaml"
+    _seed_database(database_path)
+    local_called = False
+
+    def local_transport(*_args: object, **_kwargs: object) -> bytes:
+        nonlocal local_called
+        local_called = True
+        return b"{}"
+
+    app = create_app(
+        database_path=database_path,
+        settings_path=settings_path,
+        local_model_transport=local_transport,
+    )
+
+    with TestClient(app) as client:
+        client.post(
+            "/api/v1/vault/unlock",
+            json={"master_passphrase": "correct horse battery staple"},
+        )
+        client.put(
+            "/api/v1/settings/models",
+            json=_model_settings_payload(
+                local_enabled=True,
+                local_base_url="http://metadata.local",
+                local_api_key="local-secret-value",
+            ),
+        )
+        test_response = client.post(
+            "/api/v1/settings/models/test",
+            json={"target": "local", "scope": "staged"},
+        )
+
+    assert test_response.status_code == 200
+    assert test_response.json()["ok"] is False
+    assert "metadata" in test_response.json()["message"].casefold()
+    assert "local-secret-value" not in json.dumps(test_response.json())
+    assert local_called is False

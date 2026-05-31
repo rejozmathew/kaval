@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import socket
 from pathlib import Path
 from typing import cast
 
@@ -70,6 +71,15 @@ def test_first_run_guided_setup_flow_covers_all_five_steps(
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("KAVAL_NOTIFICATION_URLS", raising=False)
+
+    # The model connectivity test now applies an outbound egress guard (ADR-021) that
+    # resolves the target host. Stub DNS so the cloud host maps to a routable public
+    # address and the local host stays on loopback, keeping this offline test deterministic.
+    def _fake_getaddrinfo(host, port, *args, **kwargs):
+        resolved = "127.0.0.1" if host in {"localhost", "127.0.0.1"} else "8.8.8.8"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (resolved, port or 0))]
+
+    monkeypatch.setattr("kaval.api.egress.socket.getaddrinfo", _fake_getaddrinfo)
 
     database_path = tmp_path / "kaval.db"
     settings_path = tmp_path / "kaval.yaml"

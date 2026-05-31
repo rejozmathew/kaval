@@ -1575,7 +1575,7 @@ def test_model_settings_connection(
                     checked_at=checked_at,
                     message="Selected local model settings are not configured.",
                 )
-            ensure_model_test_egress_allowed(local_config.base_url)
+            ensure_model_test_egress_allowed(local_config.base_url, allow_private=True)
             probe_local_model_connection(
                 config=local_config,
                 transport=cast(

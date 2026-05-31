@@ -9,7 +9,7 @@
 - Raised On: 2026-05-31
 - Raised By: Rejo Z. Mathew
 - Approved By: Rejo Z. Mathew
-- Implemented By: pending
+- Implemented By: Copilot agents (WS1/WS2/WS3), 2026-05-31
 - Related Tasks: P4-04, P4-05, P4-23, P4-24, P4-27, P4-30
 - Related Files:
   - docs/prd.md
@@ -149,16 +149,16 @@ This CR does **not** change:
   set `KAVAL_ADMIN_API_KEY`. The approval secret must now be a real 32+ byte secret.
 
 ## Acceptance Criteria
-- [ ] ADR-020, ADR-021, ADR-022 added; ADR-019 supersession note added
-- [ ] `/admin/backup` and `/admin/restore` refuse without admin key or unlocked vault
-- [ ] Restore validates DB integrity, caps member size, and snapshots prior state before swap
-- [ ] Model-test egress guard rejects internal destinations and stored-key reuse on a changed base URL
-- [ ] Approval secret rejects the well-known default and secrets shorter than 32 bytes
-- [ ] Compose no longer ships a default approval secret; `.env.example` updated
-- [ ] `cryptography` floor raised to `>=46.0.7,<47`; dependency-audit artifact corrected
-- [ ] Additive security and integration tests pass
-- [ ] Validation commands pass: pytest, ruff, mypy, web build
-- [ ] STATUS.md and plans/phase-4.md updated
+- [x] ADR-020, ADR-021, ADR-022 added; ADR-019 supersession note added
+- [x] `/admin/backup` and `/admin/restore` refuse without admin key or unlocked vault
+- [x] Restore validates DB integrity, caps member size, and snapshots prior state before swap
+- [x] Model-test egress guard rejects internal destinations and stored-key reuse on a changed base URL
+- [x] Approval secret rejects the well-known default and secrets shorter than 32 bytes
+- [x] Compose no longer ships a default approval secret; `.env.example` updated
+- [x] `cryptography` floor raised to `>=46.0.7,<47`; dependency-audit artifact corrected
+- [x] Additive security and integration tests pass
+- [x] Validation commands pass: pytest, ruff, mypy, web build
+- [x] STATUS.md and plans/phase-4.md updated
 
 ## Supersession / Roll-up
 - Superseded By: none
