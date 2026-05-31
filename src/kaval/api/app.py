@@ -32,6 +32,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from starlette.websockets import WebSocketDisconnect
 
+from kaval.api.admin_backup import (
+    BACKUP_SENSITIVITY_WARNING,
+    RestoreResult,
+    authorize_admin_request,
+    build_backup_archive,
+    restore_backup_archive,
+)
 from kaval.api.metrics import render_prometheus_metrics
 from kaval.api.schemas import (
     AdapterFactSourceType,
@@ -433,6 +440,7 @@ class ApiSettings:
     widget_api_key: str | None
     widget_public_url: str | None
     widget_refresh_interval_seconds: int
+    admin_api_key: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -493,6 +501,7 @@ def create_app(
             "KAVAL_WIDGET_REFRESH_INTERVAL_SECONDS",
             60,
         ),
+        admin_api_key=_load_optional_stripped_env("KAVAL_ADMIN_API_KEY"),
     )
 
     @asynccontextmanager
@@ -2920,6 +2929,74 @@ def system_profile(database: ApiDatabase) -> SystemProfile:
     if profile is None:
         raise HTTPException(status_code=404, detail="system profile not found")
     return profile
+
+
+def _authorize_admin_surface(
+    *,
+    request: Request,
+    authorization: str | None,
+    x_kaval_admin_key: str | None,
+) -> ApiSettings:
+    """Authorize an admin-surface request and return the active settings."""
+    settings: ApiSettings = request.app.state.api_settings
+    authorize_admin_request(
+        expected_api_key=settings.admin_api_key,
+        authorization=authorization,
+        x_kaval_admin_key=x_kaval_admin_key,
+    )
+    return settings
+
+
+@_api_router.get("/admin/backup")
+def admin_backup(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+    x_kaval_admin_key: Annotated[str | None, Header(alias="X-Kaval-Admin-Key")] = None,
+) -> Response:
+    """Export a ZIP backup of the database and settings (security-sensitive)."""
+    settings = _authorize_admin_surface(
+        request=request,
+        authorization=authorization,
+        x_kaval_admin_key=x_kaval_admin_key,
+    )
+    archive = build_backup_archive(
+        database_path=settings.database_path,
+        settings_path=settings.settings_path,
+    )
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%SZ")
+    return Response(
+        content=archive,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="kaval-backup-{timestamp}.zip"',
+            "X-Kaval-Backup-Warning": BACKUP_SENSITIVITY_WARNING,
+        },
+    )
+
+
+@_api_router.post("/admin/restore", response_model=RestoreResult)
+async def admin_restore(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+    x_kaval_admin_key: Annotated[str | None, Header(alias="X-Kaval-Admin-Key")] = None,
+) -> RestoreResult:
+    """Restore the database and settings from a Kaval backup archive.
+
+    The request body is the raw backup ZIP (``Content-Type: application/zip``).
+    """
+    settings = _authorize_admin_surface(
+        request=request,
+        authorization=authorization,
+        x_kaval_admin_key=x_kaval_admin_key,
+    )
+    archive_bytes = await request.body()
+    if not archive_bytes:
+        raise HTTPException(status_code=400, detail="request body is empty")
+    return restore_backup_archive(
+        archive_bytes=archive_bytes,
+        database_path=settings.database_path,
+        settings_path=settings.settings_path,
+    )
 
 
 @_api_router.get("/widget", response_model=WidgetSummaryResponse)
