@@ -2939,10 +2939,15 @@ def _authorize_admin_surface(
 ) -> ApiSettings:
     """Authorize an admin-surface request and return the active settings."""
     settings: ApiSettings = request.app.state.api_settings
+    vault_unlocked = False
+    if settings.admin_api_key is None:
+        vault = cast(CredentialVault, request.app.state.credential_vault)
+        vault_unlocked = vault.status().unlocked
     authorize_admin_request(
         expected_api_key=settings.admin_api_key,
         authorization=authorization,
         x_kaval_admin_key=x_kaval_admin_key,
+        vault_unlocked=vault_unlocked,
     )
     return settings
 

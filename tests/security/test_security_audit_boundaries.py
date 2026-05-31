@@ -17,7 +17,8 @@ from kaval.actions.approvals import (
 from kaval.executor.server import ALLOWED_EXECUTOR_ACTIONS
 from kaval.models import ActionType, ApprovalToken
 
-_SECRET = "audit-test-secret"
+_SECRET = "audit-test-secret-0123456789abcdef0123"
+_OTHER_SECRET = "other-secret-0123456789abcdef012345678"
 
 
 def _signed_token(**overrides: object) -> ApprovalToken:
@@ -63,7 +64,7 @@ def test_approval_token_signature_rejects_incident_rebinding() -> None:
 def test_approval_token_signature_rejects_wrong_secret() -> None:
     """A token signed with a different secret does not verify (P4-23)."""
     token = _signed_token()
-    assert verify_approval_token_signature(token, secret="other-secret") is False
+    assert verify_approval_token_signature(token, secret=_OTHER_SECRET) is False
 
 
 def test_executor_allowlist_is_restart_only() -> None:

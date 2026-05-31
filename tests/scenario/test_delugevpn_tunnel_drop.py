@@ -42,7 +42,7 @@ from kaval.system_profile import build_system_profile
 DOCKER_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "docker"
 UNRAID_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "unraid"
 SERVICES_DIR = Path(__file__).resolve().parents[2] / "services"
-_TEST_SECRET = "test-secret"
+_TEST_SECRET = "test-secret-0123456789abcdef0123456789"
 
 
 def load_docker_fixture(name: str) -> dict[str, object]:

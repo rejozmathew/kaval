@@ -20,7 +20,8 @@ from kaval.models import (
     ExecutorActionStatus,
 )
 
-_TEST_SECRET = "test-secret"
+_TEST_SECRET = "test-secret-0123456789abcdef0123456789"
+_WRONG_SECRET = "wrong-secret-0123456789abcdef012345678"
 
 
 def ts(hour: int, minute: int = 0) -> datetime:
@@ -178,7 +179,7 @@ def test_executor_service_rejects_expired_token(tmp_path: Path) -> None:
 def test_executor_service_rejects_invalid_signature(tmp_path: Path) -> None:
     """Tokens signed with the wrong secret should fail integrity validation."""
     database = build_database(tmp_path)
-    token = sign_approval_token(build_token(), secret="wrong-secret")
+    token = sign_approval_token(build_token(), secret=_WRONG_SECRET)
     database.upsert_approval_token(token)
     database.close()
     docker_client = _FakeDockerClient()

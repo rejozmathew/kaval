@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import secrets
+import shutil
+import sqlite3
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +28,8 @@ from pydantic import BaseModel, Field
 BACKUP_MANIFEST_NAME = "manifest.json"
 BACKUP_MARKER = "kaval-backup"
 BACKUP_FORMAT_VERSION = 1
+_MAX_ARCHIVE_MEMBER_SIZE_BYTES = 1024 * 1024 * 1024
+_MAX_ARCHIVE_TOTAL_SIZE_BYTES = 2 * 1024 * 1024 * 1024
 
 #: Member name -> on-disk artifact kind. Only these names are ever read or written, which
 #: prevents path traversal from a crafted archive.
@@ -59,15 +64,19 @@ def authorize_admin_request(
     expected_api_key: str | None,
     authorization: str | None,
     x_kaval_admin_key: str | None,
+    vault_unlocked: bool = False,
 ) -> None:
-    """Authorize one admin request when optional API-key auth is configured.
-
-    When ``expected_api_key`` is ``None`` the admin surface is unguarded, matching the
-    documented single-admin / local-network default. When configured, the key must be
-    presented and is compared with a constant-time comparison.
-    """
+    """Authorize one admin request using the admin key or unlocked-vault fallback."""
     if expected_api_key is None:
-        return
+        if vault_unlocked:
+            return
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "admin backup/restore requires an unlocked credential vault or a configured "
+                "KAVAL_ADMIN_API_KEY"
+            ),
+        )
     presented_key = x_kaval_admin_key
     if presented_key is None and authorization is not None:
         scheme, _, token = authorization.partition(" ")
@@ -112,6 +121,23 @@ def build_backup_archive(
     return buffer.getvalue()
 
 
+def _validate_archive_sizes(archive: zipfile.ZipFile) -> None:
+    """Reject archives whose declared uncompressed sizes exceed restore limits."""
+    total_size = 0
+    for info in archive.infolist():
+        if info.file_size > _MAX_ARCHIVE_MEMBER_SIZE_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"backup member {info.filename!r} exceeds restore size limit",
+            )
+        total_size += info.file_size
+        if total_size > _MAX_ARCHIVE_TOTAL_SIZE_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail="backup archive exceeds total restore size limit",
+            )
+
+
 def _load_manifest(archive: zipfile.ZipFile) -> dict[str, object]:
     """Return the validated manifest mapping from a backup archive."""
     try:
@@ -136,6 +162,42 @@ def _load_manifest(archive: zipfile.ZipFile) -> dict[str, object]:
     return manifest
 
 
+def _staging_path(path: Path, timestamp: str) -> Path:
+    """Return a sibling staging path for a restore candidate."""
+    return path.with_name(f".{path.name}.restore-{timestamp}")
+
+
+def _backup_path(path: Path, timestamp: str) -> Path:
+    """Return a sibling snapshot path for the current artifact."""
+    return path.with_name(f"{path.name}.bak-{timestamp}")
+
+
+def _validate_sqlite_database(path: Path) -> None:
+    """Run SQLite integrity_check on a staged database file."""
+    try:
+        connection = sqlite3.connect(path)
+        try:
+            result = connection.execute("PRAGMA integrity_check").fetchone()
+        finally:
+            connection.close()
+    except sqlite3.DatabaseError as error:
+        raise HTTPException(
+            status_code=400,
+            detail="backup database failed SQLite integrity check",
+        ) from error
+    if result is None or result[0] != "ok":
+        raise HTTPException(
+            status_code=400,
+            detail="backup database failed SQLite integrity check",
+        )
+
+
+def _snapshot_existing(path: Path, timestamp: str) -> None:
+    """Snapshot an existing artifact before replacing it."""
+    if path.exists():
+        shutil.copy2(path, _backup_path(path, timestamp))
+
+
 def restore_backup_archive(
     *,
     archive_bytes: bytes,
@@ -147,6 +209,10 @@ def restore_backup_archive(
     Only the known artifact members are ever written, so a crafted archive cannot escape the
     configured database/settings locations.
     """
+    timestamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    database_stage = _staging_path(database_path, timestamp)
+    settings_stage = _staging_path(settings_path, timestamp)
+    staged_paths = (database_stage, settings_stage)
     try:
         archive = zipfile.ZipFile(io.BytesIO(archive_bytes))
     except zipfile.BadZipFile as error:
@@ -154,19 +220,32 @@ def restore_backup_archive(
             status_code=400,
             detail="uploaded file is not a valid ZIP archive",
         ) from error
-    with archive:
-        manifest = _load_manifest(archive)
-        member_names = set(archive.namelist())
-        restored_database = False
-        restored_settings = False
-        if _DATABASE_MEMBER in member_names:
-            database_path.parent.mkdir(parents=True, exist_ok=True)
-            database_path.write_bytes(archive.read(_DATABASE_MEMBER))
-            restored_database = True
-        if _SETTINGS_MEMBER in member_names:
-            settings_path.parent.mkdir(parents=True, exist_ok=True)
-            settings_path.write_bytes(archive.read(_SETTINGS_MEMBER))
-            restored_settings = True
+    try:
+        with archive:
+            _validate_archive_sizes(archive)
+            manifest = _load_manifest(archive)
+            member_names = set(archive.namelist())
+            restored_database = False
+            restored_settings = False
+            if _DATABASE_MEMBER in member_names:
+                database_path.parent.mkdir(parents=True, exist_ok=True)
+                database_stage.write_bytes(archive.read(_DATABASE_MEMBER))
+                _validate_sqlite_database(database_stage)
+                restored_database = True
+            if _SETTINGS_MEMBER in member_names:
+                settings_path.parent.mkdir(parents=True, exist_ok=True)
+                settings_stage.write_bytes(archive.read(_SETTINGS_MEMBER))
+                restored_settings = True
+            if restored_database:
+                _snapshot_existing(database_path, timestamp)
+                os.replace(database_stage, database_path)
+            if restored_settings:
+                _snapshot_existing(settings_path, timestamp)
+                os.replace(settings_stage, settings_path)
+    finally:
+        for staged_path in staged_paths:
+            if staged_path.exists():
+                staged_path.unlink()
     created_at = manifest.get("created_at")
     return RestoreResult(
         restored=restored_database or restored_settings,

@@ -19,7 +19,7 @@ from kaval.database import KavalDatabase
 from kaval.executor.server import ExecutorServerConfig, create_executor_server
 from kaval.models import ActionType, ApprovalToken, ExecutorActionStatus
 
-_TEST_SECRET = "test-secret"
+_TEST_SECRET = "test-secret-0123456789abcdef0123456789"
 
 
 def ts(hour: int, minute: int = 0) -> datetime:

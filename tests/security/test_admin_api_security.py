@@ -17,12 +17,39 @@ def _make_app(tmp_path: Path):
     return create_app(database_path=database_path, settings_path=settings_path)
 
 
-def test_admin_backup_open_when_no_key_configured(tmp_path: Path) -> None:
-    """With no admin key set, the admin surface stays reachable (LAN default)."""
+def _unlock_vault(client: TestClient) -> None:
+    """Unlock the app credential vault for admin fallback authorization."""
+    response = client.post(
+        "/api/v1/vault/unlock",
+        json={"master_passphrase": "correct horse battery staple"},
+    )
+    assert response.status_code == 200
+    assert response.json()["unlocked"] is True
+
+
+def test_admin_backup_denied_when_no_key_configured_and_vault_locked(tmp_path: Path) -> None:
+    """With no admin key and a locked vault, backup is default-denied."""
     app = _make_app(tmp_path)
     with TestClient(app) as client:
         response = client.get("/api/v1/admin/backup")
-    assert response.status_code == 200
+    assert response.status_code == 403
+    assert "unlock" in response.json()["detail"]
+    assert "KAVAL_ADMIN_API_KEY" in response.json()["detail"]
+
+
+def test_admin_backup_and_restore_allowed_when_vault_unlocked(tmp_path: Path) -> None:
+    """With no admin key, an unlocked vault authorizes backup and restore."""
+    app = _make_app(tmp_path)
+    with TestClient(app) as client:
+        _unlock_vault(client)
+        backup = client.get("/api/v1/admin/backup")
+        restore = client.post(
+            "/api/v1/admin/restore",
+            content=backup.content,
+            headers={"Content-Type": "application/zip"},
+        )
+    assert backup.status_code == 200
+    assert restore.status_code == 200
 
 
 def test_admin_backup_requires_key_when_configured(tmp_path: Path, monkeypatch) -> None:
