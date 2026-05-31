@@ -106,6 +106,14 @@ Validate against the live repo before editing and keep scope narrow for the acti
 > and the dependency review in
 > [`docs/security/dependency-audit.md`](../docs/security/dependency-audit.md). See
 > [`CR-0004`](../docs/change_requests/CR-0004-security-audit-hardening.md).
+>
+> Remediation: [`CR-0005`](../docs/change_requests/CR-0005-security-remediation.md) closes the
+> post-CR-0004 re-assessment findings — backup/restore default-deny + restore safety
+> ([ADR-020](../docs/adr/020-backup-restore-default-deny.md), affects P4-04/P4-05/P4-27),
+> outbound egress / SSRF guard for the model-test path
+> ([ADR-021](../docs/adr/021-outbound-egress-policy.md), affects P4-24), approval-secret
+> strength validation ([ADR-022](../docs/adr/022-approval-secret-strength.md), affects
+> P4-23), and the `cryptography` floor bump to `>=46.0.7,<47` (P4-30).
 
 - P4-22 LLM confinement audit: verify LLM has no action tools, proposals are data only, execution path is deterministic
 - P4-23 Approval token integrity: HMAC validation, single-use, time-limited, incident-bound, replay protection
