@@ -21,7 +21,7 @@ This artifact records the Phase 4 third-party dependency review required by audi
 | Package        | Declared range        | Status |
 | -------------- | --------------------- | ------ |
 | apprise        | `>=1.9,<2`            | clean  |
-| cryptography   | `>=44,<47`            | clean  |
+| cryptography   | `>=46.0.7,<47`        | clean (floor raised) |
 | fastapi        | `>=0.115,<1`          | clean  |
 | langgraph      | `>=1.0,<2`            | clean  |
 | pydantic       | `>=2.11,<3`           | clean  |
@@ -30,6 +30,12 @@ This artifact records the Phase 4 third-party dependency review required by audi
 
 No known-vulnerable advisory applies to the resolved versions of the direct dependencies at
 the pinned ranges.
+
+> **Correction (CR-0005, 2026-05-31):** the previous `cryptography >=44,<47` range was marked
+> "clean" in error. `pip-audit` reports three advisories affecting versions below `46.0.7`
+> in that range — `CVE-2026-26007` (fixed in `46.0.5`), `PYSEC-2026-35` (fixed in `46.0.6`),
+> and `PYSEC-2026-36` (fixed in `46.0.7`). The floor was raised to `>=46.0.7,<47` so the
+> resolved version is no longer vulnerable.
 
 ## Transitive runtime dependencies
 
@@ -48,7 +54,8 @@ updates rather than by this audit.
 
 ## Findings and disposition
 
-- Direct dependencies: **no open critical/high findings** at the declared ranges.
+- Direct dependencies: **no open critical/high findings** at the declared ranges after the
+  CR-0005 `cryptography` floor bump to `>=46.0.7,<47`.
 - Transitive HTTP stack: **keep current via a fresh image build**; re-run `pip-audit`
   against the built image as a release gate.
 - Action: add a periodic/release `pip-audit` step so this artifact stays current.

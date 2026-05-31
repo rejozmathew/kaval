@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-UTC}
-      KAVAL_APPROVAL_HMAC_SECRET: ${KAVAL_APPROVAL_HMAC_SECRET:-local-dev-approval-secret}
+      KAVAL_APPROVAL_HMAC_SECRET: "${KAVAL_APPROVAL_HMAC_SECRET:?KAVAL_APPROVAL_HMAC_SECRET is required; generate with openssl rand -hex 32}"
       KAVAL_DATABASE_PATH: /data/kaval.db
       KAVAL_SETTINGS_PATH: /data/kaval.yaml
       KAVAL_SERVICES_DIR: /app/services

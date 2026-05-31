@@ -9,16 +9,36 @@ import os
 from kaval.models import ApprovalToken
 
 APPROVAL_HMAC_SECRET_ENV = "KAVAL_APPROVAL_HMAC_SECRET"
+KNOWN_BAD_APPROVAL_HMAC_SECRET = "local-dev-approval-secret"
+MIN_APPROVAL_HMAC_SECRET_BYTES = 32
+
+
+def _validate_approval_hmac_secret(secret: str) -> str:
+    """Return a strong approval-token signing secret or raise a clear error."""
+    if (
+        secret == KNOWN_BAD_APPROVAL_HMAC_SECRET
+        or len(secret.encode("utf-8")) < MIN_APPROVAL_HMAC_SECRET_BYTES
+    ):
+        msg = (
+            f"{APPROVAL_HMAC_SECRET_ENV} must be set to a strong random secret "
+            f"of at least {MIN_APPROVAL_HMAC_SECRET_BYTES} bytes and must not use "
+            "the known-bad default; generate one with `openssl rand -hex 32`."
+        )
+        raise RuntimeError(msg)
+    return secret
 
 
 def get_approval_hmac_secret(*, explicit_secret: str | None = None) -> str:
     """Return the configured approval-token signing secret."""
     if explicit_secret is not None:
-        return explicit_secret
+        return _validate_approval_hmac_secret(explicit_secret)
     secret = os.environ.get(APPROVAL_HMAC_SECRET_ENV)
     if secret:
-        return secret
-    msg = f"{APPROVAL_HMAC_SECRET_ENV} is required for approval-token validation"
+        return _validate_approval_hmac_secret(secret)
+    msg = (
+        f"{APPROVAL_HMAC_SECRET_ENV} is required for approval-token validation; "
+        "set a strong random value generated with `openssl rand -hex 32`."
+    )
     raise RuntimeError(msg)
 
 

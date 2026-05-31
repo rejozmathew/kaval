@@ -39,6 +39,7 @@ from kaval.api.admin_backup import (
     build_backup_archive,
     restore_backup_archive,
 )
+from kaval.api.egress import ensure_model_test_egress_allowed
 from kaval.api.metrics import render_prometheus_metrics
 from kaval.api.schemas import (
     AdapterFactSourceType,
@@ -1542,9 +1543,28 @@ def test_model_settings_connection(
     vault = cast(CredentialVault, request.app.state.credential_vault)
     checked_at = datetime.now(tz=UTC)
     try:
+        scope = _model_settings_scope_value(payload.scope)
+        active_snapshot = model_settings.active_snapshot()
+        selected_snapshot = (
+            active_snapshot
+            if payload.scope is ModelSettingsTestScope.ACTIVE
+            else model_settings.staged_snapshot()
+        )
         if payload.target is ModelSettingsTestTarget.LOCAL:
+            if (
+                scope == "staged"
+                and selected_snapshot.local.api_key_ref is not None
+                and selected_snapshot.local.api_key_ref == active_snapshot.local.api_key_ref
+                and selected_snapshot.local.base_url.rstrip("/")
+                != active_snapshot.local.base_url.rstrip("/")
+            ):
+                raise ValueError(
+                    "Stored local model API keys may only be reused to test the "
+                    "currently-active base_url; provide the API key inline before "
+                    "testing a changed endpoint."
+                )
             local_config = model_settings.resolve_local_model_config(
-                scope=_model_settings_scope_value(payload.scope),
+                scope=scope,
                 vault=vault,
             )
             if local_config is None:
@@ -1554,7 +1574,8 @@ def test_model_settings_connection(
                     ok=False,
                     checked_at=checked_at,
                     message="Selected local model settings are not configured.",
-            )
+                )
+            ensure_model_test_egress_allowed(local_config.base_url, allow_private=True)
             probe_local_model_connection(
                 config=local_config,
                 transport=cast(
@@ -1570,8 +1591,20 @@ def test_model_settings_connection(
                 message="Local model endpoint accepted the explicit settings test.",
             )
 
+        if (
+            scope == "staged"
+            and selected_snapshot.cloud.api_key_ref is not None
+            and selected_snapshot.cloud.api_key_ref == active_snapshot.cloud.api_key_ref
+            and selected_snapshot.cloud.base_url.rstrip("/")
+            != active_snapshot.cloud.base_url.rstrip("/")
+        ):
+            raise ValueError(
+                "Stored cloud model API keys may only be reused to test the "
+                "currently-active base_url; provide the API key inline before "
+                "testing a changed endpoint."
+            )
         cloud_config = model_settings.resolve_cloud_model_config(
-            scope=_model_settings_scope_value(payload.scope),
+            scope=scope,
             vault=vault,
         )
         if cloud_config is None:
@@ -1582,6 +1615,7 @@ def test_model_settings_connection(
                 checked_at=checked_at,
                 message="Selected cloud model settings are not configured.",
             )
+        ensure_model_test_egress_allowed(cloud_config.base_url)
         probe_cloud_model_connection(
             config=cloud_config,
             transport=cast(
@@ -2939,10 +2973,15 @@ def _authorize_admin_surface(
 ) -> ApiSettings:
     """Authorize an admin-surface request and return the active settings."""
     settings: ApiSettings = request.app.state.api_settings
+    vault_unlocked = False
+    if settings.admin_api_key is None:
+        vault = cast(CredentialVault, request.app.state.credential_vault)
+        vault_unlocked = vault.status().unlocked
     authorize_admin_request(
         expected_api_key=settings.admin_api_key,
         authorization=authorization,
         x_kaval_admin_key=x_kaval_admin_key,
+        vault_unlocked=vault_unlocked,
     )
     return settings
 

@@ -36,7 +36,7 @@ from kaval.models import (
 
 DOCKER_FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "docker"
 SERVICES_DIR = Path(__file__).resolve().parents[2] / "services"
-_TEST_SECRET = "test-secret"
+_TEST_SECRET = "test-secret-0123456789abcdef0123456789"
 
 
 def load_json_fixture(name: str) -> dict[str, object]:

@@ -13,7 +13,8 @@ from kaval.database import KavalDatabase
 from kaval.executor.server import ExecutorServerConfig, ExecutorService
 from kaval.models import ActionType, ApprovalToken, ExecutorActionRequest, ExecutorActionStatus
 
-_TEST_SECRET = "test-secret"
+_TEST_SECRET = "test-secret-0123456789abcdef0123456789"
+_WRONG_SECRET = "wrong-secret-0123456789abcdef012345678"
 
 
 def ts(hour: int, minute: int = 0) -> datetime:
@@ -98,7 +99,7 @@ def test_executor_replay_prevention_consumes_token_once(tmp_path: Path) -> None:
 def test_invalid_signature_does_not_consume_stored_token(tmp_path: Path) -> None:
     """Signature failures should not mark the stored token as used."""
     database = build_database(tmp_path)
-    token = sign_approval_token(build_token(), secret="wrong-secret")
+    token = sign_approval_token(build_token(), secret=_WRONG_SECRET)
     database.upsert_approval_token(token)
     database.close()
     docker_client = _FakeDockerClient()

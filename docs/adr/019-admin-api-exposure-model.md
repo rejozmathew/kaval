@@ -1,8 +1,15 @@
 # ADR-019: Admin API exposure model (single-admin / local network)
 
-## Status: Accepted
+## Status: Accepted (partially superseded by ADR-020 for backup/restore)
 ## Date: 2026-05-31
-## Related: CR-0004 (Security audit hardening), docs/security_requirements.md
+## Related: CR-0004 (Security audit hardening), CR-0005 (Security remediation), ADR-020 (partially supersedes), docs/security_requirements.md
+
+> **Supersession note (CR-0005 / ADR-020):** The "default behavior unchanged when
+> `KAVAL_ADMIN_API_KEY` is unset" stance below is **no longer in effect for the
+> `GET /api/v1/admin/backup` and `POST /api/v1/admin/restore` routes**. Those two routes are
+> now default-deny (admin key OR unlocked vault required) per
+> [ADR-020](020-backup-restore-default-deny.md). The single-admin / local-network model
+> below still governs all other admin routes.
 
 ## Context
 Phase 4 Workstream 5 (P4-27) requires the admin/config surface — settings, configuration,

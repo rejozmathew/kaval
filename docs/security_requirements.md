@@ -64,9 +64,13 @@ basis for the admin-surface controls in Area 6 and is recorded in
   wrong-incident token.
 - **Required control:** Approval tokens are HMAC-SHA256 signed over a canonical payload,
   single-use, time-limited (`expires_at`), and incident-bound (`incident_id`). The executor
-  re-verifies signature, expiry, single-use, and incident binding before acting.
+  re-verifies signature, expiry, single-use, and incident binding before acting. The signing
+  secret (`KAVAL_APPROVAL_HMAC_SECRET`) is **strength-validated** per
+  [ADR-022](adr/022-approval-secret-strength.md): `get_approval_hmac_secret` rejects the
+  well-known default value and any secret shorter than 32 bytes, and `docker-compose.yml`
+  ships no default value.
 - **Acceptance / evidence:** Tests cover signature verification, tamper rejection, expiry,
-  single-use/replay rejection, and incident binding. See
+  single-use/replay rejection, incident binding, and secret-strength validation. See
   `src/kaval/actions/approvals.py`, `src/kaval/executor/server.py`,
   `tests/security/test_executor_security.py`, and
   `tests/security/test_security_audit_boundaries.py`.
@@ -82,6 +86,13 @@ basis for the admin-surface controls in Area 6 and is recorded in
   `tests/security/test_credential_request_security.py`,
   `tests/security/test_vault_management_security.py`, and the backup-export sensitivity
   warning in Area 6.
+- **Outbound egress control:** the model connectivity test
+  (`POST /api/v1/settings/models/test`) must not become a credential-exfiltration or SSRF
+  primitive. Per [ADR-021](adr/021-outbound-egress-policy.md), a shared egress guard
+  (`src/kaval/api/egress.py`) rejects test destinations that resolve to loopback,
+  link-local, private, unique-local, or cloud-metadata addresses unless the operator opts in
+  via `KAVAL_ALLOW_PRIVATE_MODEL_EGRESS=true`, and a stored (vault-backed) secret is replayed
+  only when the test `base_url` matches the currently-active endpoint.
 
 ### Area 4 — Executor isolation (P4-25)
 
@@ -108,22 +119,28 @@ basis for the admin-surface controls in Area 6 and is recorded in
 ### Area 6 — Admin API exposure (P4-27, P4-04, P4-05)
 
 - **Threat:** Sensitive admin/config/backup endpoints are reachable by an untrusted party,
-  or a backup export silently exfiltrates secrets.
+  a backup export silently exfiltrates secrets, or a restore replaces the whole datastore.
 - **Required control:**
-  - The admin surface (settings/config, backup, restore) is governed by the single-admin /
+  - The general admin surface (settings/config) is governed by the single-admin /
     local-network model in [ADR-019](adr/019-admin-api-exposure-model.md).
-  - When `KAVAL_ADMIN_API_KEY` is configured, admin/backup/restore endpoints require the
-    key (`X-Kaval-Admin-Key` or `Authorization: Bearer`). This mirrors the existing widget
-    auth pattern and uses constant-time comparison.
+  - **Backup and restore are default-deny** per
+    [ADR-020](adr/020-backup-restore-default-deny.md): `GET /api/v1/admin/backup` and
+    `POST /api/v1/admin/restore` are served only when `KAVAL_ADMIN_API_KEY` is configured and
+    correctly presented (`X-Kaval-Admin-Key` or `Authorization: Bearer`, constant-time
+    comparison) **or** the credential vault is currently unlocked. Otherwise both return
+    `403` with a remediation message.
   - `GET /api/v1/admin/backup` returns the data archive together with an explicit
     **sensitivity warning** stating the archive may contain secret material and must be
     stored securely.
-  - `POST /api/v1/admin/restore` accepts only a Kaval-produced archive and validates its
-    shape before applying it.
+  - `POST /api/v1/admin/restore` accepts only a Kaval-produced archive, caps each archive
+    member's decompressed size, validates the candidate database with a SQLite
+    `PRAGMA integrity_check` in a staging location, snapshots the prior `kaval.db`/`kaval.yaml`,
+    and atomically swaps the validated files into place.
 - **Acceptance / evidence:** `src/kaval/api/admin_backup.py`,
   `tests/security/test_admin_api_security.py`,
-  `tests/integration/test_admin_backup_restore.py`, and
-  [ADR-019](adr/019-admin-api-exposure-model.md).
+  `tests/integration/test_admin_backup_restore.py`,
+  [ADR-019](adr/019-admin-api-exposure-model.md), and
+  [ADR-020](adr/020-backup-restore-default-deny.md).
 
 ### Area 7 — Adapter safety (P4-28)
 
@@ -147,7 +164,9 @@ basis for the admin-surface controls in Area 6 and is recorded in
 
 - **Threat:** A third-party Python dependency carries a known CVE.
 - **Required control:** Direct dependencies are reviewed against known-vulnerability data;
-  findings are remediated or explicitly accepted, and the review is recorded.
+  findings are remediated or explicitly accepted, and the review is recorded. Per CR-0005,
+  the `cryptography` floor is `>=46.0.7,<47` to exclude `CVE-2026-26007` / `PYSEC-2026-35` /
+  `PYSEC-2026-36`.
 - **Acceptance / evidence:** [`docs/security/dependency-audit.md`](security/dependency-audit.md),
   refreshed at each release.
 
