@@ -99,6 +99,14 @@ Validate against the live repo before editing and keep scope narrow for the acti
 
 ### Workstream 5: Security Audit
 
+> Audited contract: [`docs/security_requirements.md`](../docs/security_requirements.md)
+> baselines areas P4-22…P4-31 (threat → required control → acceptance/evidence). The
+> admin-exposure model is recorded in
+> [`docs/adr/019-admin-api-exposure-model.md`](../docs/adr/019-admin-api-exposure-model.md)
+> and the dependency review in
+> [`docs/security/dependency-audit.md`](../docs/security/dependency-audit.md). See
+> [`CR-0004`](../docs/change_requests/CR-0004-security-audit-hardening.md).
+
 - P4-22 LLM confinement audit: verify LLM has no action tools, proposals are data only, execution path is deterministic
 - P4-23 Approval token integrity: HMAC validation, single-use, time-limited, incident-bound, replay protection
 - P4-24 Credential handling audit: secrets never in logs/prompts/UI, vault encryption, volatile mode, two-level redaction

@@ -86,6 +86,7 @@ The current Phase 4 work is intentionally limited to private packaging for self-
 ## Documentation
 
 - Product and architecture contract: [`docs/prd.md`](docs/prd.md)
+- Security model and audit requirements: [`docs/security_requirements.md`](docs/security_requirements.md)
 - Phase 3/4 requirements source: [`docs/phase3_4_requirements_expansion.md`](docs/phase3_4_requirements_expansion.md)
 - Completed Phase 3C execution contract: [`plans/phase-3c.md`](plans/phase-3c.md)
 - Completed Phase 3B execution contract: [`plans/phase-3b.md`](plans/phase-3b.md)
@@ -95,5 +96,8 @@ The current Phase 4 work is intentionally limited to private packaging for self-
 - Completed monitoring phase plan: [`plans/phase-1.md`](plans/phase-1.md)
 - Running project state: [`STATUS.md`](STATUS.md)
 - Approved runtime change: [`docs/change_requests/CR-0002-single-container-process-isolation.md`](docs/change_requests/CR-0002-single-container-process-isolation.md)
+- Security audit hardening change: [`docs/change_requests/CR-0004-security-audit-hardening.md`](docs/change_requests/CR-0004-security-audit-hardening.md)
+- Admin API exposure decision: [`docs/adr/019-admin-api-exposure-model.md`](docs/adr/019-admin-api-exposure-model.md)
+- Dependency audit artifact: [`docs/security/dependency-audit.md`](docs/security/dependency-audit.md)
 - Accepted runtime ADR: [`docs/adr/014-single-container-with-internal-process.md`](docs/adr/014-single-container-with-internal-process.md)
 - Architecture decisions: [`docs/adr/`](docs/adr/)

@@ -24,6 +24,11 @@
 - [x] Operational Memory query/result schema
 
 ## Completed work
+- 2026-05-31: Applied CR-0004 security audit hardening (documentation + code).
+- Goal: baseline the Phase 4 Workstream 5 security audit (P4-22..P4-31) as a single audited contract, add the missing security-sensitive backup/restore admin surface (P4-04/P4-05), and make the admin-API exposure model explicit and tested (P4-27) without weakening any existing control.
+- Files changed: `docs/security_requirements.md` (new), `docs/change_requests/CR-0004-security-audit-hardening.md` (new), `docs/adr/019-admin-api-exposure-model.md` (new), `docs/security/dependency-audit.md` (new), `src/kaval/api/admin_backup.py` (new), `src/kaval/api/app.py`, `tests/security/`, `tests/integration/`, `README.md`, `plans/phase-4.md`, `STATUS.md`.
+- Decisions: `docs/security_requirements.md` is the authoritative security contract until the v5 PRD roll-up; the admin surface keeps the single-admin/local-network default and adds an optional `KAVAL_ADMIN_API_KEY` guard (enforced only when configured); backup exports carry a sensitivity warning.
+- Failures/blockers: none at the control-doc level.
 - 2026-04-09: Blocked on completing the P4-06 private-packaging tranche validation.
 - Goal: validate the private Unraid packaging updates against the Phase 4 command set without widening scope into unrelated feature or infrastructure work.
 - Attempted: ran `git diff --check`; XML/YAML parse checks for `deployment/unraid/kaval.xml`, `docker-compose.yml`, `.github/workflows/private-image.yml`, and `deployment/unraid/kaval.yaml.example`; `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/ruff check .`; `PYTHONPATH=.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/mypy src`; `cd src/web && npm run build`; `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/contract`; `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/scenario`; `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/security`; and `PYTHONPATH=src:.pkg/local/lib/python3.12/dist-packages .pkg/local/bin/python -m pytest tests/unit tests/integration`.
